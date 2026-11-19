@@ -35,7 +35,7 @@ Then open <http://127.0.0.1:5178/>. Add `?nosw` while developing so the service 
 ## Tests
 
 ```bash
-cd app/web && node --test tests/
+cd app/web && node --test tests/*.test.mjs
 ```
 
 ## Install on an Android tablet

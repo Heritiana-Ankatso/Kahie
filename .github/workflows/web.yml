@@ -17,4 +17,4 @@ jobs:
         run: for f in app/web/src/*.js app/web/sw.js; do node --check "$f"; done
       - name: Unit tests
         working-directory: app/web
-        run: node --test tests/
+        run: node --test tests/*.test.mjs
