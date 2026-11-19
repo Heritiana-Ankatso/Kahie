@@ -19,3 +19,4 @@ An ADR records one significant architectural decision: context, decision, conseq
 | [0004](0004-construction-graph.md) | Geometry stored as a construction dependency graph | Proposed | — |
 | [0005](0005-llm-as-tool-orchestrator.md) | Language model as tool orchestrator, never as calculator | Proposed | P0-08 |
 | [0006](0006-pluggable-adapters.md) | All external services and buy/build engines behind interfaces | Proposed | — |
+| [0007](0007-web-pwa-first-release.md) | Ship a web (PWA) release first; native stays the long-term track | Proposed | Pilot feedback |
