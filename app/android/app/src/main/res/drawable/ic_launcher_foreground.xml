@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same artwork as app/web/icons/maskable.svg, inside the 108dp adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="512" android:viewportHeight="512">
+    <group android:translateX="102" android:translateY="102" android:scaleX="0.6" android:scaleY="0.6">
+        <path android:fillColor="#FDFCF8" android:pathData="M142,96h228a22,22 0 0,1 22,22v276a22,22 0 0,1 -22,22h-228a22,22 0 0,1 -22,-22v-276a22,22 0 0,1 22,-22z"/>
+        <path android:fillColor="#D9E2F7" android:pathData="M120,118a22,22 0 0,1 22,-22h22v320h-22a22,22 0 0,1 -22,-22z"/>
+        <path android:strokeColor="#C9D8F0" android:strokeWidth="6" android:pathData="M190,176h170M190,236h170M190,296h170M190,356h170"/>
+        <path android:strokeColor="#D1495B" android:strokeWidth="16" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M196,300c26,-70 52,-120 78,-120s32,70 54,70 24,-40 34,-60"/>
+    </group>
+</vector>

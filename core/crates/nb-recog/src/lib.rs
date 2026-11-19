@@ -2,22 +2,38 @@
 //! interpretation. Raw ink is never modified (ADR-0003). Port of `app/web/src/shapes.js`.
 
 use nb_ink::{dist, dist_to_segment, path_length, simplify, Point};
+use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 
 const DEG: f64 = PI / 180.0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ShapeLabel {
     Circle,
     Rectangle,
     Triangle,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Shape {
-    Line { a: Point, b: Point },
-    Polygon { points: Vec<Point>, closed: bool, label: Option<ShapeLabel> },
-    Ellipse { cx: f64, cy: f64, rx: f64, ry: f64, angle: f64, label: Option<ShapeLabel> },
+    Line {
+        a: Point,
+        b: Point,
+    },
+    Polygon {
+        points: Vec<Point>,
+        closed: bool,
+        label: Option<ShapeLabel>,
+    },
+    Ellipse {
+        cx: f64,
+        cy: f64,
+        rx: f64,
+        ry: f64,
+        angle: f64,
+        label: Option<ShapeLabel>,
+    },
 }
 
 impl Shape {
@@ -41,7 +57,9 @@ impl Shape {
                 }
                 v
             }
-            Shape::Ellipse { cx, cy, rx, ry, angle, .. } => (0..=64)
+            Shape::Ellipse {
+                cx, cy, rx, ry, angle, ..
+            } => (0..=64)
                 .map(|i| {
                     let t = (i as f64 / 64.0) * 2.0 * PI;
                     let (c, s) = (angle.cos(), angle.sin());
@@ -95,7 +113,11 @@ pub fn recognize(points: &[Point]) -> Option<Shape> {
     if !closed {
         let poly = corners(&pts, l);
         if (3..=4).contains(&poly.len()) && fits_polyline(&pts, &poly, l) {
-            return Some(Shape::Polygon { points: poly, closed: false, label: None });
+            return Some(Shape::Polygon {
+                points: poly,
+                closed: false,
+                label: None,
+            });
         }
         return None;
     }
@@ -137,7 +159,11 @@ fn corners(pts: &[Point], l: f64) -> Vec<Point> {
 fn fits_polyline(pts: &[Point], poly: &[Point], l: f64) -> bool {
     let total: f64 = pts
         .iter()
-        .map(|p| poly.windows(2).map(|w| dist_to_segment(*p, w[0], w[1])).fold(f64::INFINITY, f64::min))
+        .map(|p| {
+            poly.windows(2)
+                .map(|w| dist_to_segment(*p, w[0], w[1]))
+                .fold(f64::INFINITY, f64::min)
+        })
         .sum();
     total / (pts.len() as f64) < (0.025 * l).max(3.0)
 }
@@ -151,7 +177,10 @@ fn snap_line(a: Point, b: Point) -> Shape {
         if (ang - target).abs() < 5.0 * DEG {
             let (mx, my) = ((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
             let (hx, hy) = (target.cos() * len / 2.0, target.sin() * len / 2.0);
-            return Shape::Line { a: Point::xy(mx - hx, my - hy), b: Point::xy(mx + hx, my + hy) };
+            return Shape::Line {
+                a: Point::xy(mx - hx, my - hy),
+                b: Point::xy(mx + hx, my + hy),
+            };
         }
     }
     Shape::Line { a, b }
@@ -165,11 +194,20 @@ fn angle_at(a: Point, b: Point, c: Point) -> f64 {
 }
 
 fn tidy_polygon(poly: Vec<Point>) -> Shape {
-    if poly.len() == 4 && (0..4).all(|i| (angle_at(poly[(i + 3) % 4], poly[i], poly[(i + 1) % 4]) - 90.0).abs() < 18.0) {
-        return Shape::Polygon { points: best_rect(&poly), closed: true, label: Some(ShapeLabel::Rectangle) };
+    if poly.len() == 4 && (0..4).all(|i| (angle_at(poly[(i + 3) % 4], poly[i], poly[(i + 1) % 4]) - 90.0).abs() < 18.0)
+    {
+        return Shape::Polygon {
+            points: best_rect(&poly),
+            closed: true,
+            label: Some(ShapeLabel::Rectangle),
+        };
     }
     let label = (poly.len() == 3).then_some(ShapeLabel::Triangle);
-    Shape::Polygon { points: poly, closed: true, label }
+    Shape::Polygon {
+        points: poly,
+        closed: true,
+        label,
+    }
 }
 
 /// Rectangle through the corners' centroid, oriented by the first edge,
@@ -191,7 +229,12 @@ fn best_rect(poly: &[Point]) -> Vec<Point> {
     }
     hw /= 4.0;
     hh /= 4.0;
-    let pt = |sx: f64, sy: f64| Point::xy(cx + ux.0 * hw * sx + uy.0 * hh * sy, cy + ux.1 * hw * sx + uy.1 * hh * sy);
+    let pt = |sx: f64, sy: f64| {
+        Point::xy(
+            cx + ux.0 * hw * sx + uy.0 * hh * sy,
+            cy + ux.1 * hw * sx + uy.1 * hh * sy,
+        )
+    };
     vec![pt(-1.0, -1.0), pt(1.0, -1.0), pt(1.0, 1.0), pt(-1.0, 1.0)]
 }
 
@@ -233,13 +276,33 @@ fn fit_ellipse(pts: &[Point]) -> Option<(Shape, f64)> {
     }
     if rx / ry < 1.15 {
         let r = (rx + ry) / 2.0;
-        return Some((Shape::Ellipse { cx, cy, rx: r, ry: r, angle: 0.0, label: Some(ShapeLabel::Circle) }, err));
+        return Some((
+            Shape::Ellipse {
+                cx,
+                cy,
+                rx: r,
+                ry: r,
+                angle: 0.0,
+                label: Some(ShapeLabel::Circle),
+            },
+            err,
+        ));
     }
     let q = (angle / (90.0 * DEG)).round() * 90.0 * DEG;
     if (angle - q).abs() < 8.0 * DEG {
         angle = q;
     }
-    Some((Shape::Ellipse { cx, cy, rx, ry, angle, label: None }, err))
+    Some((
+        Shape::Ellipse {
+            cx,
+            cy,
+            rx,
+            ry,
+            angle,
+            label: None,
+        },
+        err,
+    ))
 }
 
 #[cfg(test)]
@@ -268,10 +331,12 @@ mod tests {
     }
 
     fn ring(rx: f64, ry: f64) -> Vec<(f64, f64)> {
-        (0..80).map(|i| {
-            let a = i as f64 / 79.0 * 2.0 * PI;
-            (100.0 + rx * a.cos(), 100.0 + ry * a.sin())
-        }).collect()
+        (0..80)
+            .map(|i| {
+                let a = i as f64 / 79.0 * 2.0 * PI;
+                (100.0 + rx * a.cos(), 100.0 + ry * a.sin())
+            })
+            .collect()
     }
 
     #[test]
@@ -287,26 +352,38 @@ mod tests {
         let c = recognize(&jitter(&ring(60.0, 60.0), 1.5)).unwrap();
         assert_eq!(c.label(), Some(ShapeLabel::Circle));
         match recognize(&jitter(&ring(100.0, 40.0), 1.5)).unwrap() {
-            Shape::Ellipse { rx, ry, label: None, .. } => assert!((rx - 100.0).abs() < 12.0 && (ry - 40.0).abs() < 8.0),
+            Shape::Ellipse {
+                rx, ry, label: None, ..
+            } => assert!((rx - 100.0).abs() < 12.0 && (ry - 40.0).abs() < 8.0),
             other => panic!("expected ellipse, got {other:?}"),
         }
     }
 
     #[test]
     fn rectangle_and_triangle() {
-        let r = recognize(&jitter(&along(&[(0.0, 0.0), (200.0, 2.0), (198.0, 120.0), (-2.0, 118.0), (0.0, 3.0)]), 1.5)).unwrap();
+        let r = recognize(&jitter(
+            &along(&[(0.0, 0.0), (200.0, 2.0), (198.0, 120.0), (-2.0, 118.0), (0.0, 3.0)]),
+            1.5,
+        ))
+        .unwrap();
         assert_eq!(r.label(), Some(ShapeLabel::Rectangle));
         if let Shape::Polygon { points, .. } = &r {
             assert!((points[0].y - points[1].y).abs() < 1e-6);
         }
         assert_eq!(r.points().len(), 5, "closed polygon repeats first point");
-        let t = recognize(&jitter(&along(&[(0.0, 0.0), (150.0, 0.0), (75.0, 120.0), (1.0, 2.0)]), 1.5)).unwrap();
+        let t = recognize(&jitter(
+            &along(&[(0.0, 0.0), (150.0, 0.0), (75.0, 120.0), (1.0, 2.0)]),
+            1.5,
+        ))
+        .unwrap();
         assert_eq!(t.label(), Some(ShapeLabel::Triangle));
     }
 
     #[test]
     fn scribble_is_not_a_shape() {
-        let pts: Vec<Point> = (0..120).map(|i| Point::xy(i as f64 * 3.0, 40.0 * (i as f64 / 3.0).sin() + (i % 7) as f64 * 5.0)).collect();
+        let pts: Vec<Point> = (0..120)
+            .map(|i| Point::xy(i as f64 * 3.0, 40.0 * (i as f64 / 3.0).sin() + (i % 7) as f64 * 5.0))
+            .collect();
         assert_eq!(recognize(&pts), None);
     }
 }

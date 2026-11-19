@@ -1,12 +1,22 @@
 [workspace]
 resolver = "2"
-members = ["crates/nb-ink", "crates/nb-recog", "crates/nb-math", "crates/nb-model"]
+members = ["crates/nb-ink", "crates/nb-recog", "crates/nb-math", "crates/nb-model", "crates/nb-ffi"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "UNLICENSED"
 publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+# UniFFI reads its metadata symbols from the library, so keep symbols.
+strip = "debuginfo"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

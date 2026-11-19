@@ -1,8 +1,10 @@
 //! Ink geometry: smoothing, simplification, variable-width outlines, hit testing.
 //! Port of `app/web/src/ink.js`; points are in page coordinates.
 
+use serde::{Deserialize, Serialize};
+
 /// One sampled stylus point. `p` is pressure in 0..=1 (0.5 when unknown).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -29,7 +31,11 @@ pub fn path_length(pts: &[Point]) -> f64 {
 pub fn dist_to_segment(p: Point, a: Point, b: Point) -> f64 {
     let (dx, dy) = (b.x - a.x, b.y - a.y);
     let len2 = dx * dx + dy * dy;
-    let t = if len2 > 0.0 { (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+    let t = if len2 > 0.0 {
+        (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     (p.x - (a.x + t * dx)).hypot(p.y - (a.y + t * dy))
 }
 
@@ -123,7 +129,11 @@ pub fn outline(pts: &[Point], width: f64, pressure_sensitive: bool) -> Vec<Point
         left.push(Point::xy(pts[i].x - dy * r, pts[i].y + dx * r));
         right.push(Point::xy(pts[i].x + dy * r, pts[i].y - dx * r));
     }
-    let cap_end = cap(pts[n - 1], pts[n - 2], radius_at(width, pts[n - 1].p, pressure_sensitive));
+    let cap_end = cap(
+        pts[n - 1],
+        pts[n - 2],
+        radius_at(width, pts[n - 1].p, pressure_sensitive),
+    );
     let cap_start = cap(pts[0], pts[1], radius_at(width, pts[0].p, pressure_sensitive));
     right.reverse();
     let mut out = left;
@@ -175,7 +185,9 @@ mod tests {
     use super::*;
 
     fn wave() -> Vec<Point> {
-        (0..50).map(|i| Point::xy(i as f64 * 2.0, (i as f64 / 5.0).sin() * 10.0)).collect()
+        (0..50)
+            .map(|i| Point::xy(i as f64 * 2.0, (i as f64 / 5.0).sin() * 10.0))
+            .collect()
     }
 
     #[test]
@@ -200,8 +212,18 @@ mod tests {
         let pts = wave();
         assert!(hit_polyline(&pts, Point::xy(20.0, 2f64.sin() * 10.0 + 1.0), 2.0));
         assert!(!hit_polyline(&pts, Point::xy(20.0, 50.0), 2.0));
-        assert!(segment_hits_polyline(&pts, Point::xy(20.0, -30.0), Point::xy(20.0, 30.0), 1.0));
-        assert!(!segment_hits_polyline(&pts, Point::xy(-30.0, -30.0), Point::xy(-20.0, 30.0), 1.0));
+        assert!(segment_hits_polyline(
+            &pts,
+            Point::xy(20.0, -30.0),
+            Point::xy(20.0, 30.0),
+            1.0
+        ));
+        assert!(!segment_hits_polyline(
+            &pts,
+            Point::xy(-30.0, -30.0),
+            Point::xy(-20.0, 30.0),
+            1.0
+        ));
     }
 
     #[test]

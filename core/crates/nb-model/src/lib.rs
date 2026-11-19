@@ -3,23 +3,25 @@
 
 use nb_ink::Point;
 use nb_recog::Shape;
+use serde::{Deserialize, Serialize};
 
 pub type Id = String;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Tool {
     Pen,
     Highlighter,
 }
 
 /// A recognised shape attached to a stroke; `show` toggles it against the raw ink (ADR-0003).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Interp {
     pub shape: Shape,
     pub show: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Stroke {
     pub tool: Tool,
     pub color: u32,
@@ -28,7 +30,7 @@ pub struct Stroke {
     pub interp: Option<Interp>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Rect {
     pub x: f64,
     pub y: f64,
@@ -45,16 +47,37 @@ impl Rect {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum Content {
     Stroke(Stroke),
-    Text { rect: Rect, text: String, size: f64, color: u32 },
-    Math { rect: Rect, latex: String, size: f64, color: u32 },
-    Plot { rect: Rect, exprs: Vec<String>, x0: f64, x1: f64, y0: f64, y1: f64 },
-    Image { rect: Rect, asset: Id },
+    Text {
+        rect: Rect,
+        text: String,
+        size: f64,
+        color: u32,
+    },
+    Math {
+        rect: Rect,
+        latex: String,
+        size: f64,
+        color: u32,
+    },
+    Plot {
+        rect: Rect,
+        exprs: Vec<String>,
+        x0: f64,
+        x1: f64,
+        y0: f64,
+        y1: f64,
+    },
+    Image {
+        rect: Rect,
+        asset: Id,
+    },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Item {
     pub id: Id,
     pub content: Content,
@@ -69,9 +92,15 @@ impl Item {
                     _ => s.points.clone(),
                 };
                 if pts.is_empty() {
-                    return Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 };
+                    return Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        w: 0.0,
+                        h: 0.0,
+                    };
                 }
-                let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+                let (mut x0, mut y0, mut x1, mut y1) =
+                    (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
                 for p in &pts {
                     x0 = x0.min(p.x);
                     x1 = x1.max(p.x);
@@ -79,9 +108,17 @@ impl Item {
                     y1 = y1.max(p.y);
                 }
                 let r = s.width / 2.0 + 1.0;
-                Rect { x: x0 - r, y: y0 - r, w: x1 - x0 + 2.0 * r, h: y1 - y0 + 2.0 * r }
+                Rect {
+                    x: x0 - r,
+                    y: y0 - r,
+                    w: x1 - x0 + 2.0 * r,
+                    h: y1 - y0 + 2.0 * r,
+                }
             }
-            Content::Text { rect, .. } | Content::Math { rect, .. } | Content::Plot { rect, .. } | Content::Image { rect, .. } => rect.clone(),
+            Content::Text { rect, .. }
+            | Content::Math { rect, .. }
+            | Content::Plot { rect, .. }
+            | Content::Image { rect, .. } => rect.clone(),
         }
     }
 
@@ -98,7 +135,10 @@ impl Item {
                     i.shape.translate(dx, dy);
                 }
             }
-            Content::Text { rect, .. } | Content::Math { rect, .. } | Content::Plot { rect, .. } | Content::Image { rect, .. } => {
+            Content::Text { rect, .. }
+            | Content::Math { rect, .. }
+            | Content::Plot { rect, .. }
+            | Content::Image { rect, .. } => {
                 rect.x += dx;
                 rect.y += dy;
             }
@@ -107,10 +147,26 @@ impl Item {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Page {
     pub id: Id,
+    #[serde(default = "default_template")]
+    pub template: String,
     pub items: Vec<Item>,
+}
+
+fn default_template() -> String {
+    "lined".into()
+}
+
+impl Page {
+    pub fn new(id: impl Into<Id>) -> Self {
+        Self {
+            id: id.into(),
+            template: default_template(),
+            items: vec![],
+        }
+    }
 }
 
 /// Reversible operations; every op has an exact inverse.
@@ -127,7 +183,14 @@ impl Op {
         Op::Add(items.into_iter().enumerate().map(|(i, it)| (n + i, it)).collect())
     }
     pub fn remove(page: &Page, ids: &[&str]) -> Op {
-        Op::Remove(page.items.iter().enumerate().filter(|(_, it)| ids.contains(&it.id.as_str())).map(|(i, it)| (i, it.clone())).collect())
+        Op::Remove(
+            page.items
+                .iter()
+                .enumerate()
+                .filter(|(_, it)| ids.contains(&it.id.as_str()))
+                .map(|(i, it)| (i, it.clone()))
+                .collect(),
+        )
     }
     pub fn update(page: &Page, after: Vec<Item>) -> Op {
         let (mut b, mut a) = (vec![], vec![]);
@@ -143,7 +206,10 @@ impl Op {
         match self {
             Op::Add(e) => Op::Remove(e.clone()),
             Op::Remove(e) => Op::Add(e.clone()),
-            Op::Update { before, after } => Op::Update { before: after.clone(), after: before.clone() },
+            Op::Update { before, after } => Op::Update {
+                before: after.clone(),
+                after: before.clone(),
+            },
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -184,7 +250,11 @@ pub struct History {
 
 impl History {
     pub fn new(limit: usize) -> Self {
-        Self { undo: vec![], redo: vec![], limit }
+        Self {
+            undo: vec![],
+            redo: vec![],
+            limit,
+        }
     }
     pub fn apply(&mut self, page: &mut Page, op: Op) -> bool {
         if op.is_empty() {
@@ -240,9 +310,12 @@ mod tests {
 
     #[test]
     fn add_remove_update_round_trip() {
-        let mut page = Page { id: "p".into(), items: vec![] };
+        let mut page = Page::new("p");
         let mut h = History::new(500);
-        let op = Op::add(&page, vec![stroke("a", &[(0.0, 0.0), (10.0, 0.0)]), stroke("b", &[(0.0, 5.0)])]);
+        let op = Op::add(
+            &page,
+            vec![stroke("a", &[(0.0, 0.0), (10.0, 0.0)]), stroke("b", &[(0.0, 5.0)])],
+        );
         h.apply(&mut page, op);
         assert_eq!(ids(&page), ["a", "b"]);
         let op = Op::remove(&page, &["a"]);
@@ -264,9 +337,9 @@ mod tests {
 
     #[test]
     fn empty_ops_ignored_and_new_op_clears_redo() {
-        let mut page = Page { id: "p".into(), items: vec![] };
+        let mut page = Page::new("p");
         let mut h = History::new(10);
-        assert!(!h.apply(&mut page, Op::remove(&Page { id: "x".into(), items: vec![] }, &["missing"])));
+        assert!(!h.apply(&mut page, Op::remove(&Page::new("x"), &["missing"])));
         let op = Op::add(&page, vec![stroke("a", &[(0.0, 0.0)])]);
         h.apply(&mut page, op);
         h.undo(&mut page);
@@ -277,16 +350,41 @@ mod tests {
     }
 
     #[test]
+    fn page_round_trips_through_json() {
+        let mut page = Page::new("p");
+        let mut s = stroke("a", &[(0.0, 0.0), (100.0, 1.0)]);
+        if let Content::Stroke(st) = &mut s.content {
+            st.interp = nb_recog::recognize(&st.points).map(|shape| Interp { shape, show: true });
+        }
+        page.items.push(s);
+        let json = serde_json::to_string(&page).unwrap();
+        assert!(json.contains("\"type\":\"stroke\"") && json.contains("\"kind\":\"line\""));
+        assert_eq!(serde_json::from_str::<Page>(&json).unwrap(), page);
+        let old: Page = serde_json::from_str(r#"{"id":"q","items":[]}"#).unwrap();
+        assert_eq!(old.template, "lined", "missing fields get defaults");
+    }
+
+    #[test]
     fn interpretation_moves_with_raw_ink() {
         let mut s = stroke("a", &[(0.0, 0.0), (100.0, 0.0)]);
         if let Content::Stroke(st) = &mut s.content {
-            st.interp = Some(Interp { shape: Shape::Line { a: Point::xy(0.0, 0.0), b: Point::xy(100.0, 0.0) }, show: true });
+            st.interp = Some(Interp {
+                shape: Shape::Line {
+                    a: Point::xy(0.0, 0.0),
+                    b: Point::xy(100.0, 0.0),
+                },
+                show: true,
+            });
         }
         let t = s.translated(10.0, 20.0);
-        let Content::Stroke(st) = &t.content else { unreachable!() };
+        let Content::Stroke(st) = &t.content else {
+            unreachable!()
+        };
         assert_eq!((st.points[1].x, st.points[1].y), (110.0, 20.0));
         assert_eq!(st.interp.as_ref().unwrap().shape.points()[1], Point::xy(110.0, 20.0));
-        let Content::Stroke(orig) = &s.content else { unreachable!() };
+        let Content::Stroke(orig) = &s.content else {
+            unreachable!()
+        };
         assert_eq!(orig.points[1].x, 100.0, "original untouched");
     }
 }

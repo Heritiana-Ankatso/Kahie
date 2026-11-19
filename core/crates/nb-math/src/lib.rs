@@ -15,27 +15,77 @@ pub enum Expr {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Func {
-    Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Exp, Ln, Log, Sqrt, Abs, Floor, Ceil, Sign, Cbrt,
+    Sin,
+    Cos,
+    Tan,
+    Asin,
+    Acos,
+    Atan,
+    Sinh,
+    Cosh,
+    Tanh,
+    Exp,
+    Ln,
+    Log,
+    Sqrt,
+    Abs,
+    Floor,
+    Ceil,
+    Sign,
+    Cbrt,
 }
 
 const FUNCS: &[(&str, Func)] = &[
-    ("arcsin", Func::Asin), ("arccos", Func::Acos), ("arctan", Func::Atan),
-    ("asin", Func::Asin), ("acos", Func::Acos), ("atan", Func::Atan),
-    ("sinh", Func::Sinh), ("cosh", Func::Cosh), ("tanh", Func::Tanh),
-    ("floor", Func::Floor), ("ceil", Func::Ceil), ("sign", Func::Sign), ("cbrt", Func::Cbrt),
-    ("sqrt", Func::Sqrt), ("sin", Func::Sin), ("cos", Func::Cos), ("tan", Func::Tan),
-    ("exp", Func::Exp), ("abs", Func::Abs), ("log", Func::Log), ("ln", Func::Ln),
+    ("arcsin", Func::Asin),
+    ("arccos", Func::Acos),
+    ("arctan", Func::Atan),
+    ("asin", Func::Asin),
+    ("acos", Func::Acos),
+    ("atan", Func::Atan),
+    ("sinh", Func::Sinh),
+    ("cosh", Func::Cosh),
+    ("tanh", Func::Tanh),
+    ("floor", Func::Floor),
+    ("ceil", Func::Ceil),
+    ("sign", Func::Sign),
+    ("cbrt", Func::Cbrt),
+    ("sqrt", Func::Sqrt),
+    ("sin", Func::Sin),
+    ("cos", Func::Cos),
+    ("tan", Func::Tan),
+    ("exp", Func::Exp),
+    ("abs", Func::Abs),
+    ("log", Func::Log),
+    ("ln", Func::Ln),
 ];
 
 impl Func {
     fn apply(self, v: f64) -> f64 {
         match self {
-            Func::Sin => v.sin(), Func::Cos => v.cos(), Func::Tan => v.tan(),
-            Func::Asin => v.asin(), Func::Acos => v.acos(), Func::Atan => v.atan(),
-            Func::Sinh => v.sinh(), Func::Cosh => v.cosh(), Func::Tanh => v.tanh(),
-            Func::Exp => v.exp(), Func::Ln => v.ln(), Func::Log => v.log10(), Func::Sqrt => v.sqrt(),
-            Func::Abs => v.abs(), Func::Floor => v.floor(), Func::Ceil => v.ceil(),
-            Func::Sign => if v == 0.0 { 0.0 } else { v.signum() }, Func::Cbrt => v.cbrt(),
+            Func::Sin => v.sin(),
+            Func::Cos => v.cos(),
+            Func::Tan => v.tan(),
+            Func::Asin => v.asin(),
+            Func::Acos => v.acos(),
+            Func::Atan => v.atan(),
+            Func::Sinh => v.sinh(),
+            Func::Cosh => v.cosh(),
+            Func::Tanh => v.tanh(),
+            Func::Exp => v.exp(),
+            Func::Ln => v.ln(),
+            Func::Log => v.log10(),
+            Func::Sqrt => v.sqrt(),
+            Func::Abs => v.abs(),
+            Func::Floor => v.floor(),
+            Func::Ceil => v.ceil(),
+            Func::Sign => {
+                if v == 0.0 {
+                    0.0
+                } else {
+                    v.signum()
+                }
+            }
+            Func::Cbrt => v.cbrt(),
         }
     }
 }
@@ -158,7 +208,10 @@ impl Parser {
         self.peek() == Some(&Tok::Op(c))
     }
     fn starts_atom(&self) -> bool {
-        matches!(self.peek(), Some(Tok::Num(_) | Tok::X | Tok::Const(_) | Tok::Fn(_) | Tok::Op('(')))
+        matches!(
+            self.peek(),
+            Some(Tok::Num(_) | Tok::X | Tok::Const(_) | Tok::Fn(_) | Tok::Op('('))
+        )
     }
     fn expr(&mut self) -> Result<Expr, ParseError> {
         let mut node = self.term()?;
@@ -203,7 +256,9 @@ impl Parser {
         Ok(base)
     }
     fn atom(&mut self) -> Result<Expr, ParseError> {
-        let Some(tok) = self.toks.get(self.k).cloned() else { return err("unexpected end") };
+        let Some(tok) = self.toks.get(self.k).cloned() else {
+            return err("unexpected end");
+        };
         self.k += 1;
         match tok {
             Tok::Num(v) | Tok::Const(v) => Ok(Expr::Num(v)),
@@ -255,14 +310,21 @@ pub fn parse(src: &str) -> Result<Expr, ParseError> {
         Some((lhs, rhs)) => {
             let l: String = lhs.chars().filter(|c| !c.is_whitespace()).collect();
             let is_fx = l.len() == 4 && l.ends_with("(x)") && l.chars().next().is_some_and(|c| c.is_ascii_alphabetic());
-            if l == "y" || is_fx { rhs } else { return err("unexpected =") }
+            if l == "y" || is_fx {
+                rhs
+            } else {
+                return err("unexpected =");
+            }
         }
         None => s,
     };
     if body.trim().is_empty() {
         return err("empty expression");
     }
-    let mut p = Parser { toks: tokenize(body)?, k: 0 };
+    let mut p = Parser {
+        toks: tokenize(body)?,
+        k: 0,
+    };
     let tree = p.expr()?;
     if p.k < p.toks.len() {
         return err(format!("unexpected {:?}", p.toks[p.k]));
@@ -323,7 +385,15 @@ pub fn tick_step(span: f64, target: f64) -> f64 {
     let raw = span / target;
     let p = 10f64.powf(raw.log10().floor());
     let m = raw / p;
-    (if m < 1.5 { 1.0 } else if m < 3.5 { 2.0 } else if m < 7.5 { 5.0 } else { 10.0 }) * p
+    (if m < 1.5 {
+        1.0
+    } else if m < 3.5 {
+        2.0
+    } else if m < 7.5 {
+        5.0
+    } else {
+        10.0
+    }) * p
 }
 
 #[cfg(test)]
