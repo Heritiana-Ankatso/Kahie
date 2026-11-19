@@ -18,3 +18,13 @@ jobs:
       - name: Unit tests
         working-directory: app/web
         run: node --test tests/*.test.mjs
+
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust tests
+        run: cargo test --locked

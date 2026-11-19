@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["crates/nb-ink", "crates/nb-recog", "crates/nb-math", "crates/nb-model"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
