@@ -16,9 +16,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 uniffi::setup_scaffolding!();
 
+mod cas;
 mod kahie_file;
 mod notebook;
 mod sync;
+pub use cas::{cas_available, cas_eval, CasAnswer};
 pub use kahie_file::{export_kahie, import_kahie};
 pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
 pub use sync::{SyncListener, SyncSession, SyncStatus};

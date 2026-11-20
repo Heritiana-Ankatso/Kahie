@@ -23,6 +23,8 @@ import uniffi.nb_ffi.OutlineKind
 import uniffi.nb_ffi.SyncListener
 import uniffi.nb_ffi.SyncSession
 import uniffi.nb_ffi.SyncStatus
+import uniffi.nb_ffi.casAvailable
+import uniffi.nb_ffi.casEval
 import uniffi.nb_ffi.exportKahie
 import uniffi.nb_ffi.importKahie
 import uniffi.nb_ffi.PageDoc
@@ -415,10 +417,15 @@ class MainActivity : Activity() {
             gravity = Gravity.TOP
             setSelection(text.length)
         }
-        AlertDialog.Builder(this)
+        val builder = AlertDialog.Builder(this)
             .setTitle(if (existing == null) R.string.add_text else R.string.edit_text)
             .setView(input)
             .setNegativeButton(android.R.string.cancel, null)
+        if (casAvailable()) {
+            // Evaluate the last line with the CAS and append "= result" to the text.
+            builder.setNeutralButton(R.string.compute) { _, _ -> }
+        }
+        val dialog = builder
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val text = input.text.toString()
                 if (existing != null) {
@@ -431,7 +438,21 @@ class MainActivity : Activity() {
                 ink.refresh()
                 ink.onChanged()
             }
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
+                val line = input.text.toString().trimEnd().lines().lastOrNull()?.trim().orEmpty()
+                if (line.isEmpty()) return@setOnClickListener
+                io.execute {
+                    val result = runCatching { casEval(line).text }
+                    main.post {
+                        result.onSuccess { input.append("\n= $it"); input.setSelection(input.text.length) }
+                            .onFailure { toast(getString(R.string.compute_failed, it.message ?: "")) }
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun penColor(): Int = ink.penColor

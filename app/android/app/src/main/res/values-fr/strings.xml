@@ -47,4 +47,6 @@
     <string name="text_tool_hint">Touchez la page pour ajouter du texte, ou un texte pour le modifier</string>
     <string name="add_text">Ajouter du texte</string>
     <string name="edit_text">Modifier le texte (vide pour supprimer)</string>
+    <string name="compute">Calculer</string>
+    <string name="compute_failed">Calcul impossible : %1$s</string>
 </resources>

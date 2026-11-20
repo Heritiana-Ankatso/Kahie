@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Build the CAS (Giac) into the library; needs libgiac for the target (see nb-math).
+giac = ["nb-math/giac"]
+
 [lib]
 crate-type = ["cdylib", "lib"]
 name = "nb_ffi"
@@ -18,6 +22,7 @@ nb-ink = { path = "../nb-ink" }
 nb-recog = { path = "../nb-recog" }
 nb-model = { path = "../nb-model" }
 nb-store = { path = "../nb-store" }
+nb-math = { path = "../nb-math" }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 loro.workspace = true
 # Relay sync client: blocking WebSocket on a background thread, TLS via rustls + ring

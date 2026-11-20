@@ -49,4 +49,6 @@
     <string name="text_tool_hint">Tap the page to add text, or a text to edit it</string>
     <string name="add_text">Add text</string>
     <string name="edit_text">Edit text (empty to delete)</string>
+    <string name="compute">Compute</string>
+    <string name="compute_failed">Cannot compute: %1$s</string>
 </resources>
