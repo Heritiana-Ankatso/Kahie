@@ -61,6 +61,8 @@ Built from the Debian source of Giac 2.0.0.21 with `spikes/p0-07/android/prepare
 | Curriculum suite (88 tasks) | **88/88**, same results and speed as the full distribution build |
 | Stripped binary containing Giac (x86-64, `-O2`) | 21 MB, 9.0 MB gzipped (APKs store native libraries compressed) |
 
+**Android (CI `giac-android`, NDK 27, API 31, `-O2`):** builds for arm64 and x86_64. `libkahiecas.so` (shim + Giac + MPFR + GMP, static libc++, stripped) is **23.7 MB on arm64, 10.0 MB gzipped** — about what the APK grows by, since native libraries are stored compressed.
+
 So dropping PARI/NTL/GSL loses nothing on the curriculum set. Size is the remaining lever: `-Os`, `-ffunction-sections` + `--gc-sections`, and removing unused Giac modules (graphics, sound, Xcas UI code) should bring it down; the Android numbers come from the `giac-android` workflow (arm64 and x86_64).
 
 Build pitfalls found (all handled by the script/workflow): the dfsg tarball lacks `configure` and the generated parser; `AM_GNU_GETTEXT` needs `[external]` with current gettext; Bison 3 needs `%lex-param` and the `giac_yy` prefix; passing `CXXFLAGS` to `make` (instead of `configure`) silently drops `-DTIMEOUT` and breaks linking; the shim must be compiled with Giac's own defines (`HAVE_CONFIG_H`, `TIMEOUT`, `GIAC_GENERIC_CONSTANTS`, `USE_OBJET_BIDON`).

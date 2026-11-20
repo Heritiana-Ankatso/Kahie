@@ -19,7 +19,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-04 FFI spike | Done on desktop | `docs/spikes/p0-04-ffi.md`; JNA overhead on device pending |
 | P0-05 Rendering pipeline | Core done on desktop | `docs/spikes/p0-05-render.md`; Android tile cache + device fps pending |
 | P0-06 HWR benchmark | Blocked on corpus | Protocol + tool ready (P0-16) |
-| P0-07 CAS (Giac) | Done on desktop | `docs/spikes/p0-07-giac.md`: 88/88 tasks, < 1 ms; Android build + size pending |
+| P0-07 CAS (Giac) | Builds for Android (arm64 23.7 MB, 10 MB gzipped); 88/88 on desktop | `docs/spikes/p0-07-giac.md`: 88/88 tasks, < 1 ms; Android build + size pending |
 | P0-08 On-device LLM | Not started | Needs devices |
 | P0-09 Typesetting | Done on desktop | `docs/spikes/p0-09-typesetting.md`: Typst + MiTeX, 99/99 formulas; APK size reduction pending |
 | P0-10 Relay | Done on desktop | `docs/spikes/p0-10-relay.md`, `core/crates/nb-relay` |
