@@ -4,6 +4,7 @@
 
 pub mod crdt;
 pub mod inkcodec;
+pub mod notebook;
 
 /// `document.json` of a `.kahie` file (docs/format/kahie-v0.md): readable without the app.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
