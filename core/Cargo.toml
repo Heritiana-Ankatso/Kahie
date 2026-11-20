@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/nb-ink", "crates/nb-recog", "crates/nb-math", "crates/nb-model", "crates/nb-ffi", "crates/nb-store"]
+members = ["crates/nb-ink", "crates/nb-recog", "crates/nb-math", "crates/nb-model", "crates/nb-ffi", "crates/nb-store", "crates/nb-render"]
 
 [workspace.package]
 version = "0.1.0"

@@ -1003,6 +1003,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nb-render"
+version = "0.1.0"
+dependencies = [
+ "nb-ink",
+]
+
+[[package]]
 name = "nb-store"
 version = "0.1.0"
 dependencies = [

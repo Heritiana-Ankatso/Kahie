@@ -17,7 +17,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-02 Ink latency spike | Prototype only | Jetpack Ink wet layer in `app/android/.../JetpackWetInk.kt`; needs devices (P0-15) |
 | P0-03 CRDT validation | Done on desktop | `docs/spikes/p0-03-loro.md`; device run pending |
 | P0-04 FFI spike | Done on desktop | `docs/spikes/p0-04-ffi.md`; JNA overhead on device pending |
-| P0-05 Rendering pipeline | Not started | |
+| P0-05 Rendering pipeline | Core done on desktop | `docs/spikes/p0-05-render.md`; Android tile cache + device fps pending |
 | P0-06 HWR benchmark | Blocked on corpus | Protocol + tool ready (P0-16) |
 | P0-07 CAS (Giac) | Not started | Needs Giac Android build |
 | P0-08 On-device LLM | Not started | Needs devices |
@@ -44,7 +44,7 @@ CI job `android` builds the APK and uploads `kahie-debug-apk`. History of fixes:
 ## Next steps for the agent (in order)
 
 1. Get the `android` CI job green; download and inspect the APK artifact.
-2. P0-05 core side: tile display list + SVG/PDF writer prototype; 50 000-stroke benchmark.
+2. P0-05 Android side: tile cache executing nb-render display lists via FFI.
 3. Notebook-level document: section/page movable tree (Loro) + library screen in the Android app (P1-01…P1-03).
 4. P0-07: cross-compile Giac for Android arm64 in CI; `CasBackend` trait.
 5. P0-09 typesetting evaluation; P0-10 relay design.
