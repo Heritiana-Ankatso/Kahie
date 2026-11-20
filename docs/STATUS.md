@@ -19,7 +19,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-04 FFI spike | Done on desktop | `docs/spikes/p0-04-ffi.md`; JNA overhead on device pending |
 | P0-05 Rendering pipeline | Core done on desktop | `docs/spikes/p0-05-render.md`; Android tile cache + device fps pending |
 | P0-06 HWR benchmark | Blocked on corpus | Protocol + tool ready (P0-16) |
-| P0-07 CAS (Giac) | Not started | Needs Giac Android build |
+| P0-07 CAS (Giac) | Done on desktop | `docs/spikes/p0-07-giac.md`: 88/88 tasks, < 1 ms; Android build + size pending |
 | P0-08 On-device LLM | Not started | Needs devices |
 | P0-09 Typesetting | Done on desktop | `docs/spikes/p0-09-typesetting.md`: Typst + MiTeX, 99/99 formulas; APK size reduction pending |
 | P0-10 Relay | Done on desktop | `docs/spikes/p0-10-relay.md`, `core/crates/nb-relay` |
@@ -46,5 +46,5 @@ CI job `android` builds the APK and uploads `kahie-debug-apk`. History of fixes:
 1. Get the `android` CI job green; download and inspect the APK artifact.
 2. P0-05 Android side: tile cache executing nb-render display lists via FFI.
 3. Library screen with several notebooks (P1-02); section UI in the Pages dialog. (Notebook outline + Pages dialog done.)
-4. P0-07: cross-compile Giac for Android arm64 in CI; `CasBackend` trait.
+4. P0-07: cross-compile GMP/MPFR/Giac for Android arm64 in CI and measure APK size; implement `CasBackend` in nb-math.
 5. Android sync client for the relay; relay compaction and per-document access control.
