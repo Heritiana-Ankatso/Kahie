@@ -36,6 +36,8 @@ All times in milliseconds per task; context creation is negligible.
 
 - **Output format:** Giac prints lists as `list[…]` and matrices as `matrix[…]`; never re-parse printed output. Keep results as Giac values inside the core and convert to our expression tree / LaTeX (`latex(…)` is available in Giac) at the boundary.
 - **Definite integrals** print a warning on stderr ("No checks were made for singular points…"): capture Giac's log and surface it as a caveat, not an error.
+- **Lenient parser (important):** Giac silently "repairs" malformed input — `factor(x^2` returns `x^2`, `integrate(x,` returns `undef` — instead of raising an error. `nb_math::cas` therefore checks bracket balance before calling Giac and treats `undef` and Giac error strings as errors, so the user never gets a wrong answer for a typo.
+- **Implemented:** `nb_math::cas::{CasBackend, GiacCas}` behind the cargo feature `giac` (`cargo test -p nb-math --features giac` with `libgiac-dev`); calls are serialised because Giac keeps one global context.
 - **Safety:** use `protecteval` and a per-call time limit (Giac has `timeout`) so a hard request cannot freeze the app; run CAS calls off the UI thread (UniFFI async).
 - **`CasBackend` trait (draft)** for `nb-math`:
 

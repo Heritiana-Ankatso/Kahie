@@ -1340,6 +1340,9 @@ dependencies = [
 [[package]]
 name = "nb-math"
 version = "0.1.0"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "nb-model"

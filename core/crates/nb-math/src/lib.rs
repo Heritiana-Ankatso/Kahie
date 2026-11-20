@@ -2,6 +2,8 @@
 //! Grammar: expr := term (('+'|'-') term)* ; term := unary (('*'|'/'|implicit) unary)*
 //! unary := ('-'|'+') unary | power ; power := atom ('^' unary)?
 
+pub mod cas;
+
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq)]

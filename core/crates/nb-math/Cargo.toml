@@ -5,5 +5,13 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Link Giac (GPL-3) as the CAS backend. Needs libgiac + GMP (+ MPFR) for the target:
+# the system packages on Linux (libgiac-dev), or the giac-android CI build for Android.
+giac = ["dep:cc"]
+
+[build-dependencies]
+cc = { version = "1", optional = true }
+
 [lints]
 workspace = true
