@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax check
+        run: for f in app/web/src/*.js app/web/sw.js; do node --check "$f"; done
+      - name: Unit tests
+        working-directory: app/web
+        run: node --test tests/*.test.mjs
+
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust tests
+        run: cargo test --locked
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: core/Cargo.toml
+          command: check advisories bans licenses sources
+
+  # Privacy rule (conventions §7): the test suites must pass with no network at all.
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch Rust dependencies (online)
+        working-directory: core
+        run: cargo fetch --locked && cargo test --locked --no-run
+      - name: Run all tests in a network namespace with no interfaces
+        run: |
+          sudo unshare --net -- sudo -u "$USER" env "PATH=$PATH" "HOME=$HOME" bash -euo pipefail -c '
+            ! curl -sS --max-time 5 https://example.com >/dev/null 2>&1 || { echo "network is reachable"; exit 1; }
+            (cd core && cargo test --locked --offline)
+            (cd app/web && node --test tests/*.test.mjs)
+          '
