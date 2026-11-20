@@ -1,4 +1,5 @@
 use super::*;
+use loro::VersionVector;
 use nb_recog::Shape;
 
 fn stroke(id: &str, pts: &[(f64, f64)]) -> Item {
@@ -242,4 +243,79 @@ fn unsaved_changes_are_handed_out_once_and_reload_exactly() {
     let mut q = CrdtPage::load(&chunks, 2).unwrap();
     assert_eq!(q.page(), p.page());
     assert!(q.take_unsaved().is_none(), "loaded state counts as saved");
+}
+
+#[test]
+#[ignore]
+fn print_update_sizes() {
+    let mut p = CrdtPage::new("p", 1);
+    p.take_unsaved();
+    for i in 0..3 {
+        let pts: Vec<(f64, f64)> = (0..150)
+            .map(|k| (k as f64 * 0.7 + i as f64, (k as f64 * 0.1).sin() * 20.0))
+            .collect();
+        p.apply(&Op::add(p.page(), vec![stroke(&format!("s{i}"), &pts)]));
+        let u = p.take_unsaved().unwrap();
+        let ink = inkcodec::encode(&match &p.page().items[i].content {
+            Content::Stroke(s) => s.points.clone(),
+            _ => unreachable!(),
+        })
+        .len();
+        eprintln!("stroke {i}: update {} bytes, ink blob {ink} bytes", u.len());
+    }
+}
+
+#[test]
+fn sync_cursor_sends_local_changes_once_and_never_echoes_remote_ones() {
+    let mut a = CrdtPage::new("p", 1);
+    let mut relay_a = VersionVector::default();
+    let init = a.sync_outgoing(&mut relay_a).unwrap();
+    assert!(a.sync_outgoing(&mut relay_a).is_none());
+    let mut b = CrdtPage::load(&[&init], 2).unwrap();
+    let mut relay_b = b.version();
+    b.apply(&Op::add(b.page(), vec![stroke("b", &[(0.0, 0.0), (5.0, 5.0)])]));
+    let from_b = b.sync_outgoing(&mut relay_b).unwrap();
+    a.sync_incoming(&from_b, &mut relay_a).unwrap();
+    assert!(a.sync_outgoing(&mut relay_a).is_none(), "remote change not echoed back");
+    a.apply(&Op::add(a.page(), vec![stroke("a", &[(9.0, 9.0), (1.0, 1.0)])]));
+    let from_a = a.sync_outgoing(&mut relay_a).unwrap();
+    assert!(from_a.len() < from_b.len() + 400, "only the new stroke is sent");
+    b.sync_incoming(&from_a, &mut relay_b).unwrap();
+    assert_eq!(a.page(), b.page());
+    // Offline edits from an earlier session (another peer id) are still uploaded.
+    let mut a2 = CrdtPage::load(&[&a.snapshot()], 3).unwrap();
+    let mut stale = relay_a.clone();
+    a.apply(&Op::add(a.page(), vec![stroke("offline", &[(2.0, 2.0), (3.0, 3.0)])]));
+    a2.import(&a.snapshot()).unwrap();
+    assert!(a2.sync_outgoing(&mut stale).is_some());
+}
+
+#[test]
+#[ignore]
+fn profile_remote_import() {
+    let a0 = CrdtPage::new("p", 1);
+    let mut b = CrdtPage::load(&[&a0.snapshot()], 2).unwrap();
+    let mut a = CrdtPage::load(&[&a0.snapshot()], 3).unwrap();
+    let pts: Vec<(f64, f64)> = (0..150).map(|k| (k as f64, (k as f64 * 0.1).sin() * 9.0)).collect();
+    for i in 0..3000 {
+        b.apply(&Op::Add(vec![(usize::MAX, stroke(&format!("b{i}"), &pts))]));
+    }
+    a.import(&b.snapshot()).unwrap();
+    let mut t_doc = 0.0;
+    let mut t_all = 0.0;
+    for i in 0..200 {
+        b.apply(&Op::Add(vec![(usize::MAX, stroke(&format!("n{i}"), &pts))]));
+        let u = b.updates_since(&a.version());
+        let t = std::time::Instant::now();
+        a.doc.import(&u).unwrap();
+        t_doc += t.elapsed().as_secs_f64();
+        let t = std::time::Instant::now();
+        a.rebuild();
+        t_all += t.elapsed().as_secs_f64();
+    }
+    eprintln!(
+        "per import: loro import {:.3} ms, rebuild {:.3} ms",
+        t_doc * 5.0,
+        t_all * 5.0
+    );
 }

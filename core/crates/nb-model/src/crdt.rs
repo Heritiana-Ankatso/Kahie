@@ -18,10 +18,14 @@
 //! after every change; decoded ink is cached per object id because ink never changes.
 
 use crate::{inkcodec, Content, Interp, Item, Op, Page, Stroke, Tool};
-use loro::{Container, ExportMode, LoroDoc, LoroMap, LoroValue, UndoManager, ValueOrContainer, VersionVector};
+use loro::event::{Diff, DiffEvent};
+use loro::{
+    Container, ContainerTrait, ExportMode, Index, LoroDoc, LoroMap, LoroValue, Subscription, UndoManager,
+    ValueOrContainer, VersionVector,
+};
 use nb_ink::Point;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 const META: &str = "meta";
 const ORDER: &str = "order";
@@ -51,6 +55,12 @@ pub struct CrdtPage {
     ink_cache: HashMap<String, Arc<Vec<Point>>>,
     /// Version already handed out by [`CrdtPage::take_unsaved`].
     saved: VersionVector,
+    /// Decoded objects (`deleted` flag, item), kept up to date from Loro change events so a
+    /// rebuild only re-reads objects that changed.
+    objects: HashMap<String, (bool, Option<Item>)>,
+    /// Object ids changed since the last rebuild, filled by the event subscription.
+    dirty: Arc<Mutex<HashSet<String>>>,
+    _events: Subscription,
 }
 
 impl CrdtPage {
@@ -126,12 +136,38 @@ impl CrdtPage {
 
     fn wrap(doc: LoroDoc) -> Self {
         let undo = Self::undo_manager(&doc);
+        let dirty: Arc<Mutex<HashSet<String>>> = Arc::default();
+        let objects_id = doc.get_map(OBJECTS).id();
+        let d = dirty.clone();
+        let events = doc.subscribe_root(Arc::new(move |e: DiffEvent| {
+            let mut set = d.lock().unwrap();
+            for c in &e.events {
+                // A change inside one object's map. Each path entry is (container, its key in
+                // its parent), so the object id is on the entry right after `objects`.
+                for w in c.path.windows(2) {
+                    if w[0].0 == objects_id {
+                        if let Index::Key(k) = &w[1].1 {
+                            set.insert(k.to_string());
+                        }
+                    }
+                }
+                // Keys added to or removed from `objects` itself.
+                if *c.target == objects_id {
+                    if let Diff::Map(m) = &c.diff {
+                        set.extend(m.updated.keys().map(|k| k.to_string()));
+                    }
+                }
+            }
+        }));
         let mut p = Self {
             doc,
             undo,
             view: Page::new(""),
             ink_cache: HashMap::new(),
             saved: VersionVector::default(),
+            objects: HashMap::new(),
+            dirty,
+            _events: events,
         };
         p.rebuild();
         p
@@ -152,6 +188,36 @@ impl CrdtPage {
     /// Changes the holder of `since` does not have yet.
     pub fn updates_since(&self, since: &VersionVector) -> Vec<u8> {
         self.doc.export(ExportMode::updates(since)).expect("export updates")
+    }
+
+    /// Sync upload: the changes the relay does not have, given `relay` (the version known to
+    /// be on the relay, persisted by the caller). Advances `relay`. Unlike
+    /// [`CrdtPage::take_unsaved`], changes received from the relay are never sent back, while
+    /// local changes from earlier sessions (other peer ids) are.
+    pub fn sync_outgoing(&self, relay: &mut VersionVector) -> Option<Vec<u8>> {
+        let now = self.doc.oplog_vv();
+        if now.iter().all(|(peer, c)| relay.get(peer).is_some_and(|r| r >= c)) {
+            return None;
+        }
+        let bytes = self.doc.export(ExportMode::updates(relay)).expect("export updates");
+        for (peer, c) in now.iter() {
+            if relay.get(peer).is_none_or(|r| r < c) {
+                relay.insert(*peer, *c);
+            }
+        }
+        Some(bytes)
+    }
+
+    /// Sync download: import an update received from the relay and record it in `relay`.
+    pub fn sync_incoming(&mut self, bytes: &[u8], relay: &mut VersionVector) -> Result<(), ModelError> {
+        let status = self.doc.import(bytes).map_err(err)?;
+        for (peer, (_, end)) in status.success.iter() {
+            if relay.get(peer).is_none_or(|r| r < end) {
+                relay.insert(*peer, *end);
+            }
+        }
+        self.rebuild();
+        Ok(())
     }
 
     /// Merge updates or a snapshot from another replica.
@@ -408,40 +474,98 @@ impl CrdtPage {
         let meta = self.doc.get_map(META).get_value();
         let id = str_field(&meta, "id").unwrap_or_default();
         let template = str_field(&meta, "template").unwrap_or_else(|| "lined".into());
-        let LoroValue::Map(objs) = self.doc.get_map(OBJECTS).get_deep_value() else {
-            unreachable!("root map")
-        };
         let LoroValue::List(order) = self.doc.get_movable_list(ORDER).get_value() else {
             unreachable!("root list")
         };
-        // Ink blobs never change for a given id, so decode each one once.
-        for (oid, fields) in objs.iter() {
-            if !self.ink_cache.contains_key(oid) {
-                if let Some(LoroValue::Binary(b)) = field(fields, "ink") {
-                    if let Ok(p) = inkcodec::decode(b) {
-                        self.ink_cache.insert(oid.clone(), Arc::new(p));
-                    }
-                }
-            }
+        let objects = self.doc.get_map(OBJECTS);
+        let dirty: HashSet<String> = self.dirty.lock().unwrap().drain().collect();
+        for oid in &dirty {
+            self.refresh_object(&objects, oid);
         }
-        let mut seen = std::collections::HashSet::new();
+        // Unchanged items move from the previous view instead of being cloned.
+        let mut previous: HashMap<String, Item> = std::mem::take(&mut self.view.items)
+            .into_iter()
+            .map(|it| (it.id.clone(), it))
+            .collect();
+        let mut seen = HashSet::new();
         let mut items = Vec::with_capacity(order.len());
         for v in order.iter() {
             let LoroValue::String(oid) = v else { continue };
             // Concurrent restores can list an id twice; keep its first occurrence only.
-            if !seen.insert(oid.to_string()) {
+            if !seen.insert(oid.as_str()) {
                 continue;
             }
-            let Some(fields) = objs.get(oid.as_str()) else { continue };
-            if matches!(field(fields, "deleted"), Some(LoroValue::Bool(true))) {
-                continue;
+            if !dirty.contains(oid.as_str()) {
+                if let Some(item) = previous.remove(oid.as_str()) {
+                    items.push(item);
+                    continue;
+                }
             }
-            if let Some(item) = self.decode_item(oid, fields) {
-                items.push(item);
+            if !self.objects.contains_key(oid.as_str()) {
+                self.refresh_object(&objects, oid);
+            }
+            if let Some((false, Some(item))) = self.objects.get(oid.as_str()) {
+                items.push(item.clone());
             }
         }
-        self.ink_cache.retain(|k, _| objs.contains_key(k));
         self.view = Page { id, template, items };
+        #[cfg(debug_assertions)]
+        {
+            let full = self.rebuild_full();
+            debug_assert_eq!(self.view, full, "cached view diverged from the document");
+        }
+    }
+
+    /// Re-read one object from the document into the caches.
+    fn refresh_object(&mut self, objects: &LoroMap, oid: &str) {
+        let Some(m) = child_map(objects, oid) else {
+            self.objects.remove(oid);
+            self.ink_cache.remove(oid);
+            return;
+        };
+        let fields = m.get_value();
+        if !self.ink_cache.contains_key(oid) {
+            if let Some(LoroValue::Binary(b)) = field(&fields, "ink") {
+                if let Ok(p) = inkcodec::decode(b) {
+                    self.ink_cache.insert(oid.to_string(), Arc::new(p));
+                }
+            }
+        }
+        let deleted = matches!(field(&fields, "deleted"), Some(LoroValue::Bool(true)));
+        let item = self.decode_item(oid, &fields);
+        self.objects.insert(oid.to_string(), (deleted, item));
+    }
+
+    /// Reference implementation without caches (debug check of [`CrdtPage::rebuild`]).
+    #[cfg(debug_assertions)]
+    fn rebuild_full(&self) -> Page {
+        let meta = self.doc.get_map(META).get_value();
+        let LoroValue::Map(objs) = self.doc.get_map(OBJECTS).get_deep_value() else {
+            unreachable!()
+        };
+        let LoroValue::List(order) = self.doc.get_movable_list(ORDER).get_value() else {
+            unreachable!()
+        };
+        let mut seen = HashSet::new();
+        let items = order
+            .iter()
+            .filter_map(|v| match v {
+                LoroValue::String(s) if seen.insert(s.to_string()) => Some(s.to_string()),
+                _ => None,
+            })
+            .filter_map(|oid| {
+                let f = objs.get(&oid)?;
+                if matches!(field(f, "deleted"), Some(LoroValue::Bool(true))) {
+                    return None;
+                }
+                self.decode_item(&oid, f)
+            })
+            .collect();
+        Page {
+            id: str_field(&meta, "id").unwrap_or_default(),
+            template: str_field(&meta, "template").unwrap_or_else(|| "lined".into()),
+            items,
+        }
     }
 
     fn decode_item(&self, id: &str, fields: &LoroValue) -> Option<Item> {

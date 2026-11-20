@@ -22,7 +22,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-07 CAS (Giac) | Not started | Needs Giac Android build |
 | P0-08 On-device LLM | Not started | Needs devices |
 | P0-09 Typesetting | Done on desktop | `docs/spikes/p0-09-typesetting.md`: Typst + MiTeX, 99/99 formulas; APK size reduction pending |
-| P0-10 Relay cost/latency | Not started | D9 now self-hostable relay |
+| P0-10 Relay | Done on desktop | `docs/spikes/p0-10-relay.md`, `core/crates/nb-relay` |
 | P0-11 Document model v0 | Done (page level) | `nb_model::crdt`, 15 tests incl. 3-replica convergence |
 | P0-12 Storage v0 | Done | `nb-store`, 1 000-kill test, 2 000-stroke load 14 ms |
 | P0-13 `.kahie` spec | Draft done | `docs/format/` |
@@ -45,6 +45,6 @@ CI job `android` builds the APK and uploads `kahie-debug-apk`. History of fixes:
 
 1. Get the `android` CI job green; download and inspect the APK artifact.
 2. P0-05 Android side: tile cache executing nb-render display lists via FFI.
-3. Notebook-level document: section/page movable tree (Loro) + library screen in the Android app (P1-01…P1-03).
+3. Library screen with several notebooks (P1-02); section UI in the Pages dialog. (Notebook outline + Pages dialog done.)
 4. P0-07: cross-compile Giac for Android arm64 in CI; `CasBackend` trait.
-5. P0-09 typesetting evaluation; P0-10 relay design.
+5. Android sync client for the relay; relay compaction and per-document access control.

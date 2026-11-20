@@ -141,6 +141,17 @@ impl Store {
         Ok(())
     }
 
+    /// Updates with a sequence number greater than `after`, in order (relay catch-up).
+    pub fn updates_after(&self, after: i64) -> Result<Vec<(i64, Vec<u8>)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT seq, bytes FROM updates WHERE seq > ?1 ORDER BY seq")?;
+        let rows = stmt
+            .query_map(params![after], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<std::result::Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// Number of updates not yet folded into a snapshot (compaction heuristic).
     pub fn pending_updates(&self) -> Result<i64> {
         Ok(self.conn.query_row("SELECT COUNT(*) FROM updates", [], |r| r.get(0))?)
@@ -197,6 +208,7 @@ mod tests {
         s.append_update(b"u1").unwrap();
         s.append_update(b"u2").unwrap();
         assert_eq!(s.load().unwrap().updates, vec![b"u1".to_vec(), b"u2".to_vec()]);
+        assert_eq!(s.updates_after(1).unwrap(), vec![(2, b"u2".to_vec())]);
         s.compact(b"snap12").unwrap();
         assert_eq!(s.pending_updates().unwrap(), 0);
         s.append_update(b"u3").unwrap();
