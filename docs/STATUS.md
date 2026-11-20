@@ -32,7 +32,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 
 ## Android app (what exists)
 
-**Built and smoke-tested on CI with the CAS at commit `bb0719e` (run 44814143737), including z-order, copy/paste, page versions and paper sizes:** APK with Giac linked (arm64 + x86_64, 11.0 MB arm64); on the emulator the app starts, ink appears, the text dialog's Compute button gives `2^100 = 1267650600228229401496703205376` (exact, computed by Giac on the device), and maths, plot and pages open without a crash. The smoke test failed intermittently twice before (silent exit after the ink check); it now prints the failing line, native crash lines and the visible UI on any failure — read those first if it fails again.
+**Built and smoke-tested on CI with the CAS at commit `07b7d76` (run 44817442793), including z-order, copy/paste, page versions, paper sizes, SVG export and page templates:** APK with Giac linked (arm64 + x86_64, 11.0 MB arm64); on the emulator the app starts, ink appears, the text dialog's Compute button gives `2^100 = 1267650600228229401496703205376` (exact, computed by Giac on the device), and maths, plot and pages open without a crash. The smoke test failed intermittently twice before (silent exit after the ink check); it now prints the failing line, native crash lines and the visible UI on any failure — read those first if it fails again.
 
 - Ink: pen/highlighter/eraser on the Rust core, Jetpack Ink wet layer, shape snapping, batched input (`add_points`), undo/redo + two-/three-finger tap.
 - Storage: every edit saved immediately (SQLite per page, `.kpage`); legacy JSON pages migrate.
@@ -45,7 +45,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 - Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min (reloads the open page if it changed), status dot. Per-notebook access control: Share shows an editor code and a read-only code (students); read-only notebooks are view-only (`nb_store::access`, `docs/relay.md`).
 - CAS: `cas_eval` FFI + Compute button in the text dialog (only in builds with feature `giac`).
 
-## CI state (21:00 UTC 2026-11-20)
+## CI state (21:22 UTC 2026-11-20)
 
 - `ci` (web, core tests, cargo-deny, offline tests with loopback only, schema): green.
 - `giac-android` (arm64 + x86_64 matrix): **green**; publishes `giac-libs-<target>` artifacts.
