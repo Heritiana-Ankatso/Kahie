@@ -757,6 +757,27 @@ impl PageDoc {
         id
     }
 
+    /// Hash of the page background image (an imported PDF page), if any.
+    pub fn background_hash(&self) -> Option<String> {
+        self.state.lock().unwrap().doc.background()
+    }
+
+    /// Set the page background from encoded image bytes (empty clears it).
+    pub fn set_background_image(&self, bytes: Vec<u8>) {
+        use sha2::Digest;
+        let mut st = self.state.lock().unwrap();
+        if bytes.is_empty() {
+            st.doc.set_background(None);
+        } else {
+            let hash: String = sha2::Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            st.doc.set_background(Some((&hash, &bytes)));
+        }
+        st.persist();
+    }
+
     pub fn image_bytes(&self, hash: String) -> Option<Vec<u8>> {
         self.state.lock().unwrap().doc.asset(&hash)
     }

@@ -181,6 +181,18 @@ object PageRenderer {
         canvas.drawBitmap(bmp, null, android.graphics.RectF(img.x, img.y, img.x + img.width, img.y + img.height), imagePaint)
     }
 
+    /** The page background (imported PDF page), fitted to the page and centred. */
+    fun drawBackground(canvas: Canvas, d: PageDoc) {
+        val hash = d.backgroundHash() ?: return
+        val bmp = bitmap(d, hash) ?: return
+        val scale = minOf(PAGE_W / bmp.width, PAGE_H / bmp.height)
+        val w = bmp.width * scale
+        val h = bmp.height * scale
+        val l = (PAGE_W - w) / 2
+        val t = (PAGE_H - h) / 2
+        canvas.drawBitmap(bmp, null, android.graphics.RectF(l, t, l + w, t + h), imagePaint)
+    }
+
     /** All maths of a page, so an export can wait until every formula is rendered. */
     fun mathRequests(d: PageDoc): List<Triple<String, Float, Int>> =
         d.mathBlocks().map { Triple(it.latex, it.size, opaque(it.color)) }
@@ -189,6 +201,7 @@ object PageRenderer {
     fun drawPage(canvas: Canvas, d: PageDoc, math: MathRenderer?, paper: Boolean = true) {
         canvas.drawColor(Color.WHITE)
         if (paper) drawPaper(canvas, d.template(), 0.75f)
+        drawBackground(canvas, d)
         for (img in d.imageBlocks()) drawImage(canvas, d, img) // under the ink
         for (key in d.layout()) {
             val g = d.geometry(key) ?: continue

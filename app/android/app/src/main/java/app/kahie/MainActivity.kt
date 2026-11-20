@@ -67,6 +67,7 @@ class MainActivity : Activity() {
         const val REQ_EXPORT_PDF = 43
         const val REQ_EXPORT_PNG = 44
         const val REQ_IMAGE = 45
+        const val REQ_IMPORT_PDF = 46
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -274,7 +275,7 @@ class MainActivity : Activity() {
     private fun showNotebookActions() {
         val actions = arrayOf(
             getString(R.string.rename), getString(R.string.export_kahie), getString(R.string.import_kahie),
-            getString(R.string.export_pdf),
+            getString(R.string.export_pdf), getString(R.string.import_pdf),
             getString(R.string.sync_share), getString(R.string.sync_join), getString(R.string.sync_settings),
         )
         AlertDialog.Builder(this)
@@ -284,9 +285,10 @@ class MainActivity : Activity() {
                     1 -> startExport()
                     2 -> startImport()
                     3 -> startPdfExport()
-                    4 -> shareNotebook()
-                    5 -> joinNotebook()
-                    6 -> syncSettings()
+                    4 -> startPdfImport()
+                    5 -> shareNotebook()
+                    6 -> joinNotebook()
+                    7 -> syncSettings()
                 }
             }
             .show()
@@ -570,6 +572,60 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startPdfImport() {
+        val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            .setType("application/pdf")
+        startActivityForResult(intent, REQ_IMPORT_PDF)
+    }
+
+    /** Each PDF page becomes a new page with the PDF page as its background (annotate on top). */
+    private fun importPdf(uri: android.net.Uri) {
+        saveNow()
+        toast(getString(R.string.importing_pdf))
+        val after = pageIds.lastOrNull()
+        io.execute {
+            val result = runCatching {
+                val fd = contentResolver.openFileDescriptor(uri, "r") ?: error("cannot open the file")
+                fd.use {
+                    android.graphics.pdf.PdfRenderer(it).use { pdf ->
+                        var anchor = after
+                        var first: String? = null
+                        for (i in 0 until pdf.pageCount) {
+                            val bytes = pdf.openPage(i).use { page ->
+                                // 2× the page width in Kahie units, white under transparent PDFs.
+                                val w = (PageRenderer.PAGE_W * 2).toInt()
+                                val h = (w.toFloat() * page.height / page.width).toInt().coerceAtLeast(1)
+                                val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+                                bmp.eraseColor(android.graphics.Color.WHITE)
+                                page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                val out = java.io.ByteArrayOutputStream()
+                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, out)
+                                bmp.recycle()
+                                out.toByteArray()
+                            }
+                            val id = notebook.addPage(anchor)
+                            PageDoc.open(notebook.pagePath(id)).apply {
+                                setTemplate("blank")
+                                setBackgroundImage(bytes)
+                            }
+                            anchor = id
+                            if (first == null) first = id
+                        }
+                        first
+                    }
+                }
+            }
+            main.post {
+                result.onSuccess { first ->
+                    pageIds = notebook.pageIds()
+                    first?.let { goToPage(pageIds.indexOf(it)) }
+                    toast(getString(R.string.imported))
+                }.onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
+            }
+        }
+    }
+
     private fun startImport() {
         val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(android.content.Intent.CATEGORY_OPENABLE)
@@ -585,6 +641,7 @@ class MainActivity : Activity() {
         if (requestCode == REQ_EXPORT_PDF) { exportPdf(uri); return }
         if (requestCode == REQ_EXPORT_PNG) { exportPng(uri); return }
         if (requestCode == REQ_IMAGE) { insertImage(uri); return }
+        if (requestCode == REQ_IMPORT_PDF) { importPdf(uri); return }
         val dir = notebookDir ?: return
         io.execute {
             val tmp = File(cacheDir, "transfer.kahie")

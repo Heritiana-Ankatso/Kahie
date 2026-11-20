@@ -24,6 +24,10 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 
 ## Sharing and backup
 
+- **Notebooks → More → Import a PDF** adds one page per PDF page, with the PDF as the page background: write on worksheets and exam papers, then *Export PDF* to hand them back.
+- **Image** inserts a photo (resized automatically); images sit under the ink so you can annotate them.
+- **Plot** draws functions of x (one per line, e.g. `y = x^2 - 2`, `2sin(x)`) in a window you choose; tap a plot to edit it.
+- **Pages → More → Export this page (PNG)** for sharing a single page.
 - **Notebooks → More → Export PDF** writes every page as a vector A4 PDF (ink, text and formulas stay sharp).
 - **Notebooks → More → Export (.kahie)** saves the notebook as a `.kahie` file (open format: a ZIP with a readable `document.json`, see `docs/format/kahie-v0.md`). **Import** opens such a file as a new notebook.
 - **Sync between your devices** needs a relay server (see `docs/relay.md`):

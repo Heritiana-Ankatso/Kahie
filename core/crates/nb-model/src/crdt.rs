@@ -235,6 +235,29 @@ impl CrdtPage {
         }
     }
 
+    /// Page background (e.g. an imported PDF page): an asset hash drawn under everything,
+    /// not an item, so it cannot be erased or moved by accident.
+    pub fn background(&self) -> Option<String> {
+        match self.doc.get_map(META).get("background") {
+            Some(ValueOrContainer::Value(LoroValue::String(s))) if !s.is_empty() => Some(s.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Set (with its bytes) or clear the page background, as one change.
+    pub fn set_background(&mut self, asset: Option<(&str, &[u8])>) {
+        match asset {
+            Some((hash, bytes)) => {
+                self.put_asset(hash, bytes);
+                self.doc.get_map(META).insert("background", hash).expect("insert");
+            }
+            None => {
+                self.doc.get_map(META).insert("background", "").expect("insert");
+            }
+        }
+        self.doc.commit();
+    }
+
     /// Hashes of all stored assets (for export).
     pub fn asset_hashes(&self) -> Vec<String> {
         match self.doc.get_map(ASSETS).get_value() {

@@ -332,3 +332,18 @@ fn assets_are_stored_once_and_sync() {
     assert_eq!(b.asset("abc").as_deref(), Some(&b"png-bytes"[..]));
     assert!(b.asset("missing").is_none());
 }
+
+#[test]
+fn background_is_set_cleared_and_synced() {
+    let mut a = CrdtPage::new("p", 1);
+    assert!(a.background().is_none());
+    a.set_background(Some(("h1", b"jpeg")));
+    assert_eq!(a.background().as_deref(), Some("h1"));
+    assert_eq!(a.asset("h1").as_deref(), Some(&b"jpeg"[..]));
+    let b = CrdtPage::load(&[&a.snapshot()], 2).unwrap();
+    assert_eq!(b.background().as_deref(), Some("h1"));
+    assert!(a.undo());
+    assert!(a.background().is_none(), "setting a background is one undo step");
+    a.set_background(None);
+    assert!(a.background().is_none());
+}

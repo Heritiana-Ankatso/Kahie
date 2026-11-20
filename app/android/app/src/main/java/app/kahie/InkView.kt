@@ -272,6 +272,7 @@ class InkView(context: Context) : View(context) {
         canvas.drawRect(RectF(2f, 4f, pageW + 2f, pageH + 4f), shadowPaint)
         canvas.drawRect(0f, 0f, pageW, pageH, pagePaint)
         drawTemplate(canvas, doc?.template() ?: "lined")
+        doc?.let { PageRenderer.drawBackground(canvas, it) }
         val moving = dragFrom != null && selection.isNotEmpty()
         doc?.let { d ->
             for (img in images) { // under the ink, so it can be annotated

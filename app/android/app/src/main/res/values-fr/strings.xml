@@ -76,4 +76,6 @@
     <string name="edit_plot">Modifier la courbe (aucune expression pour supprimer)</string>
     <string name="plot_bad_window">Vérifiez la fenêtre : x min < x max et y min < y max</string>
     <string name="image_tool">Image</string>
+    <string name="import_pdf">Importer un PDF (pour l’annoter)</string>
+    <string name="importing_pdf">Import du PDF…</string>
 </resources>
