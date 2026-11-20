@@ -20,6 +20,8 @@ import android.widget.Toast
 import uniffi.nb_ffi.CoreException
 import uniffi.nb_ffi.NotebookDoc
 import uniffi.nb_ffi.OutlineKind
+import uniffi.nb_ffi.exportKahie
+import uniffi.nb_ffi.importKahie
 import uniffi.nb_ffi.PageDoc
 import java.io.File
 import java.util.concurrent.Executors
@@ -50,6 +52,11 @@ class MainActivity : Activity() {
     private val templates = listOf("lined", "grid", "dots", "blank")
 
     private val dp get() = resources.displayMetrics.density
+
+    private companion object {
+        const val REQ_EXPORT = 41
+        const val REQ_IMPORT = 42
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -157,6 +164,8 @@ class MainActivity : Activity() {
     private fun notebookDirs(): List<File> =
         notebooksRoot.listFiles { f -> f.isDirectory }?.sortedBy { it.name } ?: emptyList()
 
+    private var notebookDir: File? = null
+
     private fun openNotebook(dir: File, pageId: String? = null) {
         if (::notebook.isInitialized) {
             main.removeCallbacks(saveRunnable)
@@ -171,6 +180,7 @@ class MainActivity : Activity() {
             NotebookDoc.open(File(notebooksRoot, "recovered-${System.currentTimeMillis()}").path, getString(R.string.untitled))
         }
         prefs.edit().putString("notebook", dir.name).apply()
+        notebookDir = dir
         pageIds = notebook.pageIds()
         pageIndex = -1
         goToPage(pageIds.indexOf(pageId).takeIf { it >= 0 } ?: 0)
@@ -197,11 +207,73 @@ class MainActivity : Activity() {
                     notebook.setTitle(title.ifBlank { getString(R.string.untitled) })
                 }
             }
-            .setNeutralButton(R.string.rename) { _, _ ->
-                askText(R.string.rename, notebook.title()) { notebook.setTitle(it) }
-            }
+            .setNeutralButton(R.string.more) { _, _ -> showNotebookActions() }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    private fun showNotebookActions() {
+        val actions = arrayOf(getString(R.string.rename), getString(R.string.export_kahie), getString(R.string.import_kahie))
+        AlertDialog.Builder(this)
+            .setItems(actions) { _, which ->
+                when (which) {
+                    0 -> askText(R.string.rename, notebook.title()) { notebook.setTitle(it) }
+                    1 -> startExport()
+                    2 -> startImport()
+                }
+            }
+            .show()
+    }
+
+    // ---------- .kahie export / import (system file picker) ----------
+
+    private fun startExport() {
+        saveNow()
+        val name = notebook.title().ifBlank { getString(R.string.untitled) }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            .setType("application/octet-stream")
+            .putExtra(android.content.Intent.EXTRA_TITLE, "$name.kahie")
+        startActivityForResult(intent, REQ_EXPORT)
+    }
+
+    private fun startImport() {
+        val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+        startActivityForResult(intent, REQ_IMPORT)
+    }
+
+    @Deprecated("Platform Activity API; this app does not use AndroidX Activity")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data ?: return
+        if (resultCode != RESULT_OK) return
+        val dir = notebookDir ?: return
+        io.execute {
+            val tmp = File(cacheDir, "transfer.kahie")
+            val result = runCatching {
+                when (requestCode) {
+                    REQ_EXPORT -> {
+                        exportKahie(dir.path, tmp.path)
+                        contentResolver.openOutputStream(uri)!!.use { out -> tmp.inputStream().use { it.copyTo(out) } }
+                        null
+                    }
+                    REQ_IMPORT -> {
+                        contentResolver.openInputStream(uri)!!.use { inp -> tmp.outputStream().use { inp.copyTo(it) } }
+                        File(importKahie(tmp.path, notebooksRoot.path))
+                    }
+                    else -> null
+                }
+            }
+            tmp.delete()
+            main.post {
+                result.onSuccess { imported ->
+                    if (imported != null) openNotebook(imported)
+                    toast(getString(if (requestCode == REQ_EXPORT) R.string.exported else R.string.imported))
+                }.onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
+            }
+        }
     }
 
     private fun askText(title: Int, initial: String, onOk: (String) -> Unit) {

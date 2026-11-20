@@ -16,7 +16,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 uniffi::setup_scaffolding!();
 
+mod kahie_file;
 mod notebook;
+pub use kahie_file::{export_kahie, import_kahie};
 pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
 
 #[derive(Debug, uniffi::Error)]
@@ -70,8 +72,8 @@ struct Current {
     snapped: Option<Shape>,
 }
 
-struct State {
-    doc: CrdtPage,
+pub(crate) struct State {
+    pub(crate) doc: CrdtPage,
     /// Durable storage; `None` for in-memory pages.
     store: Option<Store>,
     /// First persistence error since the last successful `save`, reported by `save`.
@@ -83,7 +85,7 @@ struct State {
 
 #[derive(uniffi::Object)]
 pub struct PageDoc {
-    state: Mutex<State>,
+    pub(crate) state: Mutex<State>,
 }
 
 /// CRDT peer id for this session: must differ between devices and app runs.

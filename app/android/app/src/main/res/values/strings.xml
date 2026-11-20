@@ -29,4 +29,10 @@
     <string name="new_notebook">New notebook</string>
     <string name="rename">Rename</string>
     <string name="untitled">Untitled notebook</string>
+    <string name="more">More</string>
+    <string name="export_kahie">Export (.kahie)</string>
+    <string name="import_kahie">Import a .kahie file</string>
+    <string name="exported">Notebook exported</string>
+    <string name="imported">Notebook imported</string>
+    <string name="transfer_failed">Failed: %1$s</string>
 </resources>

@@ -33,8 +33,8 @@ pub struct OutlineEntry {
     pub depth: u32,
 }
 
-struct State {
-    nb: CrdtNotebook,
+pub(crate) struct State {
+    pub(crate) nb: CrdtNotebook,
     store: Store,
     dir: PathBuf,
     error: Option<String>,
@@ -61,7 +61,7 @@ impl State {
 
 #[derive(uniffi::Object)]
 pub struct NotebookDoc {
-    state: Mutex<State>,
+    pub(crate) state: Mutex<State>,
 }
 
 fn fmt_err(e: impl std::fmt::Display) -> CoreError {

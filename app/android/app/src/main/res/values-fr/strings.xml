@@ -27,4 +27,10 @@
     <string name="new_notebook">Nouveau cahier</string>
     <string name="rename">Renommer</string>
     <string name="untitled">Cahier sans titre</string>
+    <string name="more">Plus</string>
+    <string name="export_kahie">Exporter (.kahie)</string>
+    <string name="import_kahie">Importer un fichier .kahie</string>
+    <string name="exported">Cahier exporté</string>
+    <string name="imported">Cahier importé</string>
+    <string name="transfer_failed">Échec : %1$s</string>
 </resources>
