@@ -108,6 +108,8 @@ jobs:
           mkdir -p libs/$TARGET/include/giac
           cp $PREFIX/lib/libgiac.a $PREFIX/lib/libgmp.a $PREFIX/lib/libmpfr.a libs/$TARGET/
           cp inc/giac/*.h libs/$TARGET/include/giac/
+          # Giac's headers include gmp.h and mpfr.h.
+          cp $PREFIX/include/gmp*.h $PREFIX/include/mpfr*.h libs/$TARGET/include/
       - uses: actions/upload-artifact@v4
         if: success()
         with:
