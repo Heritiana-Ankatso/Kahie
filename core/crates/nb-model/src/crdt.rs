@@ -189,6 +189,11 @@ impl CrdtPage {
         if op.is_empty() {
             return false;
         }
+        // Adds and removes update the view in place (the common, latency-critical case:
+        // pen-up and eraser). Anything else, or an order list that does not mirror the
+        // view one-to-one (possible after concurrent restores), falls back to a rebuild.
+        let incremental =
+            matches!(op, Op::Add(_) | Op::Remove(_)) && self.doc.get_movable_list(ORDER).len() == self.view.items.len();
         match op {
             Op::Add(entries) => {
                 let mut sorted = entries.clone();
@@ -208,8 +213,40 @@ impl CrdtPage {
             }
         }
         self.doc.commit();
-        self.rebuild();
+        if incremental {
+            self.patch_view(op);
+            #[cfg(debug_assertions)]
+            {
+                let patched = self.view.clone();
+                self.rebuild();
+                debug_assert_eq!(patched, self.view, "incremental view diverged from rebuild");
+            }
+        } else {
+            self.rebuild();
+        }
         true
+    }
+
+    fn patch_view(&mut self, op: &Op) {
+        match op {
+            Op::Add(entries) => {
+                let mut sorted = entries.clone();
+                sorted.sort_by_key(|(i, _)| *i);
+                for (i, mut item) in sorted {
+                    if let Content::Stroke(s) = &mut item.content {
+                        // Same values a rebuild would decode from the stored ink.
+                        s.points = inkcodec::quantize(&s.points);
+                        self.ink_cache.insert(item.id.clone(), Arc::new(s.points.clone()));
+                    }
+                    let at = i.min(self.view.items.len());
+                    self.view.items.insert(at, item);
+                }
+            }
+            Op::Remove(entries) => {
+                self.view.items.retain(|it| !entries.iter().any(|(_, e)| e.id == it.id));
+            }
+            Op::Update { .. } => self.rebuild(),
+        }
     }
 
     /// Restore objects from the trash to the top of the page.

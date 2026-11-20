@@ -291,6 +291,25 @@ impl PageDoc {
         true
     }
 
+    /// Batched [`PageDoc::add_point`]: one call per input event (`xyp` = x0, y0, p0, x1, …).
+    /// Returns the accepted points as x, y, smoothed pressure triples, for wet-ink drawing.
+    pub fn add_points(&self, xyp: Vec<f64>) -> Vec<f32> {
+        let mut st = self.state.lock().unwrap();
+        let Some(cur) = st.current.as_mut() else { return vec![] };
+        let mut accepted = Vec::with_capacity(xyp.len());
+        for c in xyp.chunks_exact(3) {
+            let (x, y, pressure) = (c[0], c[1], c[2]);
+            let last = *cur.points.last().unwrap();
+            if (x - last.x).hypot(y - last.y) < 0.2 {
+                continue;
+            }
+            let p = Point::new(x, y, last.p * 0.6 + pressure * 0.4);
+            cur.points.push(p);
+            accepted.extend([p.x as f32, p.y as f32, p.p as f32]);
+        }
+        accepted
+    }
+
     /// Try to snap the current stroke into a shape (pen held still).
     /// Returns the preview geometry when a shape was recognised.
     pub fn snap_current(&self) -> Option<RenderItem> {
@@ -541,6 +560,24 @@ mod tests {
     }
 
     #[test]
+    fn batched_points_match_single_calls() {
+        let a = PageDoc::new_in_memory();
+        let b = PageDoc::new_in_memory();
+        let pts = circle();
+        draw(&a, &pts, false);
+        b.begin_stroke(InkTool::Pen, 0x1d1d1f, 3.0, pts[0].0, pts[0].1, 0.5);
+        let flat: Vec<f64> = pts[1..].iter().flat_map(|&(x, y)| [x, y, 0.6]).collect();
+        let accepted = b.add_points(flat);
+        assert_eq!(accepted.len() % 3, 0);
+        b.end_stroke(1.0, false);
+        assert_eq!(a.layout().len(), 1);
+        assert_eq!(
+            a.geometry(a.layout()[0].clone()).unwrap().coords,
+            b.geometry(b.layout()[0].clone()).unwrap().coords
+        );
+    }
+
+    #[test]
     fn save_and_reopen() {
         let dir = std::env::temp_dir().join(format!("kahie-ffi-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -639,6 +676,53 @@ mod tests {
         eprintln!("open + geometry of {geoms} strokes: {ms:.0} ms");
         assert_eq!(geoms, 2_000);
         assert!(ms <= 400.0, "{ms:.0} ms");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// P0-04 budget: committing a 500-point stroke ≤ 1 ms (core side, release build).
+    /// Prints in-memory and on-disk (durable, fsync) timings.
+    /// Run with `cargo test --release -p nb-ffi -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn commit_500_point_stroke_budget() {
+        let pts: Vec<(f64, f64)> = (0..500)
+            .map(|k| (k as f64 * 0.5, (k as f64 * 0.05).sin() * 40.0 + 100.0))
+            .collect();
+        let dir = std::env::temp_dir().join(format!("kahie-ffi-p004-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (label, doc) in [
+            ("in memory", PageDoc::new_in_memory()),
+            (
+                "durable (SQLite, fsync)",
+                PageDoc::open(dir.join("p.db").to_string_lossy().into()).unwrap(),
+            ),
+        ] {
+            // 200 strokes already on the page, as in a typical note.
+            for i in 0..200 {
+                let off: Vec<(f64, f64)> = pts.iter().map(|&(x, y)| (x, y + i as f64)).collect();
+                draw(&doc, &off, false);
+            }
+            let mut add = vec![];
+            let mut commit = vec![];
+            for _ in 0..50 {
+                let t = std::time::Instant::now();
+                doc.begin_stroke(InkTool::Pen, 0, 3.0, pts[0].0, pts[0].1, 0.5);
+                // ~4 input events per frame-sized batch, as on a 240 Hz stylus at 60 fps.
+                for chunk in pts[1..].chunks(4) {
+                    doc.add_points(chunk.iter().flat_map(|&(x, y)| [x, y, 0.6]).collect());
+                }
+                add.push(t.elapsed().as_secs_f64() * 1000.0);
+                let t = std::time::Instant::now();
+                doc.end_stroke(1.0, false);
+                commit.push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            add.sort_by(f64::total_cmp);
+            commit.sort_by(f64::total_cmp);
+            eprintln!(
+                "{label}: 499 points in 4-point add_points batches p50 {:.3} ms; end_stroke p50 {:.3} ms, p95 {:.3} ms",
+                add[25], commit[25], commit[47]
+            );
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

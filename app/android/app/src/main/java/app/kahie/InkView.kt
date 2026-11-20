@@ -352,8 +352,23 @@ class InkView(context: Context) : View(context) {
 
     private fun moveInk(e: MotionEvent, idx: Int) {
         val d = doc ?: return
-        for (h in 0 until e.historySize) addInk(d, e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), pressureOf(e, idx, h))
-        addInk(d, e.getX(idx), e.getY(idx), pressureOf(e, idx))
+        // One FFI call per input event: historical samples plus the current one.
+        val n = e.historySize + 1
+        val xyp = ArrayList<Double>(n * 3)
+        for (h in 0 until e.historySize) {
+            xyp.add(toPageX(e.getHistoricalX(idx, h)).toDouble())
+            xyp.add(toPageY(e.getHistoricalY(idx, h)).toDouble())
+            xyp.add(pressureOf(e, idx, h).toDouble())
+        }
+        xyp.add(toPageX(e.getX(idx)).toDouble())
+        xyp.add(toPageY(e.getY(idx)).toDouble())
+        xyp.add(pressureOf(e, idx).toDouble())
+        val accepted = d.addPoints(xyp)
+        var i = 0
+        while (i + 2 < accepted.size) {
+            wet.add(floatArrayOf(accepted[i], accepted[i + 1], accepted[i + 2]))
+            i += 3
+        }
         if (fastWet) wetInk?.add(e, activePointer)
         if (hypot(e.getX(idx) - holdX, e.getY(idx) - holdY) > 4 * density) {
             holdX = e.getX(idx); holdY = e.getY(idx)
@@ -361,15 +376,6 @@ class InkView(context: Context) : View(context) {
             armHold()
         }
         invalidate()
-    }
-
-    private fun addInk(d: PageDoc, sx: Float, sy: Float, p: Float) {
-        val x = toPageX(sx)
-        val y = toPageY(sy)
-        if (d.addPoint(x.toDouble(), y.toDouble(), p.toDouble())) {
-            val last = wet.last()
-            wet.add(floatArrayOf(x, y, last[2] * 0.6f + p * 0.4f))
-        }
     }
 
     private fun armHold() {
