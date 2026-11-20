@@ -34,6 +34,7 @@ pub fn export_kahie(notebook_dir: String, out_path: String) -> Result<(), CoreEr
     };
     let mut pages = Vec::with_capacity(page_ids.len());
     let mut snapshots = Vec::with_capacity(page_ids.len());
+    let mut assets: std::collections::BTreeMap<String, Vec<u8>> = Default::default();
     for id in &page_ids {
         let doc = PageDoc::open(nb.page_path(id.clone()))?;
         let st = doc.state.lock().unwrap();
@@ -41,6 +42,11 @@ pub fn export_kahie(notebook_dir: String, out_path: String) -> Result<(), CoreEr
         page.id = id.clone();
         pages.push(page);
         snapshots.push(st.doc.snapshot());
+        for h in st.doc.asset_hashes() {
+            if let Some(b) = st.doc.asset(&h) {
+                assets.entry(h).or_insert(b);
+            }
+        }
     }
     let manifest = serde_json::json!({
         "format": FORMAT,
@@ -76,6 +82,10 @@ pub fn export_kahie(notebook_dir: String, out_path: String) -> Result<(), CoreEr
         put("library.crdt", &library)?;
         for (id, snap) in page_ids.iter().zip(&snapshots) {
             put(&format!("pages/{id}.crdt"), snap)?;
+        }
+        // Images also as plain files, so they are usable without Kahie (format spec §1).
+        for (hash, bytes) in &assets {
+            put(&format!("assets/{hash}"), bytes)?;
         }
         z.finish().map_err(io)?;
     }

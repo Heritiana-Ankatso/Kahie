@@ -19,7 +19,8 @@ Library (per device / per account)
 
 - **Notebook** is the unit of sharing. **Each page is its own Loro document** (P0-03 finding: bounds open time to the page being viewed); a small notebook-level document holds the section/page movable tree.
 - The library/folder tree is a separate small CRDT document (per user), so moving notebooks does not touch notebook data.
-- Large binary assets (images, PDFs, fonts) are **content-addressed** (SHA-256) and stored outside the CRDT; the CRDT holds only the hash.
+- Large binary assets (images, PDFs, fonts) are **content-addressed** (SHA-256); objects hold only the hash.
+  **v0 (implemented):** images are stored once per page in an `assets` map *inside* the page's Loro document (downsized to ≤ 1600 px by the app), so they sync, export and undo with the page without a separate asset channel. Large assets (PDFs) will move to a side store with on-demand transfer when PDF import lands.
 
 ## 2. Page
 

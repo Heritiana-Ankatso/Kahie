@@ -319,3 +319,16 @@ fn profile_remote_import() {
         t_all * 5.0
     );
 }
+
+#[test]
+fn assets_are_stored_once_and_sync() {
+    let mut a = CrdtPage::new("p", 1);
+    a.put_asset("abc", b"png-bytes");
+    a.put_asset("abc", b"ignored");
+    a.set_template("grid"); // the next change commits the asset with it
+    assert_eq!(a.asset("abc").as_deref(), Some(&b"png-bytes"[..]));
+    assert_eq!(a.asset_hashes(), vec!["abc".to_string()]);
+    let b = CrdtPage::load(&[&a.snapshot()], 2).unwrap();
+    assert_eq!(b.asset("abc").as_deref(), Some(&b"png-bytes"[..]));
+    assert!(b.asset("missing").is_none());
+}

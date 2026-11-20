@@ -161,6 +161,26 @@ object PageRenderer {
         canvas.drawRect(l, t, r, b, frame)
     }
 
+    /** Decoded images by hash (shared by screen and export; images are immutable). */
+    private val bitmaps = object : android.util.LruCache<String, android.graphics.Bitmap>(64 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
+    }
+
+    fun bitmap(d: PageDoc, hash: String): android.graphics.Bitmap? {
+        bitmaps.get(hash)?.let { return it }
+        val bytes = d.imageBytes(hash) ?: return null
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        bitmaps.put(hash, bmp)
+        return bmp
+    }
+
+    private val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+    fun drawImage(canvas: Canvas, d: PageDoc, img: uniffi.nb_ffi.ImageBlock) {
+        val bmp = bitmap(d, img.hash) ?: return
+        canvas.drawBitmap(bmp, null, android.graphics.RectF(img.x, img.y, img.x + img.width, img.y + img.height), imagePaint)
+    }
+
     /** All maths of a page, so an export can wait until every formula is rendered. */
     fun mathRequests(d: PageDoc): List<Triple<String, Float, Int>> =
         d.mathBlocks().map { Triple(it.latex, it.size, opaque(it.color)) }
@@ -169,6 +189,7 @@ object PageRenderer {
     fun drawPage(canvas: Canvas, d: PageDoc, math: MathRenderer?, paper: Boolean = true) {
         canvas.drawColor(Color.WHITE)
         if (paper) drawPaper(canvas, d.template(), 0.75f)
+        for (img in d.imageBlocks()) drawImage(canvas, d, img) // under the ink
         for (key in d.layout()) {
             val g = d.geometry(key) ?: continue
             canvas.drawPath(inkPath(g), inkPaint(g))

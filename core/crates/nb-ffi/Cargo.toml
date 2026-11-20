@@ -23,6 +23,7 @@ nb-recog = { path = "../nb-recog" }
 nb-model = { path = "../nb-model" }
 nb-store = { path = "../nb-store" }
 nb-math = { path = "../nb-math" }
+sha2 = "0.11"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 loro.workspace = true
 # Relay sync client: blocking WebSocket on a background thread, TLS via rustls + ring

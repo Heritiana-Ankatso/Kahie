@@ -75,4 +75,5 @@
     <string name="add_plot">Tracer des fonctions de x</string>
     <string name="edit_plot">Modifier la courbe (aucune expression pour supprimer)</string>
     <string name="plot_bad_window">Vérifiez la fenêtre : x min < x max et y min < y max</string>
+    <string name="image_tool">Image</string>
 </resources>

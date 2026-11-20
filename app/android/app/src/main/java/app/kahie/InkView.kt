@@ -106,6 +106,7 @@ class InkView(context: Context) : View(context) {
     }
 
     private var plots: List<uniffi.nb_ffi.PlotBlock> = emptyList()
+    private var images: List<uniffi.nb_ffi.ImageBlock> = emptyList()
 
     /** Plot tool tap at page coordinates, with the id of the plot there (if any). */
     var onPlotTap: (x: Float, y: Float, blockId: String?) -> Unit = { _, _, _ -> }
@@ -192,6 +193,7 @@ class InkView(context: Context) : View(context) {
         for (key in order) if (key !in paths) d.geometry(key)?.let { paths[key] = toPath(it) }
         maths = d.mathBlocks()
         plots = d.plotBlocks()
+        images = d.imageBlocks()
         val blocks = d.textBlocks()
         textLayouts.keys.retainAll(blocks.map { it.key }.toSet())
         texts = blocks.map { b -> textLayouts.getOrPut(b.key) { CachedText(b, layoutText(b.text, b.width, b.size, b.color)) } }
@@ -271,6 +273,15 @@ class InkView(context: Context) : View(context) {
         canvas.drawRect(0f, 0f, pageW, pageH, pagePaint)
         drawTemplate(canvas, doc?.template() ?: "lined")
         val moving = dragFrom != null && selection.isNotEmpty()
+        doc?.let { d ->
+            for (img in images) { // under the ink, so it can be annotated
+                if (img.key in hidden) continue
+                canvas.save()
+                if (moving && img.id in selection) canvas.translate(dragDx, dragDy)
+                PageRenderer.drawImage(canvas, d, img)
+                canvas.restore()
+            }
+        }
         for (key in order) {
             if (key in hidden) continue
             val p = paths[key] ?: continue
@@ -731,4 +742,7 @@ class InkView(context: Context) : View(context) {
     }
 
     fun zoomBy(f: Float) = zoomAt(width / 2f, height / 2f, max(0.1f, f))
+
+    /** Centre of the visible part of the page, in page units (where new images go). */
+    fun visibleCentre(): FloatArray = floatArrayOf(toPageX(width / 2f), toPageY(height / 2f))
 }

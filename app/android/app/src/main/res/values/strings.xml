@@ -77,4 +77,5 @@
     <string name="add_plot">Plot functions of x</string>
     <string name="edit_plot">Edit plot (no expression to delete)</string>
     <string name="plot_bad_window">Check the window: x min < x max and y min < y max</string>
+    <string name="image_tool">Image</string>
 </resources>

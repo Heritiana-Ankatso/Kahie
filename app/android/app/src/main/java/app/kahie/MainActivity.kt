@@ -66,6 +66,7 @@ class MainActivity : Activity() {
         const val REQ_IMPORT = 42
         const val REQ_EXPORT_PDF = 43
         const val REQ_EXPORT_PNG = 44
+        const val REQ_IMAGE = 45
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -121,6 +122,12 @@ class MainActivity : Activity() {
             if (ink.tool == InkView.Tool.SELECT) toast(getString(R.string.select_hint))
         })
         bar.addView(textButton(R.string.selection) { showSelectionActions() })
+        bar.addView(textButton(R.string.image_tool) {
+            val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                .setType("image/*")
+            startActivityForResult(intent, REQ_IMAGE)
+        })
         bar.addView(textButton(R.string.plot_tool) {
             ink.clearSelection()
             ink.tool = if (ink.tool == InkView.Tool.PLOT) InkView.Tool.PEN else InkView.Tool.PLOT
@@ -532,6 +539,37 @@ class MainActivity : Activity() {
         for ((latex, size, color) in requests) renderer.request(latex, size, color) { if (--remaining == 0) write() }
     }
 
+    /** Downsize (≤ 1600 px, EXIF rotation applied), encode and place an image on the page. */
+    private fun insertImage(uri: android.net.Uri) {
+        val d = doc ?: return
+        val centre = ink.visibleCentre()
+        io.execute {
+            val result = runCatching {
+                val src = android.graphics.ImageDecoder.createSource(contentResolver, uri)
+                val bmp = android.graphics.ImageDecoder.decodeBitmap(src) { decoder, info, _ ->
+                    val w = info.size.width
+                    val h = info.size.height
+                    val scale = minOf(1f, 1600f / maxOf(w, h))
+                    decoder.setTargetSize(maxOf(1, (w * scale).toInt()), maxOf(1, (h * scale).toInt()))
+                    decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                }
+                val out = java.io.ByteArrayOutputStream()
+                val png = bmp.hasAlpha()
+                bmp.compress(if (png) android.graphics.Bitmap.CompressFormat.PNG else android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+                Triple(out.toByteArray(), bmp.width, bmp.height)
+            }
+            main.post {
+                result.onSuccess { (bytes, w, h) ->
+                    val boxW = minOf(420f, PageRenderer.PAGE_W - 40f)
+                    val boxH = boxW * h / w
+                    d.addImage((centre[0] - boxW / 2).toDouble(), (centre[1] - boxH / 2).toDouble(), boxW.toDouble(), boxH.toDouble(), bytes)
+                    ink.refresh()
+                    ink.onChanged()
+                }.onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
+            }
+        }
+    }
+
     private fun startImport() {
         val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(android.content.Intent.CATEGORY_OPENABLE)
@@ -546,6 +584,7 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK) return
         if (requestCode == REQ_EXPORT_PDF) { exportPdf(uri); return }
         if (requestCode == REQ_EXPORT_PNG) { exportPng(uri); return }
+        if (requestCode == REQ_IMAGE) { insertImage(uri); return }
         val dir = notebookDir ?: return
         io.execute {
             val tmp = File(cacheDir, "transfer.kahie")

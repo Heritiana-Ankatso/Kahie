@@ -30,6 +30,8 @@ use std::sync::{Arc, Mutex};
 const META: &str = "meta";
 const ORDER: &str = "order";
 const OBJECTS: &str = "objects";
+/// Image bytes by SHA-256 (hex). Stored in the CRDT so images sync and export with the page.
+const ASSETS: &str = "assets";
 
 /// Errors from loading or merging CRDT data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,6 +212,39 @@ impl CrdtPage {
         self.doc.import(bytes).map_err(err)?;
         self.rebuild();
         Ok(())
+    }
+
+    // ---------- assets (images) ----------
+
+    /// Store bytes under their content hash (written once; identical images share it).
+    /// Not committed on its own: it is part of the next change (normally the item that uses
+    /// it), so adding an image is a single undo step.
+    pub fn put_asset(&mut self, hash: &str, bytes: &[u8]) {
+        let assets = self.doc.get_map(ASSETS);
+        if assets.get(hash).is_none() {
+            assets
+                .insert(hash, LoroValue::Binary(bytes.to_vec().into()))
+                .expect("insert asset");
+        }
+    }
+
+    pub fn asset(&self, hash: &str) -> Option<Vec<u8>> {
+        match self.doc.get_map(ASSETS).get(hash) {
+            Some(ValueOrContainer::Value(LoroValue::Binary(b))) => Some(b.to_vec()),
+            _ => None,
+        }
+    }
+
+    /// Hashes of all stored assets (for export).
+    pub fn asset_hashes(&self) -> Vec<String> {
+        match self.doc.get_map(ASSETS).get_value() {
+            LoroValue::Map(m) => {
+                let mut v: Vec<String> = m.keys().cloned().collect();
+                v.sort();
+                v
+            }
+            _ => vec![],
+        }
     }
 
     // ---------- reading ----------

@@ -163,6 +163,19 @@ fn plot_block(it: &Item) -> Option<PlotBlock> {
     })
 }
 
+/// An image on the page; its bytes come from `PageDoc.image_bytes(hash)`.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct ImageBlock {
+    pub key: String,
+    pub id: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    /// SHA-256 of the image bytes (hex).
+    pub hash: String,
+}
+
 /// Geometry the UI can turn into a path. `coords` is x0, y0, x1, y1, …
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct RenderItem {
@@ -693,6 +706,61 @@ impl PageDoc {
         new_ids
     }
 
+    // ----- images -----
+
+    pub fn image_blocks(&self) -> Vec<ImageBlock> {
+        let st = self.state.lock().unwrap();
+        st.doc
+            .page()
+            .items
+            .iter()
+            .filter_map(|it| match &it.content {
+                Content::Image { rect, asset } => Some(ImageBlock {
+                    key: item_key(it),
+                    id: it.id.clone(),
+                    x: rect.x as f32,
+                    y: rect.y as f32,
+                    width: rect.w as f32,
+                    height: rect.h as f32,
+                    hash: asset.clone(),
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Add an image (already downsized/encoded by the UI) in a box at (x, y). One undo step.
+    pub fn add_image(&self, x: f64, y: f64, width: f64, height: f64, bytes: Vec<u8>) -> String {
+        use sha2::Digest;
+        let hash: String = sha2::Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let mut st = self.state.lock().unwrap();
+        st.seq += 1;
+        let id = new_id(st.seq);
+        st.doc.put_asset(&hash, &bytes);
+        let item = Item {
+            id: id.clone(),
+            content: Content::Image {
+                rect: nb_model::Rect {
+                    x,
+                    y,
+                    w: width,
+                    h: height,
+                },
+                asset: hash,
+            },
+        };
+        let op = Op::add(st.doc.page(), vec![item]);
+        st.commit(op);
+        id
+    }
+
+    pub fn image_bytes(&self, hash: String) -> Option<Vec<u8>> {
+        self.state.lock().unwrap().doc.asset(&hash)
+    }
+
     // ----- plots -----
 
     pub fn plot_blocks(&self) -> Vec<PlotBlock> {
@@ -1192,6 +1260,34 @@ mod tests {
             "no expression deletes"
         );
         assert!(doc.plot_blocks().is_empty());
+    }
+
+    #[test]
+    fn images_are_content_addressed_undoable_and_persisted() {
+        let dir = std::env::temp_dir().join(format!("kahie-ffi-img-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.kpage").to_string_lossy().to_string();
+        let bytes = b"\x89PNG fake image".to_vec();
+        {
+            let doc = PageDoc::open(path.clone()).unwrap();
+            let id = doc.add_image(10.0, 20.0, 200.0, 100.0, bytes.clone());
+            let img = &doc.image_blocks()[0];
+            assert_eq!(img.hash.len(), 64);
+            assert_eq!(doc.image_bytes(img.hash.clone()), Some(bytes.clone()));
+            doc.add_image(300.0, 20.0, 50.0, 50.0, bytes.clone());
+            assert_eq!(
+                doc.image_blocks()[0].hash,
+                doc.image_blocks()[1].hash,
+                "same bytes, same asset"
+            );
+            assert!(doc.undo());
+            assert_eq!(doc.image_blocks().len(), 1, "adding an image is one undo step");
+            assert_eq!(doc.select_rect(0.0, 0.0, 50.0, 50.0), vec![id]);
+        }
+        let doc = PageDoc::open(path).unwrap();
+        let h = doc.image_blocks()[0].hash.clone();
+        assert_eq!(doc.image_bytes(h), Some(bytes));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
