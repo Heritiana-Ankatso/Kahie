@@ -92,4 +92,6 @@
     <string name="sync_read_only_notebook">Ce cahier est partagé avec vous en lecture seule : vous pouvez le consulter mais pas le modifier.</string>
     <string name="language">Langue</string>
     <string name="language_system">Comme le système</string>
+    <string name="move_page_up">Monter cette page</string>
+    <string name="move_page_down">Descendre cette page</string>
 </resources>

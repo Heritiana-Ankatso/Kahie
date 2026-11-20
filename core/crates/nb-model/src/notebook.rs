@@ -121,6 +121,18 @@ impl CrdtNotebook {
         Some((parent, index))
     }
 
+    /// Number of children of `parent` (top level when `None`), trashed ones included.
+    pub fn child_count(&self, parent: Option<TreeID>) -> usize {
+        let p: TreeParentId = parent.into();
+        self.tree().children_num(p).unwrap_or(0)
+    }
+
+    /// The `index`-th child of `parent` (trashed ones included).
+    pub fn child_at(&self, parent: Option<TreeID>, index: usize) -> Option<TreeID> {
+        let p: TreeParentId = parent.into();
+        self.tree().children(p)?.get(index).copied()
+    }
+
     fn tree(&self) -> LoroTree {
         self.doc.get_tree(TREE)
     }

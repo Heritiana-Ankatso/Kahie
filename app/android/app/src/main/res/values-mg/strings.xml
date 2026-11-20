@@ -93,4 +93,6 @@
     <string name="sync_read_only_notebook">Nozaraina taminao ho vakiana fotsiny ity kahie ity: azonao jerena fa tsy azonao ovaina.</string>
     <string name="language">Fiteny</string>
     <string name="language_system">Araka ny rafitra</string>
+    <string name="move_page_up">Hampiakatra ity pejy ity</string>
+    <string name="move_page_down">Hampidina ity pejy ity</string>
 </resources>

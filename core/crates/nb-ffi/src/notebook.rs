@@ -235,6 +235,36 @@ impl NotebookDoc {
         ok
     }
 
+    /// Move `node` one place up (`delta` < 0) or down (`delta` > 0) among its siblings,
+    /// skipping trashed ones. Returns false at either end.
+    pub fn shift_node(&self, node: String, delta: i32) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let Some(n) = st.node(&node) else { return false };
+        let Some((parent, index)) = st.nb.position(n) else {
+            return false;
+        };
+        let siblings = st.nb.child_count(parent);
+        if delta == 0 {
+            return false;
+        }
+        // Step over trashed siblings so the visible order changes.
+        let visible: std::collections::HashSet<TreeID> = st.nb.outline().iter().map(|e| e.id).collect();
+        let mut to = index as i64;
+        loop {
+            to += delta.signum() as i64;
+            if to < 0 || to >= siblings as i64 {
+                return false;
+            }
+            let at = st.nb.child_at(parent, to as usize);
+            if at.is_some_and(|id| visible.contains(&id)) {
+                break;
+            }
+        }
+        let ok = st.nb.move_node(n, parent, to as usize);
+        st.persist();
+        ok
+    }
+
     /// Put a node in the trash (its pages stay on disk until the trash is emptied).
     pub fn delete_node(&self, node: String) {
         let mut st = self.state.lock().unwrap();
@@ -370,6 +400,35 @@ mod tests {
         nb.delete_node(sec.clone());
         assert_eq!(nb.page_ids(), [a.clone(), b.clone()]);
         assert_eq!(nb.trash().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn pages_shift_up_and_down() {
+        let dir = tmp("shift");
+        let nb = NotebookDoc::open(dir.to_string_lossy().into(), "N".into()).unwrap();
+        let a = nb.page_ids()[0].clone();
+        let b = nb.add_page(Some(a.clone()));
+        let c = nb.add_page(Some(b.clone()));
+        let node = |id: &str| {
+            nb.outline()
+                .into_iter()
+                .find(|e| e.page_id.as_deref() == Some(id))
+                .unwrap()
+                .node
+        };
+        assert!(nb.shift_node(node(&c), -1));
+        assert_eq!(nb.page_ids(), [a.clone(), c.clone(), b.clone()]);
+        assert!(nb.shift_node(node(&a), 1));
+        assert_eq!(nb.page_ids(), [c.clone(), a.clone(), b.clone()]);
+        assert!(nb.shift_node(node(&a), 1));
+        assert_eq!(nb.page_ids(), [c.clone(), b.clone(), a.clone()]);
+        assert!(!nb.shift_node(node(&a), 1), "already last");
+        assert!(!nb.shift_node(node(&c), -1), "already first");
+        // A trashed page in between is stepped over.
+        nb.delete_node(node(&b));
+        assert!(nb.shift_node(node(&a), -1));
+        assert_eq!(nb.page_ids(), [a.clone(), c.clone()]);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

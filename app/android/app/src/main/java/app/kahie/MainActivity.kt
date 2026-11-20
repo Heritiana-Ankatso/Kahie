@@ -950,6 +950,8 @@ class MainActivity : Activity() {
             .setNeutralButton(R.string.more) { _, _ ->
                 val actions = arrayOf(
                     getString(R.string.rename_page),
+                    getString(R.string.move_page_up),
+                    getString(R.string.move_page_down),
                     getString(R.string.move_page),
                     getString(R.string.new_section),
                     getString(R.string.delete_page),
@@ -960,13 +962,15 @@ class MainActivity : Activity() {
                     .setItems(actions) { _, which ->
                         when (which) {
                             0 -> renameCurrentPage()
-                            1 -> moveCurrentPage()
-                            2 -> askText(R.string.section_title, "") { t ->
+                            1 -> shiftCurrentPage(-1)
+                            2 -> shiftCurrentPage(1)
+                            3 -> moveCurrentPage()
+                            4 -> askText(R.string.section_title, "") { t ->
                                 if (t.isNotEmpty()) notebook.addSection(t)
                                 showPages()
                             }
-                            3 -> confirmDeletePage()
-                            4 -> showTrash()
+                            5 -> confirmDeletePage()
+                            6 -> showTrash()
                             else -> startPngExport()
                         }
                     }
@@ -985,6 +989,17 @@ class MainActivity : Activity() {
             notebook.rename(e.node, t)
             showPages()
         }
+    }
+
+    /** Move the open page one place up or down among its siblings. */
+    private fun shiftCurrentPage(delta: Int) {
+        val e = currentPageNode() ?: return
+        if (notebook.shiftNode(e.node, delta)) {
+            pageIds = notebook.pageIds()
+            pageIndex = pageIds.indexOf(e.pageId).coerceAtLeast(0)
+            pageLabel.text = getString(R.string.page_count, pageIndex + 1, pageIds.size)
+        }
+        showPages()
     }
 
     /** Move the open page to the end of a section (or to the top level). */

@@ -94,4 +94,6 @@
     <string name="sync_read_only_notebook">This notebook is shared with you read-only: you can view it but not change it.</string>
     <string name="language">Language</string>
     <string name="language_system">Follow the system</string>
+    <string name="move_page_up">Move this page up</string>
+    <string name="move_page_down">Move this page down</string>
 </resources>
