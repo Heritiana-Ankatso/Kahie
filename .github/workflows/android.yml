@@ -1,6 +1,8 @@
 name: android
 
 on:
+  # By hand, e.g. after giac-android published new libraries.
+  workflow_dispatch:
   push:
     branches: ['**']
     paths: ['core/**', 'app/android/**', '.github/workflows/android.yml']
