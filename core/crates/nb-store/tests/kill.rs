@@ -17,7 +17,7 @@ const CHILD_ENV: &str = "NB_STORE_KILL_CHILD";
 /// Payload for update number `i`: recognisable and variable-length.
 fn payload(i: u64) -> Vec<u8> {
     let mut v = format!("update-{i}:").into_bytes();
-    v.extend(std::iter::repeat((i % 251) as u8).take((i % 97) as usize * 13));
+    v.extend(std::iter::repeat_n((i % 251) as u8, (i % 97) as usize * 13));
     v
 }
 
