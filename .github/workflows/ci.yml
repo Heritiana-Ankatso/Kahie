@@ -54,9 +54,11 @@ jobs:
       - name: Fetch Rust dependencies (online)
         working-directory: core
         run: cargo fetch --locked && cargo test --locked --no-run
-      - name: Run all tests in a network namespace with no interfaces
+      - name: Run all tests in a network namespace with only loopback
         run: |
-          sudo unshare --net -- sudo -u "$USER" env "PATH=$PATH" "HOME=$HOME" bash -euo pipefail -c '
+          # Loopback stays up (sync/relay tests talk to a local relay); nothing else exists.
+          sudo unshare --net -- bash -c 'ip link set lo up && exec sudo -u "$0" env "PATH=$1" "HOME=$2" bash -euo pipefail -c "$3"' \
+            "$USER" "$PATH" "$HOME" '
             ! curl -sS --max-time 5 https://example.com >/dev/null 2>&1 || { echo "network is reachable"; exit 1; }
             (cd core && cargo test --locked --offline)
             (cd app/web && node --test tests/*.test.mjs)
