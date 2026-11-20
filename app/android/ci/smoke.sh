@@ -2,7 +2,7 @@
 # Emulator smoke test: install, launch, draw two strokes and check that ink appears, then open
 # the text (with the CAS), maths, plot and pages tools, with a screenshot after each; nothing may crash.
 # Run from the repository root with an emulator attached (CI: android.yml, job "smoke").
-set -euo pipefail
+set -Eeuo pipefail
 APK=app/android/app/build/outputs/apk/debug/app-debug.apk
 OUT=smoke-out
 mkdir -p "$OUT"
@@ -25,6 +25,15 @@ adb shell pidof app.kahie >/dev/null || { echo "app is not running"; exit 1; }
 python3 app/android/ci/ink_check.py "$OUT/before.png" "$OUT/after.png" "$x0" "$y0" "$x1" "$y1"
 
 # ---- tools ----
+# On any failure, print what is needed to diagnose it, last (the job-log API returns only the end).
+diag() {
+  adb logcat -d | grep -E "FATAL EXCEPTION|E AndroidRuntime|Fatal signal|DEBUG   : +#[0-9]+ pc|Abort message" | tail -20 || true
+  adb shell pidof app.kahie >/dev/null && echo "app is running" || echo "app is NOT running"
+  if adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1; then
+    echo "visible: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --labels || true)"
+  fi
+}
+trap 'rc=$?; trap - ERR; echo "smoke.sh: command failed at line $LINENO (exit $rc)"; diag; echo "smoke.sh: failed at line $LINENO"' ERR
 # uiautomator can fail while the screen is still changing: retry.
 dump() {
   local i
@@ -51,10 +60,6 @@ tap() {
     fi
   done
   cp "$OUT/ui.xml" "$OUT/missing-$1.xml"
-  # Most useful lines last: the job-log API only returns the end of the log.
-  adb logcat -d | grep -E "FATAL EXCEPTION|E AndroidRuntime" | tail -15
-  adb shell pidof app.kahie >/dev/null && echo "app is running" || echo "app is NOT running"
-  echo "visible: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --labels)"
   echo "UI element not found: $1"
   return 1
 }
@@ -66,13 +71,12 @@ press() {
     adb shell input tap $xy
   else
     cp "$OUT/ui.xml" "$OUT/missing-$1.xml"
-    echo "visible: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --labels)"
     echo "dialog button not found: $1"; return 1
   fi
 }
 shot() { sleep "${2:-2}"; adb exec-out screencap -p > "$OUT/$1.png"; }
 dump
-BAR_Y=$(python3 app/android/ci/ui.py "$OUT/ui.xml" "Pen" | cut -d' ' -f2)
+BAR_Y=$(python3 app/android/ci/ui.py "$OUT/ui.xml" "Pen" | cut -d' ' -f2) || { echo "toolbar (Pen) not found"; false; }
 
 # Text, and the CAS on its last line (the Compute button exists only in builds with the CAS).
 tap "Text"; adb shell input tap $((W / 2)) $((H / 4)); sleep 2
@@ -80,7 +84,7 @@ tap "Text"; adb shell input tap $((W / 2)) $((H / 4)); sleep 2
 adb shell "input text '2^100'"
 if press "Compute"; then
   sleep 5; dump
-  cas=$(python3 app/android/ci/ui.py "$OUT/ui.xml" --edit | tr '\n' ' ')
+  cas=$(python3 app/android/ci/ui.py "$OUT/ui.xml" --edit | tr '\n' ' ') || { echo "no text field after Compute (dialog gone: crash?)"; false; }
   echo "CAS: $cas" | tee "$OUT/cas.txt"
   [[ $cas == *1267650600228229401496703205376* ]] || { echo "CAS gave a wrong answer"; exit 1; }
 else
