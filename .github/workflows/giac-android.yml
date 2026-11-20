@@ -17,9 +17,14 @@ jobs:
     # Same Ubuntu as the dev container, so autoreconf regenerates the exact configure tested locally.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # arm64 for devices, x86_64 for the emulator smoke test.
+        target: [aarch64-linux-android, x86_64-linux-android]
     env:
       API: 31
-      TARGET: aarch64-linux-android
+      TARGET: ${{ matrix.target }}
       NDK_VERSION: 27.2.12479018
       GMP: gmp-6.3.0
       MPFR: mpfr-4.2.1
@@ -91,11 +96,20 @@ jobs:
           $STRIP --strip-unneeded out/libkahiecas.so
           ls -l out/libkahiecas.so | tee out/size.txt
           gzip -9 -k out/libkahiecas.so && ls -l out/libkahiecas.so.gz | tee -a out/size.txt
-          echo "### libkahiecas.so (arm64, stripped): $(stat -c %s out/libkahiecas.so) bytes; gzip $(stat -c %s out/libkahiecas.so.gz) bytes" >> "$GITHUB_STEP_SUMMARY"
+          echo "### libkahiecas.so ($TARGET, stripped): $(stat -c %s out/libkahiecas.so) bytes; gzip $(stat -c %s out/libkahiecas.so.gz) bytes" >> "$GITHUB_STEP_SUMMARY"
+          # Static libraries + headers for the APK build (nb-math feature "giac").
+          mkdir -p libs/$TARGET/include/giac
+          cp $PREFIX/lib/libgiac.a $PREFIX/lib/libgmp.a $PREFIX/lib/libmpfr.a libs/$TARGET/
+          cp inc/giac/*.h libs/$TARGET/include/giac/
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: giac-libs-${{ matrix.target }}
+          path: libs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: giac-android-arm64
+          name: giac-android-${{ matrix.target }}
           path: |
             out
             giac/config.log
