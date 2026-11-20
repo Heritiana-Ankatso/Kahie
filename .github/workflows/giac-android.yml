@@ -103,6 +103,7 @@ jobs:
           ls -l out/libkahiecas.so | tee out/size.txt
           gzip -9 -k out/libkahiecas.so && ls -l out/libkahiecas.so.gz | tee -a out/size.txt
           echo "### libkahiecas.so ($TARGET, stripped): $(stat -c %s out/libkahiecas.so) bytes; gzip $(stat -c %s out/libkahiecas.so.gz) bytes" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=CAS size $TARGET::libkahiecas.so $(stat -c %s out/libkahiecas.so) bytes stripped, $(stat -c %s out/libkahiecas.so.gz) bytes gzipped"
           # Static libraries + headers for the APK build (nb-math feature "giac").
           mkdir -p libs/$TARGET/include/giac
           cp $PREFIX/lib/libgiac.a $PREFIX/lib/libgmp.a $PREFIX/lib/libmpfr.a libs/$TARGET/
