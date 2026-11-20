@@ -38,7 +38,8 @@ class MainActivity : Activity() {
     private val saveRunnable = Runnable { saveAsync() }
     private val prefs by lazy { getSharedPreferences("kahie", Context.MODE_PRIVATE) }
 
-    private val notebookDir by lazy { File(filesDir, "notebook").apply { mkdirs() } }
+    /** One directory per notebook under `notebooks/`. */
+    private val notebooksRoot by lazy { File(filesDir, "notebooks").apply { mkdirs() } }
     private lateinit var notebook: NotebookDoc
     private var pageIds: List<String> = emptyList()
     private var pageIndex = 0
@@ -89,6 +90,7 @@ class MainActivity : Activity() {
         }
         bar.addView(shapesBtn)
         bar.addView(textButton(R.string.paper) { cycleTemplate() })
+        bar.addView(textButton(R.string.notebooks) { showNotebooks() })
         bar.addView(textButton(R.string.pages) { showPages() })
         bar.addView(iconButton(R.drawable.ic_fit, R.string.fit) { ink.fit() })
         bar.addView(iconButton(R.drawable.ic_trash, R.string.clear) { confirmClear() })
@@ -127,15 +129,13 @@ class MainActivity : Activity() {
         root.setBackgroundColor(0xFFF6F4EF.toInt())
         setContentView(root)
 
-        notebook = try {
-            NotebookDoc.open(notebookDir.path, getString(R.string.app_name))
-        } catch (e: CoreException) {
-            toast(getString(R.string.open_failed, e.message ?: ""))
-            NotebookDoc.open(File(filesDir, "notebook-recovered-${System.currentTimeMillis()}").path, getString(R.string.app_name))
-        }
-        pageIds = notebook.pageIds()
-        val lastId = prefs.getString("pageId", null)
-        goToPage(pageIds.indexOf(lastId).takeIf { it >= 0 } ?: 0)
+        // Before several notebooks existed, the only notebook lived in `notebook/`.
+        val legacy = File(filesDir, "notebook")
+        if (legacy.isDirectory && notebooksRoot.list().isNullOrEmpty()) legacy.renameTo(File(notebooksRoot, "nb-0001"))
+        val dirs = notebookDirs()
+        val current = prefs.getString("notebook", null)?.let { File(notebooksRoot, it) }?.takeIf { it.isDirectory }
+            ?: dirs.firstOrNull() ?: File(notebooksRoot, "nb-0001")
+        openNotebook(current, prefs.getString("pageId", null))
         updateToolbar()
     }
 
@@ -150,6 +150,72 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         io.shutdown()
+    }
+
+    // ---------- notebooks ----------
+
+    private fun notebookDirs(): List<File> =
+        notebooksRoot.listFiles { f -> f.isDirectory }?.sortedBy { it.name } ?: emptyList()
+
+    private fun openNotebook(dir: File, pageId: String? = null) {
+        if (::notebook.isInitialized) {
+            main.removeCallbacks(saveRunnable)
+            saveNow()
+            val old = notebook
+            io.execute { runCatching { old.save() } }
+        }
+        notebook = try {
+            NotebookDoc.open(dir.path, getString(R.string.untitled))
+        } catch (e: CoreException) {
+            toast(getString(R.string.open_failed, e.message ?: ""))
+            NotebookDoc.open(File(notebooksRoot, "recovered-${System.currentTimeMillis()}").path, getString(R.string.untitled))
+        }
+        prefs.edit().putString("notebook", dir.name).apply()
+        pageIds = notebook.pageIds()
+        pageIndex = -1
+        goToPage(pageIds.indexOf(pageId).takeIf { it >= 0 } ?: 0)
+    }
+
+    /** All notebooks: tap to open, or create a new one. */
+    private fun showNotebooks() {
+        val dirs = notebookDirs()
+        val titles = dirs.map { d ->
+            val t = if (d.name == prefs.getString("notebook", null)) notebook.title()
+            else runCatching { NotebookDoc.open(d.path, "").title() }.getOrDefault(d.name)
+            t.ifEmpty { getString(R.string.untitled) }
+        }
+        val current = dirs.indexOfFirst { it.name == prefs.getString("notebook", null) }
+        val labels = titles.mapIndexed { i, t -> if (i == current) "• $t" else t }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.notebooks)
+            .setItems(labels) { _, which -> if (which != current) openNotebook(dirs[which]) }
+            .setPositiveButton(R.string.new_notebook) { _, _ ->
+                askText(R.string.new_notebook, "") { title ->
+                    val next = (dirs.mapNotNull { it.name.removePrefix("nb-").toIntOrNull() }.maxOrNull() ?: 0) + 1
+                    val dir = File(notebooksRoot, "nb-%04d".format(next))
+                    openNotebook(dir)
+                    notebook.setTitle(title.ifBlank { getString(R.string.untitled) })
+                }
+            }
+            .setNeutralButton(R.string.rename) { _, _ ->
+                askText(R.string.rename, notebook.title()) { notebook.setTitle(it) }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun askText(title: Int, initial: String, onOk: (String) -> Unit) {
+        val input = android.widget.EditText(this).apply {
+            setText(initial)
+            setSingleLine()
+            setSelection(text.length)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ -> onOk(input.text.toString().trim()) }
+            .show()
     }
 
     // ---------- pages ----------

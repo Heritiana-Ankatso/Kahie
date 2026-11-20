@@ -139,6 +139,12 @@ impl NotebookDoc {
         self.state.lock().unwrap().nb.title()
     }
 
+    pub fn set_title(&self, title: String) {
+        let mut st = self.state.lock().unwrap();
+        st.nb.set_title(&title);
+        st.persist();
+    }
+
     /// Visible outline (sections and pages, depth-first).
     pub fn outline(&self) -> Vec<OutlineEntry> {
         self.state.lock().unwrap().nb.outline().into_iter().map(entry).collect()
@@ -292,6 +298,10 @@ mod tests {
         assert_eq!(nb.page_ids().len(), 2);
         assert_eq!(nb.page_ids()[0], first);
         assert!(!nb.undo(), "undo history is per session");
+        nb.set_title("Maths 1re".into());
+        assert_eq!(nb.title(), "Maths 1re");
+        assert!(nb.undo(), "renaming is undoable");
+        assert_eq!(nb.title(), "Maths");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

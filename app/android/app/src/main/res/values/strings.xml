@@ -25,4 +25,8 @@
     <string name="delete_page">Delete page</string>
     <string name="delete_page_confirm">Delete this page? You can restore it later from the trash.</string>
     <string name="last_page">A notebook keeps at least one page.</string>
+    <string name="notebooks">Notebooks</string>
+    <string name="new_notebook">New notebook</string>
+    <string name="rename">Rename</string>
+    <string name="untitled">Untitled notebook</string>
 </resources>

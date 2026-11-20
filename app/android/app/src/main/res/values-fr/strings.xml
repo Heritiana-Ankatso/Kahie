@@ -23,4 +23,8 @@
     <string name="delete_page">Supprimer la page</string>
     <string name="delete_page_confirm">Supprimer cette page ? Vous pourrez la restaurer depuis la corbeille.</string>
     <string name="last_page">Un cahier garde au moins une page.</string>
+    <string name="notebooks">Cahiers</string>
+    <string name="new_notebook">Nouveau cahier</string>
+    <string name="rename">Renommer</string>
+    <string name="untitled">Cahier sans titre</string>
 </resources>
