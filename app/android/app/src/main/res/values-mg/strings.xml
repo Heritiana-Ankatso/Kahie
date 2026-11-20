@@ -95,4 +95,6 @@
     <string name="language_system">Araka ny rafitra</string>
     <string name="move_page_up">Hampiakatra ity pejy ity</string>
     <string name="move_page_down">Hampidina ity pejy ity</string>
+    <string name="share_pdf">Handefa ho PDF…</string>
+    <string name="share_png">Handefa ity pejy ity (PNG)…</string>
 </resources>

@@ -234,6 +234,7 @@ class MainActivity : Activity() {
             ?: dirs.firstOrNull() ?: File(notebooksRoot, "nb-0001")
         openNotebook(current, prefs.getString("pageId", null))
         updateToolbar()
+        if (savedInstanceState == null) handleIncoming(intent)
     }
 
     override fun onPause() {
@@ -310,7 +311,7 @@ class MainActivity : Activity() {
     private fun showNotebookActions() {
         val actions = arrayOf(
             getString(R.string.rename), getString(R.string.export_kahie), getString(R.string.import_kahie),
-            getString(R.string.export_pdf), getString(R.string.import_pdf),
+            getString(R.string.export_pdf), getString(R.string.import_pdf), getString(R.string.share_pdf),
             getString(R.string.sync_share), getString(R.string.sync_join), getString(R.string.sync_settings),
             getString(R.string.language),
         )
@@ -322,10 +323,11 @@ class MainActivity : Activity() {
                     2 -> startImport()
                     3 -> startPdfExport()
                     4 -> startPdfImport()
-                    5 -> shareNotebook()
-                    6 -> joinNotebook()
-                    7 -> syncSettings()
-                    8 -> chooseLanguage()
+                    5 -> sharePdf()
+                    6 -> shareNotebook()
+                    7 -> joinNotebook()
+                    8 -> syncSettings()
+                    9 -> chooseLanguage()
                 }
             }
             .show()
@@ -524,8 +526,11 @@ class MainActivity : Activity() {
         startActivityForResult(intent, REQ_EXPORT_PDF)
     }
 
+    private fun exportPdf(uri: android.net.Uri) =
+        exportPdf({ contentResolver.openOutputStream(uri)!! }) { toast(getString(R.string.exported)) }
+
     /** Vector PDF of every page (A4), after all formulas are rendered. */
-    private fun exportPdf(uri: android.net.Uri) {
+    private fun exportPdf(open: () -> java.io.OutputStream, done: () -> Unit) {
         val renderer = mathRenderer
         val currentId = pageIds.getOrNull(pageIndex)
         val pages = pageIds.map { id -> if (id == currentId && doc != null) doc!! else PageDoc.open(notebook.pagePath(id)) }
@@ -542,10 +547,10 @@ class MainActivity : Activity() {
                 pdf.finishPage(page)
             }
             io.execute {
-                val result = runCatching { contentResolver.openOutputStream(uri)!!.use { pdf.writeTo(it) } }
+                val result = runCatching { open().use { pdf.writeTo(it) } }
                 pdf.close()
                 main.post {
-                    result.onSuccess { toast(getString(R.string.exported)) }
+                    result.onSuccess { done() }
                         .onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
                 }
             }
@@ -554,6 +559,88 @@ class MainActivity : Activity() {
         toast(getString(R.string.preparing_export))
         for ((latex, size, color) in requests) {
             renderer.request(latex, size, color) { if (--remaining == 0) write() }
+        }
+    }
+
+    // ---------- share sheet and "open with" (P1-36) ----------
+
+    private fun fileName(ext: String, suffix: String = "") =
+        notebook.title().ifBlank { getString(R.string.untitled) }.replace(Regex("[\\\\/:*?\"<>|]"), "_") + suffix + "." + ext
+
+    private fun shareFile(file: File, mime: String) {
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+            .setType(mime)
+            .putExtra(android.content.Intent.EXTRA_STREAM, ShareProvider.uriFor(file))
+            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(android.content.Intent.createChooser(send, file.name))
+    }
+
+    private fun sharePdf() {
+        saveNow()
+        val dir = ShareProvider.dir(this)
+        dir.listFiles()?.forEach { it.delete() }
+        val f = File(dir, fileName("pdf"))
+        exportPdf({ f.outputStream() }) { shareFile(f, "application/pdf") }
+    }
+
+    private fun sharePng() {
+        val dir = ShareProvider.dir(this)
+        dir.listFiles()?.forEach { it.delete() }
+        val f = File(dir, fileName("png", "-${pageIndex + 1}"))
+        exportPng({ f.outputStream() }) { shareFile(f, "image/png") }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleIncoming(intent)
+    }
+
+    /** A PDF or .kahie opened with / shared to Kahie: import it as a new notebook. */
+    private fun handleIncoming(intent: android.content.Intent?) {
+        val i = intent ?: return
+        val uri: android.net.Uri = when (i.action) {
+            android.content.Intent.ACTION_VIEW -> i.data
+            @Suppress("DEPRECATION")
+            android.content.Intent.ACTION_SEND -> i.getParcelableExtra(android.content.Intent.EXTRA_STREAM)
+            else -> null
+        } ?: return
+        setIntent(android.content.Intent()) // handle once, not again after rotation
+        val mime = i.type ?: contentResolver.getType(uri) ?: ""
+        if (mime == "application/pdf" || uri.path.orEmpty().endsWith(".pdf", ignoreCase = true)) {
+            val name = displayName(uri)?.substringBeforeLast('.') ?: getString(R.string.untitled)
+            val next = (notebookDirs().mapNotNull { it.name.removePrefix("nb-").toIntOrNull() }.maxOrNull() ?: 0) + 1
+            openNotebook(File(notebooksRoot, "nb-%04d".format(next)))
+            notebook.setTitle(name)
+            // The new notebook's first page is blank: drop it once the PDF pages are in.
+            val blank = notebook.outline().firstOrNull()?.node
+            importPdf(uri) { if (blank != null && pageIds.size > 1) {
+                notebook.deleteNode(blank)
+                pageIds = notebook.pageIds()
+                goToPage(0)
+            } }
+        } else {
+            importKahieUri(uri)
+        }
+    }
+
+    private fun displayName(uri: android.net.Uri): String? = runCatching {
+        contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull() ?: uri.lastPathSegment
+
+    private fun importKahieUri(uri: android.net.Uri) {
+        io.execute {
+            val tmp = File(cacheDir, "transfer.kahie")
+            val result = runCatching {
+                contentResolver.openInputStream(uri)!!.use { inp -> tmp.outputStream().use { inp.copyTo(it) } }
+                File(importKahie(tmp.path, notebooksRoot.path))
+            }
+            tmp.delete()
+            main.post {
+                result.onSuccess { openNotebook(it); toast(getString(R.string.imported)) }
+                    .onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
+            }
         }
     }
 
@@ -566,8 +653,11 @@ class MainActivity : Activity() {
         startActivityForResult(intent, REQ_EXPORT_PNG)
     }
 
+    private fun exportPng(uri: android.net.Uri) =
+        exportPng({ contentResolver.openOutputStream(uri)!! }) { toast(getString(R.string.exported)) }
+
     /** The current page as a PNG at 2× (1588 × 2246 px for A4), after its formulas are rendered. */
-    private fun exportPng(uri: android.net.Uri) {
+    private fun exportPng(open: () -> java.io.OutputStream, done: () -> Unit) {
         val d = doc ?: return
         val renderer = mathRenderer
         val requests = PageRenderer.mathRequests(d).distinct()
@@ -582,11 +672,11 @@ class MainActivity : Activity() {
             PageRenderer.drawPage(c, d, renderer)
             io.execute {
                 val result = runCatching {
-                    contentResolver.openOutputStream(uri)!!.use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                    open().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
                 }
                 bmp.recycle()
                 main.post {
-                    result.onSuccess { toast(getString(R.string.exported)) }
+                    result.onSuccess { done() }
                         .onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
                 }
             }
@@ -634,7 +724,7 @@ class MainActivity : Activity() {
     }
 
     /** Each PDF page becomes a new page with the PDF page as its background (annotate on top). */
-    private fun importPdf(uri: android.net.Uri) {
+    private fun importPdf(uri: android.net.Uri, onDone: () -> Unit = {}) {
         saveNow()
         toast(getString(R.string.importing_pdf))
         val after = pageIds.lastOrNull()
@@ -675,6 +765,7 @@ class MainActivity : Activity() {
                     pageIds = notebook.pageIds()
                     first?.let { goToPage(pageIds.indexOf(it)) }
                     toast(getString(R.string.imported))
+                    onDone()
                 }.onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
             }
         }
@@ -957,6 +1048,7 @@ class MainActivity : Activity() {
                     getString(R.string.delete_page),
                     getString(R.string.trash),
                     getString(R.string.export_png),
+                    getString(R.string.share_png),
                 )
                 AlertDialog.Builder(this)
                     .setItems(actions) { _, which ->
@@ -971,7 +1063,8 @@ class MainActivity : Activity() {
                             }
                             5 -> confirmDeletePage()
                             6 -> showTrash()
-                            else -> startPngExport()
+                            7 -> startPngExport()
+                            else -> sharePng()
                         }
                     }
                     .show()

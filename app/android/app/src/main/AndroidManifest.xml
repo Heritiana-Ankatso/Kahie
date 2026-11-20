@@ -13,11 +13,37 @@
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustNothing">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- "Open with" / "Share to" Kahie: a PDF becomes a new notebook to annotate (P1-36). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+            <!-- .kahie notebooks (often reported as a generic binary or ZIP type). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/zip" />
+                <data android:pathPattern=".*\\.kahie" />
+                <data android:pathPattern=".*\\..*\\.kahie" />
+            </intent-filter>
         </activity>
+        <provider
+            android:name=".ShareProvider"
+            android:authorities="app.kahie.share"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

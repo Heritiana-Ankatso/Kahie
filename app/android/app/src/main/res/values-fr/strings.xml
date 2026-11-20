@@ -94,4 +94,6 @@
     <string name="language_system">Comme le système</string>
     <string name="move_page_up">Monter cette page</string>
     <string name="move_page_down">Descendre cette page</string>
+    <string name="share_pdf">Envoyer en PDF…</string>
+    <string name="share_png">Envoyer cette page (PNG)…</string>
 </resources>

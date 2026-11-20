@@ -96,4 +96,6 @@
     <string name="language_system">Follow the system</string>
     <string name="move_page_up">Move this page up</string>
     <string name="move_page_down">Move this page down</string>
+    <string name="share_pdf">Send as PDF…</string>
+    <string name="share_png">Send this page (PNG)…</string>
 </resources>
