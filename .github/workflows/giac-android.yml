@@ -77,11 +77,12 @@ jobs:
             --disable-quickjs --disable-gettext --disable-gmpxx --disable-tommath --disable-bernmm \
             --disable-cocoa --disable-dl \
             CPPFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib" \
-            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1 -fpermissive" CFLAGS="-O2 -fPIC" > configure.out 2>&1 \
+            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1 -fpermissive -include $GITHUB_WORKSPACE/spikes/p0-07/android/android_compat.h" CFLAGS="-O2 -fPIC" > configure.out 2>&1 \
             || { tail -60 configure.out; exit 1; }
           grep -E "^#define HAVE_LIB(GMP|MPFR|PTHREAD)" config.h || true
-          make -C src -j4 libgiac.la > make.log 2>&1 || true
-          grep -E "error:" -A3 make.log | head -120 || true
+          # -k: keep going, so one run reports every file that fails.
+          make -C src -j4 -k libgiac.la > make.log 2>&1 || true
+          grep -E "error:" -A3 make.log | head -200 || true
           test -f src/.libs/libgiac.a
           cp src/.libs/libgiac.a $PREFIX/lib/
       - name: Link the CAS library and measure it
