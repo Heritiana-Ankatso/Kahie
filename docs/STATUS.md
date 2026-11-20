@@ -32,7 +32,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 
 ## Android app (what exists)
 
-**Built and smoke-tested on CI at commit `f0f3beb` (run 44788232609, all features below):** APK builds; on the emulator the app starts, ink appears (245 dark px), and the text, maths, plot and pages tools open without a crash. **The CAS was not in that APK** (no Compute button): the Giac libraries were apparently not found; `android.yml` now fails with a listing when that happens (commit `929e041`).
+**Built and smoke-tested on CI with the CAS at commit `1e3e0a9` (run 44801655293):** APK with Giac linked (arm64 + x86_64); on the emulator the app starts, ink appears, the text dialog's Compute button evaluates with Giac on the device, and maths, plot and pages open without a crash. The smoke test now asserts `2^100` is computed exactly.
 
 - Ink: pen/highlighter/eraser on the Rust core, Jetpack Ink wet layer, shape snapping, batched input (`add_points`), undo/redo + two-/three-finger tap.
 - Storage: every edit saved immediately (SQLite per page, `.kpage`); legacy JSON pages migrate.
@@ -44,11 +44,12 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 - Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min (reloads the open page if it changed), status dot. Per-notebook access control: Share shows an editor code and a read-only code (students); read-only notebooks are view-only (`nb_store::access`, `docs/relay.md`).
 - CAS: `cas_eval` FFI + Compute button in the text dialog (only in builds with feature `giac`).
 
-## CI state (at handoff, 17:40 UTC 2026-11-20)
+## CI state (19:40 UTC 2026-11-20)
 
 - `ci` (web, core tests, cargo-deny, offline tests with loopback only, schema): green.
 - `giac-android` (arm64 + x86_64 matrix): **green**; publishes `giac-libs-<target>` artifacts.
-- `android` (APK + emulator smoke): last finished run (85b5e83) built the APK; smoke failed only on a too-strict pixel threshold (142 dark px; threshold now 100, fixed in `ac15472`). **Run for `3a26664` is the first that builds all features above and links the CAS** (android.yml downloads giac-libs, `KAHIE_FEATURES=giac`, step summary "CAS: included"). Expect Kotlin compile errors and possibly link errors (static libc++/c++abi, `GIAC_LIB_DIR_<target>` in `nb-math/build.rs`) — fix them first.
+- `android` (APK + emulator smoke): **green with the CAS** (run 44801655293). It takes Giac libraries from the latest successful `giac-android` run on the branch (`gh run list` + `actions/download-artifact`) and fails if they are missing. After `giac-android` publishes new libraries, start `android` by hand (`workflow_dispatch`) or push. ~16 min (APK 11 + smoke 5).
+- The job-log API returns only the last ~100 lines: put anything you need to read at the end of a step that fails, or in a `::notice::` annotation.
 
 **Local Kotlin check:** `app/android/ci/kt-check.sh <cache-dir>` compiles the whole app against Robolectric's `android-all` (stubs for `R`, `androidx.ink`) and validates resource XML, in ~1 min. It caught nothing in the Kotlin but found an unescaped `<` in `plot_bad_window` that would have failed aapt in CI.
 
@@ -63,12 +64,10 @@ How to iterate without the Android SDK here: generate bindings and compile them 
 
 ## Next steps for the agent (in order)
 
-1. Get the `android` run for `3a26664` (or later) green: fix Kotlin compile errors in the new features, CAS link errors, smoke test. Then mark the APK + CAS as working here.
-2. Extend the smoke test: open each tool (text, maths, plot) via adb taps and check no crash; screenshot artifacts.
-3. CAS size reduction (`-Os`, `-ffunction-sections`/`--gc-sections`, drop unused Giac modules); target ≤ 12 MB arm64 uncompressed.
-4. Section UI in the Pages dialog (core supports sections); rename pages.
-5. P0-05 Android tile cache using `nb-render` display lists (needs device fps to justify).
-6. Relay per-document access control (roles) and optional end-to-end encryption.
-7. Handwriting recognition (D2 pending P0-06 corpus).
+1. CAS size: read the `CAS size` annotation of the latest `giac-android` run (`-Oz`, no built-in help); if still > 12 MB arm64, drop unused Giac modules in `prepare-giac.py` (largest objects: help, optimization, markup, graphe/graphtheory, signalprocessing) and check `nb-math` CAS tests still pass.
+2. Backlog P1 items that need no device: P1-05 page sizes (A5/Letter/landscape), P1-28 page snapshots, P1-34 SVG export, P1-16 z-order, P1-15 copy/paste between pages.
+3. Optional end-to-end encryption for the relay (keys already per notebook: derive an encryption key from the write/read key).
+4. P0-05 Android tile cache using `nb-render` display lists (needs device fps to justify).
+5. Handwriting recognition (D2 pending P0-06 corpus).
 
 Known limitations: images/backgrounds live in the page CRDT (fine for photos/worksheets; large PDFs will need a side asset store); text blocks are plain text (no rich text yet).

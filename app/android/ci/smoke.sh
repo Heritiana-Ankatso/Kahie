@@ -72,10 +72,13 @@ BAR_Y=$(python3 app/android/ci/ui.py "$OUT/ui.xml" "Pen" | cut -d' ' -f2)
 
 # Text, and the CAS on its last line (the Compute button exists only in builds with the CAS).
 tap "Text"; adb shell input tap $((W / 2)) $((H / 4)); sleep 2
-adb shell "input text 'factor(x^2-1)'"
+# No brackets: adb's text input reorders them on some images.
+adb shell "input text '2^100'"
 if press "Compute"; then
   sleep 5; dump
-  echo "CAS: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --edit | tr '\n' ' ')" | tee "$OUT/cas.txt"
+  cas=$(python3 app/android/ci/ui.py "$OUT/ui.xml" --edit | tr '\n' ' ')
+  echo "CAS: $cas" | tee "$OUT/cas.txt"
+  [[ $cas == *1267650600228229401496703205376* ]] || { echo "CAS gave a wrong answer"; exit 1; }
 else
   echo "CAS: not in this build" | tee "$OUT/cas.txt"
 fi
