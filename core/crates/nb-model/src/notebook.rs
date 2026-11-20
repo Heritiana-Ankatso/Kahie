@@ -277,6 +277,27 @@ impl CrdtNotebook {
         out
     }
 
+    /// Page ids of `node` and everything under it (trashed or not).
+    pub fn page_ids_under(&self, node: TreeID) -> Vec<String> {
+        let mut out = vec![];
+        if let Some(LoroValue::Map(m)) = self.meta_value(node) {
+            if let Some(LoroValue::String(p)) = m.get("page_id") {
+                out.push(p.to_string());
+            }
+        }
+        for c in self.tree().children(TreeParentId::Node(node)).unwrap_or_default() {
+            out.extend(self.page_ids_under(c));
+        }
+        out
+    }
+
+    /// Remove `node` and everything under it for good (emptying the trash).
+    pub fn purge(&mut self, node: TreeID) {
+        if self.tree().delete(node).is_ok() {
+            self.doc.commit();
+        }
+    }
+
     /// Deleted nodes (top-most deleted ancestor only), for the trash view.
     pub fn trash(&self) -> Vec<Node> {
         let mut all = vec![];

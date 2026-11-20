@@ -286,6 +286,24 @@ impl NotebookDoc {
         self.state.lock().unwrap().nb.trash().into_iter().map(entry).collect()
     }
 
+    /// Permanently remove everything in the trash and delete its page files. Returns the
+    /// number of pages removed.
+    pub fn empty_trash(&self) -> u32 {
+        let mut st = self.state.lock().unwrap();
+        let mut removed = 0;
+        for n in st.nb.trash() {
+            for page in st.nb.page_ids_under(n.id) {
+                for ext in ["kpage", "kpage-wal", "kpage-shm"] {
+                    let _ = std::fs::remove_file(st.dir.join(format!("{page}.{ext}")));
+                }
+                removed += 1;
+            }
+            st.nb.purge(n.id);
+        }
+        st.persist();
+        removed
+    }
+
     pub fn undo(&self) -> bool {
         let mut st = self.state.lock().unwrap();
         let done = st.nb.undo();
@@ -428,6 +446,13 @@ mod tests {
         // A trashed page in between is stepped over.
         nb.delete_node(node(&b));
         assert!(nb.shift_node(node(&a), -1));
+        assert_eq!(nb.page_ids(), [a.clone(), c.clone()]);
+        // Emptying the trash removes the page and its file for good.
+        let path = nb.page_path(b.clone());
+        crate::PageDoc::open(path.clone()).unwrap();
+        assert!(std::path::Path::new(&path).exists());
+        assert_eq!(nb.empty_trash(), 1);
+        assert!(nb.trash().is_empty() && !std::path::Path::new(&path).exists());
         assert_eq!(nb.page_ids(), [a.clone(), c.clone()]);
         std::fs::remove_dir_all(dir).unwrap();
     }

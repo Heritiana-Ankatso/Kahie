@@ -108,4 +108,6 @@
         <item quantity="one">Kahie %d voatahiry</item>
         <item quantity="other">Kahie %d voatahiry</item>
     </plurals>
+    <string name="empty_trash">Hamafa ny fako</string>
+    <string name="empty_trash_confirm">Hamafa tanteraka ny ao anaty fako rehetra? Tsy azo averina intsony izany.</string>
 </resources>

@@ -1267,6 +1267,13 @@ class MainActivity : Activity() {
                 e.pageId?.let { id -> goToPage(pageIds.indexOf(id)) }
                 toast(getString(R.string.restored))
             }
+            .setNeutralButton(R.string.empty_trash) { _, _ ->
+                AlertDialog.Builder(this)
+                    .setMessage(R.string.empty_trash_confirm)
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .setPositiveButton(R.string.empty_trash) { _, _ -> notebook.emptyTrash() }
+                    .show()
+            }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }

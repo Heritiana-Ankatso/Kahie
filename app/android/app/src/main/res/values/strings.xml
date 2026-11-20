@@ -109,4 +109,6 @@
         <item quantity="one">%d notebook backed up</item>
         <item quantity="other">%d notebooks backed up</item>
     </plurals>
+    <string name="empty_trash">Empty trash</string>
+    <string name="empty_trash_confirm">Delete everything in the trash for good? This cannot be undone.</string>
 </resources>

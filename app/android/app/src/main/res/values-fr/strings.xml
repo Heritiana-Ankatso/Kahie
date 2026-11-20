@@ -107,4 +107,6 @@
         <item quantity="one">%d cahier sauvegardé</item>
         <item quantity="other">%d cahiers sauvegardés</item>
     </plurals>
+    <string name="empty_trash">Vider la corbeille</string>
+    <string name="empty_trash_confirm">Supprimer définitivement tout le contenu de la corbeille ? C’est irréversible.</string>
 </resources>
