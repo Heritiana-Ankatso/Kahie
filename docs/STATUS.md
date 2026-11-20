@@ -68,4 +68,4 @@ How to iterate without the Android SDK here: generate bindings and compile them 
 6. Relay per-document access control (roles) and optional end-to-end encryption.
 7. Handwriting recognition (D2 pending P0-06 corpus).
 
-Known limitations: images/backgrounds live in the page CRDT (fine for photos/worksheets; large PDFs will need a side asset store); the open page does not see edits made by the background sync pass until reopened; text blocks are plain text (no rich text yet).
+Known limitations: images/backgrounds live in the page CRDT (fine for photos/worksheets; large PDFs will need a side asset store); text blocks are plain text (no rich text yet).

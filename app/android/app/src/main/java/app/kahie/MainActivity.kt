@@ -441,7 +441,9 @@ class MainActivity : Activity() {
         Thread {
             try {
                 for ((id, path) in targets) {
-                    runCatching { syncPageOnce(PageDoc.open(path), url, token, "${s.group}-$id", s.key, 1500u) }
+                    val n = runCatching { syncPageOnce(PageDoc.open(path), url, token, "${s.group}-$id", s.key, 1500u) }.getOrDefault(0u)
+                    // The user may have opened this page meanwhile: reload it to show what arrived.
+                    if (n > 0u) main.post { if (pageIds.getOrNull(pageIndex) == id) goToPage(pageIndex) }
                 }
             } finally {
                 backgroundSync.set(false)
