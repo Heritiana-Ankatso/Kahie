@@ -97,4 +97,15 @@
     <string name="move_page_down">Hampidina ity pejy ity</string>
     <string name="share_pdf">Handefa ho PDF…</string>
     <string name="share_png">Handefa ity pejy ity (PNG)…</string>
+    <string name="backup">Fitahirizana ho azy</string>
+    <string name="backup_now">Hitahiry izao</string>
+    <string name="backup_folder">Hanova lahatahiry</string>
+    <string name="backup_off">Hampiato</string>
+    <string name="backup_never">Mbola tsy nisy fitahirizana.</string>
+    <string name="backup_last">Isan’andro, adikan’i Kahie ao amin’ny lahatahiry nofidina ny kahie rehetra (.kahie). Fitahirizana farany: %1$s.</string>
+    <string name="backup_failed">Tsy nahomby ny fitahirizana: %1$s</string>
+    <plurals name="backed_up">
+        <item quantity="one">Kahie %d voatahiry</item>
+        <item quantity="other">Kahie %d voatahiry</item>
+    </plurals>
 </resources>

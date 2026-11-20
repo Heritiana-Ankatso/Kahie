@@ -98,4 +98,15 @@
     <string name="move_page_down">Move this page down</string>
     <string name="share_pdf">Send as PDF…</string>
     <string name="share_png">Send this page (PNG)…</string>
+    <string name="backup">Automatic backup</string>
+    <string name="backup_now">Back up now</string>
+    <string name="backup_folder">Change folder</string>
+    <string name="backup_off">Turn off</string>
+    <string name="backup_never">Never backed up yet.</string>
+    <string name="backup_last">Every day, Kahie copies all notebooks (.kahie) into the chosen folder. Last backup: %1$s.</string>
+    <string name="backup_failed">Backup failed: %1$s</string>
+    <plurals name="backed_up">
+        <item quantity="one">%d notebook backed up</item>
+        <item quantity="other">%d notebooks backed up</item>
+    </plurals>
 </resources>

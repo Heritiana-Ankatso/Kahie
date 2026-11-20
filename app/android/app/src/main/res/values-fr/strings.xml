@@ -96,4 +96,15 @@
     <string name="move_page_down">Descendre cette page</string>
     <string name="share_pdf">Envoyer en PDF…</string>
     <string name="share_png">Envoyer cette page (PNG)…</string>
+    <string name="backup">Sauvegarde automatique</string>
+    <string name="backup_now">Sauvegarder maintenant</string>
+    <string name="backup_folder">Changer de dossier</string>
+    <string name="backup_off">Désactiver</string>
+    <string name="backup_never">Aucune sauvegarde pour l’instant.</string>
+    <string name="backup_last">Chaque jour, Kahie copie tous les cahiers (.kahie) dans le dossier choisi. Dernière sauvegarde : %1$s.</string>
+    <string name="backup_failed">Échec de la sauvegarde : %1$s</string>
+    <plurals name="backed_up">
+        <item quantity="one">%d cahier sauvegardé</item>
+        <item quantity="other">%d cahiers sauvegardés</item>
+    </plurals>
 </resources>

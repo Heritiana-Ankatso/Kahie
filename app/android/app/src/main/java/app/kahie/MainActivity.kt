@@ -71,6 +71,8 @@ class MainActivity : Activity() {
         const val REQ_EXPORT_PNG = 44
         const val REQ_IMAGE = 45
         const val REQ_IMPORT_PDF = 46
+        const val REQ_BACKUP_DIR = 47
+        const val BACKUP_EVERY_MS = 24 * 3600 * 1000L
     }
 
     /**
@@ -243,6 +245,7 @@ class MainActivity : Activity() {
         saveNow()
         pageIds.getOrNull(pageIndex)?.let { prefs.edit().putString("pageId", it).apply() }
         io.execute { runCatching { notebook.save() } }
+        backupIfDue()
     }
 
     override fun onDestroy() {
@@ -313,7 +316,7 @@ class MainActivity : Activity() {
             getString(R.string.rename), getString(R.string.export_kahie), getString(R.string.import_kahie),
             getString(R.string.export_pdf), getString(R.string.import_pdf), getString(R.string.share_pdf),
             getString(R.string.sync_share), getString(R.string.sync_join), getString(R.string.sync_settings),
-            getString(R.string.language),
+            getString(R.string.language), getString(R.string.backup),
         )
         AlertDialog.Builder(this)
             .setItems(actions) { _, which ->
@@ -328,6 +331,7 @@ class MainActivity : Activity() {
                     7 -> joinNotebook()
                     8 -> syncSettings()
                     9 -> chooseLanguage()
+                    10 -> if (prefs.getString("backupTree", null) == null) chooseBackupFolder() else showBackup()
                 }
             }
             .show()
@@ -562,6 +566,87 @@ class MainActivity : Activity() {
         }
     }
 
+    // ---------- local backup (P1-27) ----------
+
+    private fun showBackup() {
+        val last = prefs.getLong("lastBackup", 0)
+        val msg = if (last == 0L) getString(R.string.backup_never)
+        else getString(R.string.backup_last, android.text.format.DateUtils.getRelativeTimeSpanString(last))
+        AlertDialog.Builder(this)
+            .setTitle(R.string.backup)
+            .setMessage(msg)
+            .setPositiveButton(R.string.backup_now) { _, _ -> runBackup(quiet = false) }
+            .setNeutralButton(R.string.backup_folder) { _, _ -> chooseBackupFolder() }
+            .setNegativeButton(R.string.backup_off) { _, _ -> prefs.edit().remove("backupTree").apply() }
+            .show()
+    }
+
+    private fun chooseBackupFolder() {
+        startActivityForResult(android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_BACKUP_DIR)
+    }
+
+    private fun backupIfDue() {
+        if (prefs.getString("backupTree", null) == null) return
+        if (System.currentTimeMillis() - prefs.getLong("lastBackup", 0) >= BACKUP_EVERY_MS) runBackup(quiet = true)
+    }
+
+    private val backingUp = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Copy every notebook as `<title> (<folder>).kahie` into the chosen folder, replacing the
+     * previous copy. Each file is written under a temporary name and checked (it must import)
+     * before it replaces the old one, so a failed backup never destroys the last good one.
+     */
+    private fun runBackup(quiet: Boolean) {
+        val tree = prefs.getString("backupTree", null)?.let { android.net.Uri.parse(it) } ?: return
+        if (!backingUp.compareAndSet(false, true)) return
+        val items = notebookDirs().map { d ->
+            val title = if (d.name == notebookDir?.name) notebook.title() else runCatching { NotebookDoc.open(d.path, "").title() }.getOrDefault("")
+            d to (title.ifBlank { getString(R.string.untitled) }.replace(Regex("[\\\\/:*?\"<>|]"), "_") + " (${d.name}).kahie")
+        }
+        io.execute {
+            val result = runCatching {
+                val cr = contentResolver
+                val parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(
+                    tree, android.provider.DocumentsContract.getTreeDocumentId(tree),
+                )
+                val existing = HashMap<String, android.net.Uri>()
+                val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+                    tree, android.provider.DocumentsContract.getDocumentId(parent),
+                )
+                cr.query(children, arrayOf(
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                ), null, null, null)?.use { c ->
+                    while (c.moveToNext()) existing[c.getString(1)] = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0))
+                }
+                val tmp = File(cacheDir, "backup.kahie")
+                val check = File(cacheDir, "backup-check")
+                for ((dir, name) in items) {
+                    exportKahie(dir.path, tmp.path)
+                    check.deleteRecursively(); check.mkdirs()
+                    importKahie(tmp.path, check.path) // integrity check: the file must import
+                    val partName = "$name.part"
+                    existing[partName]?.let { android.provider.DocumentsContract.deleteDocument(cr, it) }
+                    val part = android.provider.DocumentsContract.createDocument(cr, parent, "application/octet-stream", partName)
+                        ?: error("cannot create $partName")
+                    cr.openOutputStream(part)!!.use { out -> tmp.inputStream().use { it.copyTo(out) } }
+                    existing[name]?.let { android.provider.DocumentsContract.deleteDocument(cr, it) }
+                    android.provider.DocumentsContract.renameDocument(cr, part, name)
+                }
+                tmp.delete(); check.deleteRecursively()
+                items.size
+            }
+            backingUp.set(false)
+            main.post {
+                result.onSuccess { n ->
+                    prefs.edit().putLong("lastBackup", System.currentTimeMillis()).apply()
+                    if (!quiet) toast(resources.getQuantityString(R.plurals.backed_up, n, n))
+                }.onFailure { toast(getString(R.string.backup_failed, it.message ?: "")) }
+            }
+        }
+    }
+
     // ---------- share sheet and "open with" (P1-36) ----------
 
     private fun fileName(ext: String, suffix: String = "") =
@@ -787,6 +872,14 @@ class MainActivity : Activity() {
         if (requestCode == REQ_EXPORT_PNG) { exportPng(uri); return }
         if (requestCode == REQ_IMAGE) { insertImage(uri); return }
         if (requestCode == REQ_IMPORT_PDF) { importPdf(uri); return }
+        if (requestCode == REQ_BACKUP_DIR) {
+            contentResolver.takePersistableUriPermission(
+                uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+            prefs.edit().putString("backupTree", uri.toString()).apply()
+            runBackup(quiet = false)
+            return
+        }
         val dir = notebookDir ?: return
         io.execute {
             val tmp = File(cacheDir, "transfer.kahie")
