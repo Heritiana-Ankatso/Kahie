@@ -379,6 +379,46 @@ impl CrdtPage {
         changed
     }
 
+    /// Z-order (P1-16): move `ids` to the top of the page (`front`) or to the bottom,
+    /// keeping their relative order. One undo step. Returns false if nothing moved.
+    pub fn reorder(&mut self, ids: &[&str], front: bool) -> bool {
+        let order = self.doc.get_movable_list(ORDER);
+        let id_at = |i: usize| match order.get(i) {
+            Some(ValueOrContainer::Value(LoroValue::String(s))) => Some(s.to_string()),
+            _ => None,
+        };
+        let n = order.len();
+        let picked: Vec<usize> = (0..n)
+            .filter(|&i| id_at(i).is_some_and(|s| ids.contains(&s.as_str())))
+            .collect();
+        if picked.is_empty() {
+            return false;
+        }
+        let k = picked.len();
+        // Already in place?
+        let in_place = if front {
+            picked.iter().enumerate().all(|(j, &i)| i == n - k + j)
+        } else {
+            picked.iter().enumerate().all(|(j, &i)| i == j)
+        };
+        if in_place {
+            return false;
+        }
+        if front {
+            // Move from the top-most down so earlier indices stay valid.
+            for (j, &i) in picked.iter().enumerate().rev() {
+                order.mov(i, n - k + j).expect("mov");
+            }
+        } else {
+            for (j, &i) in picked.iter().enumerate() {
+                order.mov(i, j).expect("mov");
+            }
+        }
+        self.doc.commit();
+        self.rebuild();
+        true
+    }
+
     pub fn template(&self) -> &str {
         &self.view.template
     }

@@ -110,4 +110,6 @@
     </plurals>
     <string name="empty_trash">Hamafa ny fako</string>
     <string name="empty_trash_confirm">Hamafa tanteraka ny ao anaty fako rehetra? Tsy azo averina intsony izany.</string>
+    <string name="bring_to_front">Ataovy eo aloha indrindra</string>
+    <string name="send_to_back">Ataovy any aoriana indrindra</string>
 </resources>

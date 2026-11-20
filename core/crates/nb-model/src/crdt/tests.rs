@@ -347,3 +347,27 @@ fn background_is_set_cleared_and_synced() {
     a.set_background(None);
     assert!(a.background().is_none());
 }
+
+#[test]
+fn reorder_brings_to_front_and_sends_to_back_in_one_undo_step() {
+    let mut p = CrdtPage::new("p", 1);
+    let items: Vec<Item> = ["a", "b", "c", "d"]
+        .iter()
+        .map(|id| stroke(id, &[(0.0, 0.0), (5.0, 5.0)]))
+        .collect();
+    p.apply(&Op::add(p.page(), items));
+    assert!(p.reorder(&["a", "c"], true));
+    assert_eq!(ids(&p), ["b", "d", "a", "c"]);
+    assert!(!p.reorder(&["a", "c"], true), "already on top");
+    assert!(p.reorder(&["c"], false));
+    assert_eq!(ids(&p), ["c", "b", "d", "a"]);
+    assert!(!p.reorder(&["zz"], false));
+    assert!(p.undo());
+    assert_eq!(ids(&p), ["b", "d", "a", "c"]);
+    // Another replica converges.
+    let mut q = CrdtPage::load(&[&p.snapshot()], 2).unwrap();
+    assert_eq!(ids(&q), ids(&p));
+    q.reorder(&["b"], true);
+    p.import(&q.updates_since(&p.version())).unwrap();
+    assert_eq!(ids(&p), ["d", "a", "c", "b"]);
+}

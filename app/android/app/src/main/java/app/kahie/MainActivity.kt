@@ -1002,10 +1002,15 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle(resources.getQuantityString(R.plurals.selected_items, sel.size, sel.size))
-            .setItems(arrayOf(getString(R.string.duplicate), getString(R.string.delete), getString(R.string.deselect))) { _, which ->
+            .setItems(arrayOf(
+                getString(R.string.duplicate), getString(R.string.delete),
+                getString(R.string.bring_to_front), getString(R.string.send_to_back), getString(R.string.deselect),
+            )) { _, which ->
                 when (which) {
                     0 -> ink.select(d.duplicateItems(sel, 24.0, 24.0))
                     1 -> { d.deleteItems(sel); ink.select(emptyList()) }
+                    2 -> d.reorderItems(sel, true)
+                    3 -> d.reorderItems(sel, false)
                     else -> ink.clearSelection()
                 }
                 ink.refresh()

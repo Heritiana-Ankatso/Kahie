@@ -111,4 +111,6 @@
     </plurals>
     <string name="empty_trash">Empty trash</string>
     <string name="empty_trash_confirm">Delete everything in the trash for good? This cannot be undone.</string>
+    <string name="bring_to_front">Bring to front</string>
+    <string name="send_to_back">Send to back</string>
 </resources>

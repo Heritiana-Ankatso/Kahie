@@ -109,4 +109,6 @@
     </plurals>
     <string name="empty_trash">Vider la corbeille</string>
     <string name="empty_trash_confirm">Supprimer définitivement tout le contenu de la corbeille ? C’est irréversible.</string>
+    <string name="bring_to_front">Mettre au premier plan</string>
+    <string name="send_to_back">Mettre à l’arrière-plan</string>
 </resources>

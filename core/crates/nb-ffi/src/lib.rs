@@ -682,6 +682,15 @@ impl PageDoc {
         st.commit(op)
     }
 
+    /// Bring items to the top of the page (`front`) or send them to the bottom.
+    pub fn reorder_items(&self, ids: Vec<String>, front: bool) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let changed = st.doc.reorder(&refs, front);
+        st.persist();
+        changed
+    }
+
     /// Copy items, offset by (dx, dy), on top of the page. Returns the new ids.
     pub fn duplicate_items(&self, ids: Vec<String>, dx: f64, dy: f64) -> Vec<String> {
         let mut st = self.state.lock().unwrap();
