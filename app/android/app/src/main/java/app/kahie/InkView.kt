@@ -511,7 +511,22 @@ class InkView(context: Context) : View(context) {
         invalidate()
     }
 
+    /** Quick two-finger tap: undo; three-finger tap: redo (P1-25). */
+    var onUndoGesture: () -> Unit = {}
+    var onRedoGesture: () -> Unit = {}
+    private var tapStart = 0L
+    private var tapFingers = 0
+    private var tapMoved = 0f
+    private var tapScale = 1f
+
     private fun handleGesture(e: MotionEvent): Boolean {
+        if (!panning) {
+            tapStart = e.eventTime
+            tapFingers = 0
+            tapMoved = 0f
+            tapScale = s
+        }
+        tapFingers = max(tapFingers, e.pointerCount)
         scaleDetector.onTouchEvent(e)
         // Pan with the centroid of all fingers.
         var cx = 0f
@@ -529,11 +544,23 @@ class InkView(context: Context) : View(context) {
                 panning = true; lastPanX = cx; lastPanY = cy
             }
             MotionEvent.ACTION_MOVE -> {
+                tapMoved += hypot(cx - lastPanX, cy - lastPanY)
                 ox += cx - lastPanX; oy += cy - lastPanY
                 lastPanX = cx; lastPanY = cy
                 invalidate()
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> panning = false
+            MotionEvent.ACTION_UP -> {
+                panning = false
+                val quick = e.eventTime - tapStart < 300
+                val still = tapMoved < 12 * density && kotlin.math.abs(s / tapScale - 1f) < 0.03f
+                if (quick && still) {
+                    when (tapFingers) {
+                        2 -> onUndoGesture()
+                        3 -> onRedoGesture()
+                    }
+                }
+            }
+            MotionEvent.ACTION_CANCEL -> panning = false
         }
         return true
     }

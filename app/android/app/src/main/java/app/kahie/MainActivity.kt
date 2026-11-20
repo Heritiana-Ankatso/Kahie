@@ -70,6 +70,8 @@ class MainActivity : Activity() {
         ink = InkView(this)
         ink.autoShapes = prefs.getBoolean("autoShapes", false)
         ink.onTextTap = { x, y, blockId -> editText(x, y, blockId) }
+        ink.onUndoGesture = { if (doc?.undo() == true) { ink.refresh(); ink.onChanged() } }
+        ink.onRedoGesture = { if (doc?.redo() == true) { ink.refresh(); ink.onChanged() } }
         val renderer = MathRenderer(this) { ink.invalidate() }
         mathRenderer = renderer
         ink.math = renderer
