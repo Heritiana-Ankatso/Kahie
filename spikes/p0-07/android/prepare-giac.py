@@ -7,7 +7,9 @@ We only build src/libgiac (the CAS core), so:
 - gettext >= 0.20 removed the intl/ macros: use AM_GNU_GETTEXT([external]);
 - config/config.rpath, expected by gettext's macros, is created empty;
 - the parser and lexer (stripped from dfsg) are generated with bison/flex up front: the
-  Makefile's ylwrap rule mangles the output names and parallel make races on the header.
+  Makefile's ylwrap rule mangles the output names and parallel make races on the header;
+- the built-in command help (5 languages, ~1 MB of strings) is replaced by the one empty
+  entry Giac itself uses on calculators: Kahie never shows Giac's help.
 Usage: python3 prepare-giac.py <giac-source-dir>
 """
 import pathlib
@@ -44,6 +46,7 @@ subprocess.run(["bison", "-p", "giac_yy", "-d", "-o", "input_parser.cc", "input_
                stderr=subprocess.DEVNULL)
 shutil.copy(src / "input_parser.hh", src / "input_parser.h")
 subprocess.run(["flex", "input_lexer.ll"], cwd=src, check=True)
+(src / "static_help.h").write_text('{ "", { "", "", "", "",""}, "", "", "" },\n')
 for f in ("input_parser.cc", "input_parser.h", "input_lexer.cc", "lexer.h"):
     assert (src / f).exists(), f
 print("prepared", root)

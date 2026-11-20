@@ -46,9 +46,9 @@ jobs:
             echo "RANLIB=$TC/bin/llvm-ranlib"
             echo "STRIP=$TC/bin/llvm-strip"
             echo "PREFIX=$RUNNER_TEMP/android-prefix"
-            # Size: optimise for size and give every function/datum its own section so the
+            # Size: optimise for size (-Oz) and give every function/datum its own section so the
             # final link (--gc-sections, also used by rustc for the APK library) drops unused code.
-            echo "SZ=-Os -ffunction-sections -fdata-sections"
+            echo "SZ=-Oz -ffunction-sections -fdata-sections"
           } >> "$GITHUB_ENV"
       - name: GMP
         run: |
