@@ -6,11 +6,15 @@ An offline-first, stylus-first digital notebook and mathematical workspace — A
 
 ## Project status
 
-**Kahie Web v0.1** is the first usable release: an offline, installable notebook with ink, shapes, maths, plots, PDF annotation, search and export. See [`app/web/`](app/web/README.md) and [ADR-0007](docs/adr/0007-web-pwa-first-release.md). The native Rust/Kotlin track in the plan has not started.
+**Kahie Web v0.1** is the first usable release: an offline, installable notebook with ink, shapes, maths, plots, PDF annotation, search and export. See [`app/web/`](app/web/README.md) and [ADR-0007](docs/adr/0007-web-pwa-first-release.md). The native Android app (Rust core + Kotlin, `core/` and `app/android/`) is in progress.
 
 ```bash
 python3 app/web/tools/serve.py 5178   # then open http://127.0.0.1:5178/
 ```
+
+## Licence
+
+Kahie is free software under the [GNU General Public License v3.0 or later](LICENSE) (decision D1).
 
 ## Where to start
 
