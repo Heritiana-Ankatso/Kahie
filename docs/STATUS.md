@@ -30,9 +30,14 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-15 Device lab | Not started | Needs hardware purchase (owner) |
 | P0-16 Corpus protocol | Draft done | `docs/spikes/p0-16-corpus-protocol.md`, `app/web/collect.html` |
 
-## Android build
+## Android app (what works)
 
-CI job `android` builds the APK and uploads `kahie-debug-apk`. History of fixes: UniFFI bindings must be registered as Kotlin sources (AGP 9); error fields must not be named `message`. Check generated bindings locally with kotlinc (see `docs/engineering/conventions.md` §6).
+- Pen/highlighter/eraser on the Rust core, Jetpack Ink wet layer, shape snapping, undo/redo, paper templates.
+- Every edit saved immediately (SQLite per page); legacy JSON pages migrate automatically.
+- Several notebooks (Notebooks dialog: switch, create, rename), pages outline (Pages dialog: open, add, delete to trash).
+- `.kahie` export/import through the system file picker.
+
+CI: `android.yml` builds the APK (artifact `kahie-debug-apk`) and runs an emulator smoke test (draws strokes, checks ink pixels and crashes; screenshots in artifact `smoke-screenshots`). `giac-android.yml` cross-compiles the CAS for arm64 and reports its size. Lessons: UniFFI bindings must be Kotlin source dirs (AGP 9); error fields must not be named `message`; Rust is pinned in `core/rust-toolchain.toml`; check bindings locally with kotlinc (conventions §6).
 
 ## Needs the owner (cannot be done by the agent)
 
@@ -43,8 +48,9 @@ CI job `android` builds the APK and uploads `kahie-debug-apk`. History of fixes:
 
 ## Next steps for the agent (in order)
 
-1. Get the `android` CI job green; download and inspect the APK artifact.
-2. P0-05 Android side: tile cache executing nb-render display lists via FFI.
-3. Library screen with several notebooks (P1-02); section UI in the Pages dialog. (Notebook outline + Pages dialog done.)
-4. P0-07: cross-compile GMP/MPFR/Giac for Android arm64 in CI and measure APK size; implement `CasBackend` in nb-math.
-5. Android sync client for the relay; relay compaction and per-document access control.
+1. Keep `android` (APK + smoke) green; fix `giac-android` until it reports the CAS size, then record it in p0-07-giac.md.
+2. Android sync client for the relay (UniFFI background session + refresh callback); settings for relay URL/token.
+3. P0-05 Android side: tile cache executing nb-render display lists via FFI.
+4. Section UI in the Pages dialog; trash view with restore.
+5. `CasBackend` in nb-math on top of the Android Giac build; maths blocks in the app (Typst+MiTeX rendering after size reduction).
+6. Relay compaction and per-document access control.
