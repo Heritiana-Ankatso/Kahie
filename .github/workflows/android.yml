@@ -66,7 +66,10 @@ jobs:
             echo "KAHIE_FEATURES=giac" >> "$GITHUB_ENV"
             echo "CAS: included" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::Giac libraries not found; building without the CAS"
+            # The CAS is part of the product (D7): do not ship an APK without it silently.
+            echo "Downloaded:"; find giac-libs -maxdepth 4 | head -40 || true
+            echo "::error::Giac libraries not found (giac-android must have succeeded on this branch)"
+            exit 1
           fi
 
       - name: Build debug APK
