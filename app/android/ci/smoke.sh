@@ -50,10 +50,12 @@ tap() {
       adb shell input tap $xy; return 0
     fi
   done
-  echo "UI element not found: $1"; cp "$OUT/ui.xml" "$OUT/missing-$1.xml"
-  echo "visible: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --labels)"
+  cp "$OUT/ui.xml" "$OUT/missing-$1.xml"
+  # Most useful lines last: the job-log API only returns the end of the log.
+  adb logcat -d | grep -E "FATAL EXCEPTION|E AndroidRuntime" | tail -15
   adb shell pidof app.kahie >/dev/null && echo "app is running" || echo "app is NOT running"
-  adb logcat -d | grep -E "FATAL|AndroidRuntime|kahie" | tail -30
+  echo "visible: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --labels)"
+  echo "UI element not found: $1"
   return 1
 }
 # Tap a button in the open dialog (no toolbar swipes: touching outside would dismiss the dialog).
@@ -63,7 +65,9 @@ press() {
     # shellcheck disable=SC2086
     adb shell input tap $xy
   else
-    echo "dialog button not found: $1"; cp "$OUT/ui.xml" "$OUT/missing-$1.xml"; return 1
+    cp "$OUT/ui.xml" "$OUT/missing-$1.xml"
+    echo "visible: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --labels)"
+    echo "dialog button not found: $1"; return 1
   fi
 }
 shot() { sleep "${2:-2}"; adb exec-out screencap -p > "$OUT/$1.png"; }
