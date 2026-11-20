@@ -22,6 +22,8 @@ jobs:
       NDK_VERSION: 27.2.12479018
       GMP: gmp-6.3.0
       MPFR: mpfr-4.2.1
+      # Pinned, reproducible source (Debian/Ubuntu "dfsg" tarball of upstream Giac).
+      GIAC_URL: http://archive.ubuntu.com/ubuntu/pool/universe/g/giac/giac_2.0.0.21+dfsg2.orig.tar.xz
     steps:
       - uses: actions/checkout@v4
       - uses: android-actions/setup-android@v3
@@ -53,16 +55,20 @@ jobs:
           make -j4 && make install
       - name: Giac (minimal)
         run: |
-          curl -fsSL -o giac.tgz https://www-fourier.univ-grenoble-alpes.fr/~parisse/giac/giac_stable.tgz
-          mkdir giac && tar xzf giac.tgz -C giac --strip-components=1
+          curl -fsSL -o giac.tar.xz "$GIAC_URL"
+          mkdir giac && tar xJf giac.tar.xz -C giac --strip-components=1
+          # Bionic has pthreads in libc: no libpthread to detect, so declare it and give the
+          # linker an empty archive for -lpthread.
+          $AR rcs $PREFIX/lib/libpthread.a
           cd giac
           ./configure --host=$TARGET --prefix=$PREFIX --disable-shared --enable-static --with-pic \
             --disable-gui --disable-fltk --disable-ntl --disable-pari --disable-gsl --disable-lapack \
             --disable-glpk --disable-png --disable-curl --disable-ao --disable-ecm --disable-samplerate \
             --disable-micropy --disable-quickjs --disable-nls --disable-gmpxx --disable-tommath \
             CPPFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib" \
-            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY" CFLAGS="-O2 -fPIC" 2>&1 | tail -40
-          make -C src -j4 libgiac.la 2>&1 | grep -E "error|Error" -A3 | head -80 || true
+            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1" CFLAGS="-O2 -fPIC" 2>&1 | tail -40
+          make -C src -j4 libgiac.la > make.log 2>&1 || true
+          grep -E "error:" -A3 make.log | head -120 || true
           test -f src/.libs/libgiac.a
           cp src/.libs/libgiac.a $PREFIX/lib/
       - name: Link the CAS library and measure it
@@ -83,3 +89,4 @@ jobs:
           path: |
             out
             giac/config.log
+            giac/make.log
