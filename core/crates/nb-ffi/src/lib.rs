@@ -70,6 +70,20 @@ pub struct TextBlock {
     pub color: u32,
 }
 
+/// A maths block: LaTeX source rendered by the UI.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct MathBlock {
+    pub key: String,
+    pub id: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub latex: String,
+    pub size: f32,
+    pub color: u32,
+}
+
 /// Geometry the UI can turn into a path. `coords` is x0, y0, x1, y1, …
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct RenderItem {
@@ -589,6 +603,103 @@ impl PageDoc {
         new_ids
     }
 
+    // ----- maths blocks -----
+
+    pub fn math_blocks(&self) -> Vec<MathBlock> {
+        let st = self.state.lock().unwrap();
+        st.doc
+            .page()
+            .items
+            .iter()
+            .filter_map(|it| match &it.content {
+                Content::Math {
+                    rect,
+                    latex,
+                    size,
+                    color,
+                } => Some(MathBlock {
+                    key: item_key(it),
+                    id: it.id.clone(),
+                    x: rect.x as f32,
+                    y: rect.y as f32,
+                    width: rect.w as f32,
+                    height: rect.h as f32,
+                    latex: latex.clone(),
+                    size: *size as f32,
+                    color: *color,
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Add a maths block (top-left at x, y; size measured by the UI's renderer). Returns its id.
+    #[allow(clippy::too_many_arguments)] // flat FFI signature
+    pub fn add_math(&self, x: f64, y: f64, width: f64, height: f64, latex: String, size: f64, color: u32) -> String {
+        let mut st = self.state.lock().unwrap();
+        st.seq += 1;
+        let id = new_id(st.seq);
+        let item = Item {
+            id: id.clone(),
+            content: Content::Math {
+                rect: nb_model::Rect {
+                    x,
+                    y,
+                    w: width,
+                    h: height,
+                },
+                latex,
+                size,
+                color,
+            },
+        };
+        let op = Op::add(st.doc.page(), vec![item]);
+        st.commit(op);
+        id
+    }
+
+    /// Replace a maths block's LaTeX and measured size. Empty LaTeX deletes the block.
+    pub fn set_math(&self, id: String, latex: String, width: f64, height: f64) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let Some(old) = st.doc.page().items.iter().find(|i| i.id == id).cloned() else {
+            return false;
+        };
+        if latex.trim().is_empty() {
+            let op = Op::remove(st.doc.page(), &[id.as_str()]);
+            return st.commit(op);
+        }
+        let Content::Math { rect, size, color, .. } = &old.content else {
+            return false;
+        };
+        let item = Item {
+            id,
+            content: Content::Math {
+                rect: nb_model::Rect {
+                    w: width,
+                    h: height,
+                    ..rect.clone()
+                },
+                latex,
+                size: *size,
+                color: *color,
+            },
+        };
+        let op = Op::update(st.doc.page(), vec![item]);
+        st.commit(op)
+    }
+
+    /// Topmost maths block containing (x, y), if any.
+    pub fn math_at(&self, x: f64, y: f64) -> Option<String> {
+        let st = self.state.lock().unwrap();
+        st.doc
+            .page()
+            .items
+            .iter()
+            .rev()
+            .find(|it| matches!(it.content, Content::Math { .. }) && it.bounds().contains(x, y))
+            .map(|it| it.id.clone())
+    }
+
     // ----- text blocks -----
 
     /// Text blocks in drawing order.
@@ -827,6 +938,24 @@ mod tests {
         assert!(doc.delete_items(copies));
         assert_eq!(doc.item_count(), 3);
         assert!(doc.bounds_of(vec!["missing".into()]).is_empty());
+    }
+
+    #[test]
+    fn math_blocks_add_edit_find_delete() {
+        let doc = PageDoc::new_in_memory();
+        let id = doc.add_math(50.0, 50.0, 120.0, 30.0, "a^2+b^2=c^2".into(), 20.0, 0);
+        assert_eq!(doc.math_at(60.0, 60.0), Some(id.clone()));
+        assert_eq!(doc.text_at(60.0, 60.0), None, "maths is not text");
+        assert!(doc.set_math(id.clone(), "\\frac{a}{b}".into(), 40.0, 50.0));
+        let m = &doc.math_blocks()[0];
+        assert_eq!((m.latex.as_str(), m.width, m.height), ("\\frac{a}{b}", 40.0, 50.0));
+        assert_eq!(
+            doc.select_rect(0.0, 0.0, 100.0, 100.0),
+            vec![id.clone()],
+            "maths can be selected"
+        );
+        assert!(doc.set_math(id, "".into(), 0.0, 0.0));
+        assert!(doc.math_blocks().is_empty());
     }
 
     #[test]

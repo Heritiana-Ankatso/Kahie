@@ -48,6 +48,7 @@ class MainActivity : Activity() {
     /** One directory per notebook under `notebooks/`. */
     private val notebooksRoot by lazy { File(filesDir, "notebooks").apply { mkdirs() } }
     private lateinit var notebook: NotebookDoc
+    private var mathRenderer: MathRenderer? = null
     private var pageIds: List<String> = emptyList()
     private var pageIndex = 0
     private var doc: PageDoc? = null
@@ -68,6 +69,10 @@ class MainActivity : Activity() {
         ink = InkView(this)
         ink.autoShapes = prefs.getBoolean("autoShapes", false)
         ink.onTextTap = { x, y, blockId -> editText(x, y, blockId) }
+        val renderer = MathRenderer(this) { ink.invalidate() }
+        mathRenderer = renderer
+        ink.math = renderer
+        ink.onMathTap = { x, y, blockId -> editMath(x, y, blockId) }
         ink.onChanged = {
             updateHistoryButtons()
             main.removeCallbacks(saveRunnable)
@@ -109,6 +114,12 @@ class MainActivity : Activity() {
             if (ink.tool == InkView.Tool.SELECT) toast(getString(R.string.select_hint))
         })
         bar.addView(textButton(R.string.selection) { showSelectionActions() })
+        bar.addView(textButton(R.string.math_tool) {
+            ink.clearSelection()
+            ink.tool = if (ink.tool == InkView.Tool.MATH) InkView.Tool.PEN else InkView.Tool.MATH
+            updateToolbar()
+            if (ink.tool == InkView.Tool.MATH) toast(getString(R.string.math_tool_hint))
+        })
         bar.addView(textButton(R.string.text_tool) {
             ink.tool = if (ink.tool == InkView.Tool.TEXT) InkView.Tool.PEN else InkView.Tool.TEXT
             updateToolbar()
@@ -412,6 +423,42 @@ class MainActivity : Activity() {
                 }.onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
             }
         }
+    }
+
+    /** Create a maths block at (x, y) or edit the one tapped (LaTeX, rendered by MathJax). */
+    private fun editMath(x: Float, y: Float, blockId: String?) {
+        val d = doc ?: return
+        val renderer = mathRenderer ?: return
+        val existing = blockId?.let { id -> d.mathBlocks().firstOrNull { it.id == id } }
+        val input = android.widget.EditText(this).apply {
+            setText(existing?.latex ?: "")
+            hint = "\\frac{a}{b} + \\sqrt{x}"
+            setSelection(text.length)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(if (existing == null) R.string.add_math else R.string.edit_math)
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val latex = input.text.toString().trim()
+                val size = existing?.size ?: 24f
+                val color = existing?.color ?: (ink.penColor and 0xFFFFFF).toUInt()
+                if (latex.isEmpty()) {
+                    if (existing != null) { d.setMath(existing.id, "", 0.0, 0.0); ink.refresh(); ink.onChanged() }
+                    return@setPositiveButton
+                }
+                // Measure with the renderer first, so the block's bounds match what is drawn.
+                renderer.request(latex, size, (color.toInt() and 0xFFFFFF) or (0xFF shl 24)) { r ->
+                    if (r.error) toast(getString(R.string.math_error))
+                    val w = if (r.width > 0f) r.width else 60f
+                    val h = if (r.height > 0f) r.height else size * 1.4f
+                    if (existing != null) d.setMath(existing.id, latex, w.toDouble(), h.toDouble())
+                    else d.addMath(x.toDouble(), y.toDouble(), w.toDouble(), h.toDouble(), latex, size.toDouble(), color)
+                    ink.refresh()
+                    ink.onChanged()
+                }
+            }
+            .show()
     }
 
     /** Duplicate / delete / deselect the current selection. */

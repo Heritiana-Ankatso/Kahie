@@ -23,7 +23,7 @@ import kotlin.math.min
 
 /** Page canvas: stylus/touch/mouse input, pan and zoom, and drawing of the core's geometry. */
 class InkView(context: Context) : View(context) {
-    enum class Tool { PEN, HIGHLIGHTER, ERASER, TEXT, SELECT }
+    enum class Tool { PEN, HIGHLIGHTER, ERASER, TEXT, SELECT, MATH }
 
     /** Optional low-latency renderer for the stroke in progress (see [JetpackWetInk]). */
     interface WetInk {
@@ -96,6 +96,17 @@ class InkView(context: Context) : View(context) {
         onSelectionChanged(ids.size)
         invalidate()
     }
+
+    /** Renders maths blocks (set by the activity). */
+    var math: MathRenderer? = null
+    private var maths: List<uniffi.nb_ffi.MathBlock> = emptyList()
+    private val mathPlaceholder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0x55888888
+    }
+
+    /** Maths tool tap at page coordinates, with the id of the maths block there (if any). */
+    var onMathTap: (x: Float, y: Float, blockId: String?) -> Unit = { _, _, _ -> }
 
     /** Text tool tap at page coordinates, with the id of the text block there (if any). */
     var onTextTap: (x: Float, y: Float, blockId: String?) -> Unit = { _, _, _ -> }
@@ -174,6 +185,7 @@ class InkView(context: Context) : View(context) {
         val live = order.toHashSet()
         paths.keys.retainAll(live)
         for (key in order) if (key !in paths) d.geometry(key)?.let { paths[key] = toPath(it) }
+        maths = d.mathBlocks()
         val blocks = d.textBlocks()
         textLayouts.keys.retainAll(blocks.map { it.key }.toSet())
         texts = blocks.map { b -> textLayouts.getOrPut(b.key) { CachedText(b, layoutText(b.text, b.width, b.size, b.color)) } }
@@ -273,6 +285,23 @@ class InkView(context: Context) : View(context) {
             t.layout.draw(canvas)
             canvas.restore()
         }
+        for (m in maths) {
+            if (m.key in hidden) continue
+            canvas.save()
+            if (moving && m.id in selection) canvas.translate(dragDx, dragDy)
+            canvas.translate(m.x, m.y)
+            val r = math?.get(m.latex, m.size, (m.color.toInt() and 0xFFFFFF) or (0xFF shl 24))
+            val pic = r?.picture
+            if (pic != null && r.width > 0f && r.height > 0f) {
+                canvas.scale(m.width / r.width, m.height / r.height)
+                canvas.scale(r.width / pic.width.coerceAtLeast(1), r.height / pic.height.coerceAtLeast(1))
+                canvas.drawPicture(pic)
+            } else {
+                mathPlaceholder.strokeWidth = 1f / s * density
+                canvas.drawRect(0f, 0f, m.width, m.height, mathPlaceholder)
+            }
+            canvas.restore()
+        }
         drawWet(canvas)
         bandPaint.strokeWidth = 1.5f * density / s
         band?.let { canvas.drawRect(it, bandPaint) }
@@ -362,6 +391,14 @@ class InkView(context: Context) : View(context) {
 
         if (tool == Tool.SELECT && !drawing && !erasing && e.pointerCount == 1) {
             handleSelect(e)
+            return true
+        }
+        if (tool == Tool.MATH && !drawing && !erasing) {
+            if (e.actionMasked == MotionEvent.ACTION_UP) {
+                val x = toPageX(e.x)
+                val y = toPageY(e.y)
+                onMathTap(x, y, doc?.mathAt(x.toDouble(), y.toDouble()))
+            }
             return true
         }
         if (tool == Tool.TEXT && !drawing && !erasing) {

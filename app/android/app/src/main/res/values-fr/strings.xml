@@ -60,4 +60,9 @@
         <item quantity="one">%d élément sélectionné</item>
         <item quantity="other">%d éléments sélectionnés</item>
     </plurals>
+    <string name="math_tool">Maths</string>
+    <string name="math_tool_hint">Touchez la page pour écrire des maths en LaTeX, ou une formule pour la modifier</string>
+    <string name="add_math">Maths (LaTeX)</string>
+    <string name="edit_math">Modifier la formule (vide pour supprimer)</string>
+    <string name="math_error">Le LaTeX contient une erreur ; vérifiez la formule</string>
 </resources>

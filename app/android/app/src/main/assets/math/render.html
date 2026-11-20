@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- Offscreen LaTeX → SVG renderer for the Android app (MathRenderer.kt).
+     Same MathJax build and settings as Kahie Web (app/web/src/mathtex.js). -->
+<meta charset="utf-8">
+<script>
+window.MathJax = {
+  tex: { packages: { '[+]': ['ams'] } },
+  svg: { fontCache: 'none' },
+  startup: {
+    typeset: false,
+    ready: () => { MathJax.startup.defaultReady(); MathJax.startup.promise.then(() => Kahie.onLoaded()); },
+  },
+};
+// size: font size in page units; color: CSS colour. Reports page-unit width/height.
+function render(key, latex, size, color) {
+  try {
+    const node = MathJax.tex2svg(latex || '\\square', { display: true });
+    const el = node.querySelector('svg');
+    const ex = size * 0.45;
+    const w = parseFloat(el.getAttribute('width')) * ex;
+    const h = parseFloat(el.getAttribute('height')) * ex;
+    el.setAttribute('width', w.toFixed(2));
+    el.setAttribute('height', h.toFixed(2));
+    el.removeAttribute('style');
+    el.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const svg = el.outerHTML.replace(/currentColor/g, color);
+    const error = !!el.querySelector('[data-mml-node="merror"]');
+    Kahie.onSvg(key, svg, w, h, error);
+  } catch (e) {
+    Kahie.onFail(key, String(e));
+  }
+}
+</script>
+<script src="../mathjax/tex-svg-full.js"></script>

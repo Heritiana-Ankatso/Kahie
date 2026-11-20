@@ -44,6 +44,8 @@ android {
             // AGP 9 compiles Kotlin itself: generated .kt files must be Kotlin source dirs.
             kotlin.srcDir(generatedKotlin.get().asFile)
             jniLibs.srcDir(generatedJni.get().asFile)
+            // MathJax (Apache-2.0) shared with Kahie Web: assets/mathjax/tex-svg-full.js
+            assets.srcDir(rootDir.resolve("../web/vendor"))
         }
     }
 
@@ -59,6 +61,8 @@ dependencies {
     implementation("androidx.ink:ink-authoring:1.0.0")
     implementation("androidx.ink:ink-brush:1.0.0")
     implementation("androidx.ink:ink-strokes:1.0.0")
+    // SVG → Picture for maths rendered by MathJax (Apache-2.0).
+    implementation("com.caverock:androidsvg-aar:1.4")
 }
 
 tasks.named("preBuild") { dependsOn(buildRustCore) }

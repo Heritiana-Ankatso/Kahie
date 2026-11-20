@@ -62,4 +62,9 @@
         <item quantity="one">%d item selected</item>
         <item quantity="other">%d items selected</item>
     </plurals>
+    <string name="math_tool">Maths</string>
+    <string name="math_tool_hint">Tap the page to write maths in LaTeX, or a formula to edit it</string>
+    <string name="add_math">Maths (LaTeX)</string>
+    <string name="edit_math">Edit maths (empty to delete)</string>
+    <string name="math_error">The LaTeX has an error; check the formula</string>
 </resources>
