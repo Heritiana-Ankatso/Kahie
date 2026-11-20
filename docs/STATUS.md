@@ -19,7 +19,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-04 FFI spike | Done on desktop | `docs/spikes/p0-04-ffi.md`; JNA overhead on device pending |
 | P0-05 Rendering pipeline | Core done on desktop | `docs/spikes/p0-05-render.md`; Android tile cache + device fps pending |
 | P0-06 HWR benchmark | Blocked on corpus | Protocol + tool ready (P0-16) |
-| P0-07 CAS (Giac) | Builds for Android (arm64 + x86_64), 88/88 on desktop | `docs/spikes/p0-07-giac.md`; `nb_math::cas` (feature `giac`); arm64 lib 23.7 MB / 10 MB gzipped; size reduction pending |
+| P0-07 CAS (Giac) | Builds for Android (arm64 + x86_64), 88/88 on desktop | `docs/spikes/p0-07-giac.md`; `nb_math::cas` (feature `giac`); arm64 lib 23.7 → 14.6 MB (`-Os`, gc-sections); `-Oz` + no built-in help built (size: see the run's annotation); target ≤ 12 MB |
 | P0-08 On-device LLM | Not started | Needs devices |
 | P0-09 Typesetting | Done on desktop | `docs/spikes/p0-09-typesetting.md`: Typst + MiTeX, 99/99 formulas; APK size reduction pending |
 | P0-10 Relay | Done (with compaction) | `docs/spikes/p0-10-relay.md`, `core/crates/nb-relay`, `docs/relay.md` |
@@ -36,11 +36,12 @@ Built and smoke-tested on CI up to commit `85b5e83` (APK built, app ran on the e
 
 - Ink: pen/highlighter/eraser on the Rust core, Jetpack Ink wet layer, shape snapping, batched input (`add_points`), undo/redo + two-/three-finger tap.
 - Storage: every edit saved immediately (SQLite per page, `.kpage`); legacy JSON pages migrate.
-- Notebooks (switch/create/rename), Pages dialog (open, add, delete to trash, Trash restore, export page PNG).
+- Notebooks (switch/create/rename), Pages dialog (open, add, rename, delete to trash, Trash restore, export page PNG; sections: create, rename, delete, move the open page into one).
+- Languages: English, French, Malagasy (draft); in-app language choice (Notebooks → More → Language) plus Android 13 per-app language.
 - Blocks: Text (tap to add/edit), Maths (LaTeX → MathJax in hidden WebView → SVG → AndroidSVG Picture), Plot (functions of x, sampled in the core), Image (photos, stored in the page CRDT `assets` map), Select tool (rectangle select, move, duplicate, delete).
 - Paper: lined, grid, dots, mm graph, Cornell, music, blank; PDF import as uneditable page background.
 - Export/import: `.kahie` (ZIP, schema-valid `document.json`, `assets/<sha256>`), vector PDF of the notebook, PNG of a page.
-- Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min, status dot.
+- Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min (reloads the open page if it changed), status dot. Per-notebook access control: Share shows an editor code and a read-only code (students); read-only notebooks are view-only (`nb_store::access`, `docs/relay.md`).
 - CAS: `cas_eval` FFI + Compute button in the text dialog (only in builds with feature `giac`).
 
 ## CI state (at handoff, 17:40 UTC 2026-11-20)
@@ -48,6 +49,8 @@ Built and smoke-tested on CI up to commit `85b5e83` (APK built, app ran on the e
 - `ci` (web, core tests, cargo-deny, offline tests with loopback only, schema): green.
 - `giac-android` (arm64 + x86_64 matrix): **green**; publishes `giac-libs-<target>` artifacts.
 - `android` (APK + emulator smoke): last finished run (85b5e83) built the APK; smoke failed only on a too-strict pixel threshold (142 dark px; threshold now 100, fixed in `ac15472`). **Run for `3a26664` is the first that builds all features above and links the CAS** (android.yml downloads giac-libs, `KAHIE_FEATURES=giac`, step summary "CAS: included"). Expect Kotlin compile errors and possibly link errors (static libc++/c++abi, `GIAC_LIB_DIR_<target>` in `nb-math/build.rs`) — fix them first.
+
+**Local Kotlin check:** `app/android/ci/kt-check.sh <cache-dir>` compiles the whole app against Robolectric's `android-all` (stubs for `R`, `androidx.ink`) and validates resource XML, in ~1 min. It caught nothing in the Kotlin but found an unescaped `<` in `plot_bad_window` that would have failed aapt in CI.
 
 How to iterate without the Android SDK here: generate bindings and compile them with kotlinc (`docs/engineering/conventions.md` §6; kotlinc 2.2.21 zip from GitHub releases, JNA jar from Maven Central). Push in batches: every push to `core/**` or `app/android/**` cancels the running `android` job (~35 min). To push only workflow/doc commits without cancelling it, reorder them first and push that commit (`git push origin <sha>:ccr-121ac074-e1jgb6`).
 
