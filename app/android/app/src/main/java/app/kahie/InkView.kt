@@ -25,6 +25,18 @@ import kotlin.math.min
 class InkView(context: Context) : View(context) {
     enum class Tool { PEN, HIGHLIGHTER, ERASER }
 
+    /** Optional low-latency renderer for the stroke in progress (see [JetpackWetInk]). */
+    interface WetInk {
+        /** Returns false if the stroke could not be started; InkView then draws it itself. */
+        fun start(e: MotionEvent, pointerId: Int, highlighter: Boolean, colorArgb: Int, sizePx: Float): Boolean
+        fun add(e: MotionEvent, pointerId: Int)
+        fun finish(e: MotionEvent, pointerId: Int)
+        fun cancel(e: MotionEvent?)
+    }
+
+    /** When set, wet ink is drawn by this layer instead of [onDraw]. */
+    var wetInk: WetInk? = null
+
     var doc: PageDoc? = null
         set(value) {
             field = value
@@ -64,6 +76,7 @@ class InkView(context: Context) : View(context) {
     private val wet = ArrayList<FloatArray>() // x, y, pressure (page coords)
     private var snapPreview: CachedPath? = null
     private var drawing = false
+    private var fastWet = false // the current stroke is drawn by [wetInk]
     private var erasing = false
     private var lastErase: FloatArray? = null
     private var activePointer = -1
@@ -218,7 +231,7 @@ class InkView(context: Context) : View(context) {
 
     private fun drawWet(canvas: Canvas) {
         snapPreview?.let { canvas.drawPath(it.path, it.paint); return }
-        if (wet.isEmpty()) return
+        if (wet.isEmpty() || fastWet) return
         val hl = tool == Tool.HIGHLIGHTER
         wetPaint.color = if (hl) highlighterColor else penColor
         wetPaint.alpha = if (hl) 90 else 255
@@ -257,7 +270,7 @@ class InkView(context: Context) : View(context) {
         }
         if ((drawing || erasing) && e.pointerCount >= 2 && toolType == MotionEvent.TOOL_TYPE_FINGER && e.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
             // A second finger means the user is navigating: drop the stroke.
-            cancelInk()
+            cancelInk(e)
             return handleGesture(e)
         }
         if (panning) return handleGesture(e)
@@ -275,8 +288,8 @@ class InkView(context: Context) : View(context) {
                 if (idx < 0) return true
                 if (erasing) moveErase(e, idx) else if (drawing) moveInk(e, idx)
             }
-            MotionEvent.ACTION_UP -> { if (erasing) endErase() else if (drawing) endInk() }
-            MotionEvent.ACTION_CANCEL -> cancelInk()
+            MotionEvent.ACTION_UP -> { if (erasing) endErase() else if (drawing) endInk(e) }
+            MotionEvent.ACTION_CANCEL -> cancelInk(e)
         }
         return true
     }
@@ -329,6 +342,9 @@ class InkView(context: Context) : View(context) {
         wet.add(floatArrayOf(x, y, p))
         snapPreview = null
         drawing = true
+        val color = if (hl) (highlighterColor and 0xFFFFFF) or (90 shl 24) else penColor
+        val sizePx = ((if (hl) highlighterWidth else penWidth) * s).toFloat()
+        fastWet = wetInk?.start(e, activePointer, hl, color, sizePx) ?: false
         holdX = e.x; holdY = e.y
         armHold()
         invalidate()
@@ -338,6 +354,7 @@ class InkView(context: Context) : View(context) {
         val d = doc ?: return
         for (h in 0 until e.historySize) addInk(d, e.getHistoricalX(idx, h), e.getHistoricalY(idx, h), pressureOf(e, idx, h))
         addInk(d, e.getX(idx), e.getY(idx), pressureOf(e, idx))
+        if (fastWet) wetInk?.add(e, activePointer)
         if (hypot(e.getX(idx) - holdX, e.getY(idx) - holdY) > 4 * density) {
             holdX = e.getX(idx); holdY = e.getY(idx)
             if (snapPreview != null) { d.clearSnap(); snapPreview = null }
@@ -363,14 +380,17 @@ class InkView(context: Context) : View(context) {
     private fun trySnap() {
         if (!drawing) return
         val g = doc?.snapCurrent() ?: return
+        // The snapped shape replaces the raw ink, so InkView draws the rest of this stroke itself.
+        if (fastWet) { wetInk?.cancel(null); fastWet = false }
         snapPreview = toPath(g)
         performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
         invalidate()
     }
 
-    private fun endInk() {
+    private fun endInk(e: MotionEvent) {
         handler.removeCallbacks(holdRunnable)
         drawing = false
+        if (fastWet) { wetInk?.finish(e, activePointer); fastWet = false }
         doc?.endStroke((s / density).toDouble(), autoShapes)
         wet.clear()
         snapPreview = null
@@ -378,8 +398,9 @@ class InkView(context: Context) : View(context) {
         onChanged()
     }
 
-    private fun cancelInk() {
+    private fun cancelInk(e: MotionEvent? = null) {
         handler.removeCallbacks(holdRunnable)
+        if (fastWet) { wetInk?.cancel(e); fastWet = false }
         if (drawing) doc?.cancelStroke()
         if (erasing) doc?.cancelErase()
         drawing = false

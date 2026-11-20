@@ -5,7 +5,9 @@ The native Android app is built on the Rust core in [`core/`](../../core). Gradl
 1. cross-compiles `nb-ffi` for `arm64-v8a` and `x86_64` with `cargo ndk`;
 2. generates the Kotlin bindings with UniFFI (library mode) from a host build of the same crate.
 
-The app loads the core through JNA (`net.java.dev.jna:jna` AAR).
+The app loads the core through JNA (`net.java.dev.jna:jna` AAR). It requires **Android 12 (API 31)** or newer (decision D4).
+
+Wet ink (the stroke being drawn) is rendered by **Jetpack Ink** (`androidx.ink`, front-buffered, low latency) in `JetpackWetInk.kt`, stacked over `InkView`. This is a prototype: the Rust core remains the source of truth and draws every committed stroke. Set the shared preference `jetpackInk` to `false` to fall back to `InkView`'s own wet-ink drawing.
 
 ## Prerequisites
 
@@ -33,6 +35,10 @@ cd core
 cargo test --workspace
 cargo check -p nb-ffi --target aarch64-linux-android --release
 ```
+
+## CI
+
+`.github/workflows/android.yml` runs Rust lint and tests, then builds the debug APK and uploads it as the `kahie-debug-apk` artifact.
 
 ## Release signing
 

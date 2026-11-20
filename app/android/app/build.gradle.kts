@@ -25,7 +25,7 @@ android {
 
     defaultConfig {
         applicationId = "app.kahie"
-        minSdk = 29
+        minSdk = 31
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
@@ -54,6 +54,10 @@ android {
 
 dependencies {
     implementation("net.java.dev.jna:jna:5.17.0@aar")
+    // Low-latency wet ink (prototype; see JetpackWetInk.kt).
+    implementation("androidx.ink:ink-authoring:1.0.0")
+    implementation("androidx.ink:ink-brush:1.0.0")
+    implementation("androidx.ink:ink-strokes:1.0.0")
 }
 
 tasks.named("preBuild") { dependsOn(buildRustCore) }

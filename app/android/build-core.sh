@@ -13,7 +13,7 @@ if [[ -z "${ANDROID_NDK_HOME:-}" ]]; then
 fi
 cd "$(dirname "$0")/../../core"
 FLAG=$([[ $PROFILE == release ]] && echo --release || true)
-cargo ndk -t arm64-v8a -t x86_64 --platform 29 -o "$JNI_OUT" build $FLAG -p nb-ffi
+cargo ndk -t arm64-v8a -t x86_64 --platform 31 -o "$JNI_OUT" build $FLAG -p nb-ffi
 # Bindings are generated from a host build of the same crate (UniFFI library mode).
 cargo build $FLAG -p nb-ffi
 rm -rf "$KT_OUT"

@@ -105,7 +105,15 @@ class MainActivity : Activity() {
             addView(bar)
         }
         root.addView(scroller, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(ink, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        // Jetpack Ink draws the stroke in progress on top of the page (prototype, on by default).
+        val page = android.widget.FrameLayout(this)
+        page.addView(ink, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        if (prefs.getBoolean("jetpackInk", true)) {
+            val wet = JetpackWetInk(this)
+            ink.wetInk = wet
+            page.addView(wet.view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        root.addView(page, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.setOnApplyWindowInsetsListener { v, insets ->
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
