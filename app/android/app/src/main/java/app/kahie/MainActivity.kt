@@ -25,6 +25,7 @@ import uniffi.nb_ffi.SyncSession
 import uniffi.nb_ffi.SyncStatus
 import uniffi.nb_ffi.casAvailable
 import uniffi.nb_ffi.casEval
+import uniffi.nb_ffi.clipboardCount
 import uniffi.nb_ffi.exportKahie
 import uniffi.nb_ffi.syncPageOnce
 import uniffi.nb_ffi.newShareCode
@@ -993,24 +994,42 @@ class MainActivity : Activity() {
     }
 
     /** Duplicate / delete / deselect the current selection. */
+    /** Page the clipboard was copied from: pasting there offsets the copy so it is visible. */
+    private var copiedFrom: String? = null
+
+    private fun paste() {
+        val d = doc ?: return
+        val here = pageIds.getOrNull(pageIndex)
+        val off = if (here == copiedFrom) 24.0 else 0.0
+        ink.select(d.pasteItems(off, off))
+        ink.refresh()
+        ink.onChanged()
+    }
+
     private fun showSelectionActions() {
         val sel = ink.selection
         val d = doc ?: return
         if (sel.isEmpty()) {
-            toast(getString(R.string.nothing_selected))
+            val n = clipboardCount().toInt()
+            if (n == 0) { toast(getString(R.string.nothing_selected)); return }
+            AlertDialog.Builder(this)
+                .setTitle(R.string.nothing_selected)
+                .setItems(arrayOf(resources.getQuantityString(R.plurals.paste_items, n, n))) { _, _ -> paste() }
+                .show()
             return
         }
         AlertDialog.Builder(this)
             .setTitle(resources.getQuantityString(R.plurals.selected_items, sel.size, sel.size))
             .setItems(arrayOf(
-                getString(R.string.duplicate), getString(R.string.delete),
+                getString(R.string.copy), getString(R.string.duplicate), getString(R.string.delete),
                 getString(R.string.bring_to_front), getString(R.string.send_to_back), getString(R.string.deselect),
             )) { _, which ->
                 when (which) {
-                    0 -> ink.select(d.duplicateItems(sel, 24.0, 24.0))
-                    1 -> { d.deleteItems(sel); ink.select(emptyList()) }
-                    2 -> d.reorderItems(sel, true)
-                    3 -> d.reorderItems(sel, false)
+                    0 -> { d.copyItems(sel); copiedFrom = pageIds.getOrNull(pageIndex); toast(getString(R.string.copied)) }
+                    1 -> ink.select(d.duplicateItems(sel, 24.0, 24.0))
+                    2 -> { d.deleteItems(sel); ink.select(emptyList()) }
+                    3 -> d.reorderItems(sel, true)
+                    4 -> d.reorderItems(sel, false)
                     else -> ink.clearSelection()
                 }
                 ink.refresh()

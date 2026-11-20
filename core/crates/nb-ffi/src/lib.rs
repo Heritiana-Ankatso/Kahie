@@ -207,6 +207,21 @@ pub(crate) struct State {
     seq: u64,
 }
 
+/// The app clipboard: items and the image bytes they need (process-wide).
+#[derive(Clone)]
+struct Clip {
+    items: Vec<Item>,
+    assets: Vec<(String, Vec<u8>)>,
+}
+
+static CLIPBOARD: Mutex<Option<Clip>> = Mutex::new(None);
+
+/// Number of items on the app clipboard (0: nothing to paste).
+#[uniffi::export]
+pub fn clipboard_count() -> u32 {
+    CLIPBOARD.lock().unwrap().as_ref().map_or(0, |c| c.items.len() as u32)
+}
+
 #[derive(uniffi::Object)]
 pub struct PageDoc {
     pub(crate) state: Mutex<State>,
@@ -680,6 +695,54 @@ impl PageDoc {
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
         let op = Op::remove(st.doc.page(), &refs);
         st.commit(op)
+    }
+
+    /// Copy items to the app clipboard (P1-15), with the images they show, so they can be
+    /// pasted on any page of any notebook. Returns the number of items copied.
+    pub fn copy_items(&self, ids: Vec<String>) -> u32 {
+        let st = self.state.lock().unwrap();
+        let items: Vec<Item> = st
+            .doc
+            .page()
+            .items
+            .iter()
+            .filter(|it| ids.contains(&it.id))
+            .cloned()
+            .collect();
+        let assets = items
+            .iter()
+            .filter_map(|it| match &it.content {
+                Content::Image { asset, .. } => st.doc.asset(asset).map(|b| (asset.clone(), b)),
+                _ => None,
+            })
+            .collect();
+        let n = items.len() as u32;
+        *CLIPBOARD.lock().unwrap() = Some(Clip { items, assets });
+        n
+    }
+
+    /// Paste the clipboard, offset by (dx, dy), on top of the page. Returns the new ids.
+    pub fn paste_items(&self, dx: f64, dy: f64) -> Vec<String> {
+        let Some(clip) = CLIPBOARD.lock().unwrap().clone() else {
+            return vec![];
+        };
+        let mut st = self.state.lock().unwrap();
+        for (hash, bytes) in &clip.assets {
+            if st.doc.asset(hash).is_none() {
+                st.doc.put_asset(hash, bytes);
+            }
+        }
+        let mut copies = Vec::with_capacity(clip.items.len());
+        for it in clip.items {
+            st.seq += 1;
+            let mut c = it.translated(dx, dy);
+            c.id = new_id(st.seq);
+            copies.push(c);
+        }
+        let new_ids = copies.iter().map(|c| c.id.clone()).collect();
+        let op = Op::add(st.doc.page(), copies);
+        st.commit(op);
+        new_ids
     }
 
     /// Bring items to the top of the page (`front`) or send them to the bottom.
@@ -1290,6 +1353,29 @@ mod tests {
             "no expression deletes"
         );
         assert!(doc.plot_blocks().is_empty());
+    }
+
+    #[test]
+    fn copy_paste_between_pages_carries_images() {
+        let a = PageDoc::new_in_memory();
+        let b = PageDoc::new_in_memory();
+        let bytes = b"\x89PNG clip".to_vec();
+        let img = a.add_image(10.0, 20.0, 100.0, 50.0, bytes.clone());
+        let id = a.add_text(200.0, 200.0, 100.0, 30.0, "x = 2".into(), 20.0, 0);
+        assert_eq!(a.copy_items(vec![img, id, "missing".into()]), 2);
+        assert_eq!(clipboard_count(), 2);
+        let pasted = b.paste_items(0.0, 0.0);
+        assert_eq!(pasted.len(), 2);
+        let im = &b.image_blocks()[0];
+        assert_eq!((im.x, im.y), (10.0, 20.0));
+        assert_eq!(b.image_bytes(im.hash.clone()), Some(bytes), "image bytes come along");
+        assert_eq!(b.text_blocks()[0].text, "x = 2");
+        // Pasting again on the same page gives new ids; one undo removes one paste.
+        let again = a.paste_items(24.0, 24.0);
+        assert!(again.iter().all(|i| !pasted.contains(i)));
+        assert_eq!(a.image_blocks().len(), 2);
+        assert!(a.undo());
+        assert_eq!(a.image_blocks().len(), 1);
     }
 
     #[test]

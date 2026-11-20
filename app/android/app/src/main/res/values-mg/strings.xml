@@ -112,4 +112,10 @@
     <string name="empty_trash_confirm">Hamafa tanteraka ny ao anaty fako rehetra? Tsy azo averina intsony izany.</string>
     <string name="bring_to_front">Ataovy eo aloha indrindra</string>
     <string name="send_to_back">Ataovy any aoriana indrindra</string>
+    <string name="copy">Adikao</string>
+    <string name="copied">Voadika — sokafy pejy iray, avy eo Voafidy → Apetaho</string>
+    <plurals name="paste_items">
+        <item quantity="one">Apetaho ny zavatra %d</item>
+        <item quantity="other">Apetaho ny zavatra %d</item>
+    </plurals>
 </resources>

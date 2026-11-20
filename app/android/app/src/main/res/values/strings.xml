@@ -113,4 +113,10 @@
     <string name="empty_trash_confirm">Delete everything in the trash for good? This cannot be undone.</string>
     <string name="bring_to_front">Bring to front</string>
     <string name="send_to_back">Send to back</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied — open any page, then Selection → Paste</string>
+    <plurals name="paste_items">
+        <item quantity="one">Paste %d item</item>
+        <item quantity="other">Paste %d items</item>
+    </plurals>
 </resources>

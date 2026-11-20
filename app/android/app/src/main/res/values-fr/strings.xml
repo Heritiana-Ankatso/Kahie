@@ -111,4 +111,10 @@
     <string name="empty_trash_confirm">Supprimer définitivement tout le contenu de la corbeille ? C’est irréversible.</string>
     <string name="bring_to_front">Mettre au premier plan</string>
     <string name="send_to_back">Mettre à l’arrière-plan</string>
+    <string name="copy">Copier</string>
+    <string name="copied">Copié — ouvrez une page, puis Sélection → Coller</string>
+    <plurals name="paste_items">
+        <item quantity="one">Coller %d élément</item>
+        <item quantity="other">Coller %d éléments</item>
+    </plurals>
 </resources>
