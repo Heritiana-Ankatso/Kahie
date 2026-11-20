@@ -7,6 +7,11 @@ on:
   pull_request:
     paths: ['core/**', 'app/android/**', '.github/workflows/android.yml']
 
+# A newer push to the same branch cancels the older run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     runs-on: ubuntu-latest

@@ -17,8 +17,8 @@ uniffi::setup_scaffolding!();
 
 #[derive(Debug, uniffi::Error)]
 pub enum CoreError {
-    Io { message: String },
-    Format { message: String },
+    Io { detail: String },
+    Format { detail: String },
 }
 
 impl std::error::Error for CoreError {}
@@ -26,8 +26,8 @@ impl std::error::Error for CoreError {}
 impl std::fmt::Display for CoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CoreError::Io { message } => write!(f, "I/O error: {message}"),
-            CoreError::Format { message } => write!(f, "format error: {message}"),
+            CoreError::Io { detail } => write!(f, "I/O error: {detail}"),
+            CoreError::Format { detail } => write!(f, "format error: {detail}"),
         }
     }
 }
@@ -173,16 +173,16 @@ impl PageDoc {
             // Pages saved before the CRDT model are JSON: migrate them on open.
             Ok(bytes) if bytes.first() == Some(&b'{') => {
                 let page: Page =
-                    serde_json::from_slice(&bytes).map_err(|e| CoreError::Format { message: e.to_string() })?;
+                    serde_json::from_slice(&bytes).map_err(|e| CoreError::Format { detail: e.to_string() })?;
                 CrdtPage::from_page(&page, peer_id())
             }
             Ok(bytes) => {
-                CrdtPage::from_snapshot(&bytes, peer_id()).map_err(|e| CoreError::Format { message: e.to_string() })?
+                CrdtPage::from_snapshot(&bytes, peer_id()).map_err(|e| CoreError::Format { detail: e.to_string() })?
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 CrdtPage::new(p.file_stem().and_then(|s| s.to_str()).unwrap_or("page"), peer_id())
             }
-            Err(e) => return Err(CoreError::Io { message: e.to_string() }),
+            Err(e) => return Err(CoreError::Io { detail: e.to_string() }),
         };
         Ok(std::sync::Arc::new(Self::with_doc(doc, Some(p))))
     }
@@ -196,7 +196,7 @@ impl PageDoc {
     pub fn save(&self) -> Result<(), CoreError> {
         let st = self.state.lock().unwrap();
         let Some(path) = &st.path else { return Ok(()) };
-        write_atomic(path, &st.doc.snapshot()).map_err(|e| CoreError::Io { message: e.to_string() })
+        write_atomic(path, &st.doc.snapshot()).map_err(|e| CoreError::Io { detail: e.to_string() })
     }
 
     pub fn template(&self) -> String {
