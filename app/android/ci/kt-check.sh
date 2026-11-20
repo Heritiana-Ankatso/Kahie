@@ -19,6 +19,20 @@ get jna.jar $M/net/java/dev/jna/jna/5.17.0/jna-5.17.0.jar
 get androidsvg.jar $M/com/caverock/androidsvg/1.4/androidsvg-1.4.jar
 [[ -x "$C/kotlinc/bin/kotlinc" ]] || (cd "$C" && unzip -qo kotlinc.zip)
 
+# Resources: well-formed XML, and no bare apostrophe in strings (aapt rejects both).
+python3 - "$APP/res" <<'PY'
+import pathlib, re, sys, xml.etree.ElementTree as ET
+bad = 0
+for f in sorted(pathlib.Path(sys.argv[1]).rglob('*.xml')):
+    try:
+        root = ET.parse(f).getroot()
+    except ET.ParseError as e:
+        print(f'{f}: {e}'); bad += 1; continue
+    for el in root.iter():
+        if el.tag in ('string', 'item') and el.text and re.search(r"(?<!\\)'", el.text):
+            print(f'{f}: unescaped apostrophe in {el.get("name") or el.text!r}'); bad += 1
+sys.exit(1 if bad else 0)
+PY
 OUT=$C/out; rm -rf "$OUT"; mkdir -p "$OUT/src"
 # UniFFI bindings from a host debug build (same API as the Android libraries).
 (cd "$REPO/core" && cargo build -q -p nb-ffi && cargo run -q -p nb-ffi --bin uniffi-bindgen -- generate \

@@ -74,7 +74,7 @@
     <string name="plot_tool_hint">Touchez la page pour tracer des fonctions de x, ou une courbe pour la modifier</string>
     <string name="add_plot">Tracer des fonctions de x</string>
     <string name="edit_plot">Modifier la courbe (aucune expression pour supprimer)</string>
-    <string name="plot_bad_window">Vérifiez la fenêtre : x min < x max et y min < y max</string>
+    <string name="plot_bad_window">Vérifiez la fenêtre : x min &lt; x max et y min &lt; y max</string>
     <string name="image_tool">Image</string>
     <string name="import_pdf">Importer un PDF (pour l’annoter)</string>
     <string name="importing_pdf">Import du PDF…</string>
