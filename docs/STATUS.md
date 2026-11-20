@@ -47,11 +47,11 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 - Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min (reloads the open page if it changed), status dot. Per-notebook access control: Share shows an editor code and a read-only code (students); read-only notebooks are view-only (`nb_store::access`, `docs/relay.md`). **Optional end-to-end encryption** (asked at first Share, default on): codes `n….e…` / `n….v…`; updates sealed with ChaCha20-Poly1305 (`ring`) in `nb-ffi/src/sync.rs`, document id as AAD; the relay sees only derived credentials and ciphertext and never compacts sealed logs. Plain `w…`/`r…` codes and codes without keys stay unencrypted.
 - CAS: `cas_eval` FFI + Compute button in the text dialog (only in builds with feature `giac`).
 
-## CI state (21:22 UTC 2026-11-20)
+## CI state (23:08 UTC 2026-11-20)
 
 - `ci` (web, core tests, cargo-deny, offline tests with loopback only, schema): green.
 - `giac-android` (arm64 + x86_64 matrix): **green**; publishes `giac-libs-<target>` artifacts.
-- `android` (APK + emulator smoke): **green with the CAS** (run 44801655293). It takes Giac libraries from the latest successful `giac-android` run on the branch (`gh run list` + `actions/download-artifact`) and fails if they are missing. After `giac-android` publishes new libraries, start `android` by hand (`workflow_dispatch`) or push. ~16 min (APK 11 + smoke 5).
+- `android` (APK + emulator smoke): **green with the CAS** (run 31, 44832660472, commit `b9368fc`: E2E encryption, custom sizes, horizontal scrolling, notebook templates). `ci` run 47 green on the same commit. It takes Giac libraries from the latest successful `giac-android` run on the branch (`gh run list` + `actions/download-artifact`) and fails if they are missing. After `giac-android` publishes new libraries, start `android` by hand (`workflow_dispatch`) or push. ~16 min (APK 11 + smoke 5).
 - The job-log API returns only the last ~100 lines: put anything you need to read at the end of a step that fails, or in a `::notice::` annotation.
 
 **Local Kotlin check:** `app/android/ci/kt-check.sh <cache-dir>` compiles the whole app against Robolectric's `android-all` (stubs for `R`, `androidx.ink`) and validates resource XML, in ~1 min. It caught nothing in the Kotlin but found an unescaped `<` in `plot_bad_window` that would have failed aapt in CI.
