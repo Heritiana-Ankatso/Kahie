@@ -165,3 +165,79 @@ async fn compaction_keeps_old_and_new_clients_correct() {
     assert_eq!(next_frame(&mut current).await.0, 7);
     std::fs::remove_dir_all(dir).ok();
 }
+
+/// Connect with a notebook key; returns the socket and the role the relay granted.
+async fn connect_key(base: &str, doc: &str, key: Option<&str>) -> Result<(Ws, String), String> {
+    let mut req = format!("{base}/sync/{doc}?after=0").into_client_request().unwrap();
+    if let Some(k) = key {
+        req.headers_mut().insert(nb_relay::KEY_HEADER, k.parse().unwrap());
+    }
+    let (ws, resp) = tokio_tungstenite::connect_async(req).await.map_err(|e| e.to_string())?;
+    let role = resp
+        .headers()
+        .get(nb_relay::ROLE_HEADER)
+        .map(|v| v.to_str().unwrap().to_string())
+        .unwrap_or_default();
+    Ok((ws, role))
+}
+
+#[tokio::test]
+async fn notebook_keys_claim_read_only_and_refusal() {
+    use nb_store::access::read_key;
+    let (base, dir) = start(None).await;
+    let w = "w00112233445566778899aabbccddeeff";
+    let r = read_key(w).unwrap();
+
+    // Before any key: open as before (write), and a read key reads without claiming.
+    assert_eq!(connect_key(&base, "nold", None).await.unwrap().1, "write");
+    assert_eq!(connect_key(&base, "nbook", Some(&r)).await.unwrap().1, "read");
+    assert!(!dir.join("nbook.acl").exists());
+
+    // The write key claims the group (outline and pages alike).
+    let (mut writer, role) = connect_key(&base, "nbook-p1", Some(w)).await.unwrap();
+    assert_eq!(role, "write");
+    assert!(dir.join("nbook.acl").exists());
+    assert!(connect_key(&base, "nbook", None).await.is_err(), "no key → refused");
+    assert!(
+        connect_key(&base, "nbook-p2", Some("w99999999999999999999999999999999"))
+            .await
+            .is_err()
+    );
+    assert!(connect_key(&base, "nbook", Some("not-a-key")).await.is_err());
+    assert_eq!(connect_key(&base, "nbook", Some(w)).await.unwrap().1, "write");
+
+    // A reader receives the writer's updates but may not send any.
+    let (mut reader, role) = connect_key(&base, "nbook-p1", Some(&r)).await.unwrap();
+    assert_eq!(role, "read");
+    let mut a = CrdtPage::new("p1", 1);
+    a.apply(&Op::add(a.page(), vec![stroke("s", 0.0)]));
+    writer
+        .send(Message::Binary(a.take_unsaved().unwrap().into()))
+        .await
+        .unwrap();
+    assert_eq!(next_frame(&mut writer).await, (1, vec![]));
+    let (seq, upd) = next_frame(&mut reader).await;
+    assert_eq!(seq, 1);
+    assert_eq!(CrdtPage::load(&[&upd], 2).unwrap().page().items, a.page().items);
+    reader.send(Message::Binary(vec![1, 2, 3].into())).await.unwrap();
+    let closed = loop {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), reader.next())
+            .await
+            .expect("timeout")
+        {
+            Some(Ok(Message::Close(Some(f)))) => break u16::from(f.code),
+            Some(Ok(_)) => continue,
+            _ => break 0,
+        }
+    };
+    assert_eq!(closed, 1008);
+    // Nothing was stored from the reader: a new client sees only update 1.
+    let (mut fresh, _) = connect_key(&base, "nbook-p1", Some(w)).await.unwrap();
+    assert_eq!(next_frame(&mut fresh).await.0, 1);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(300), fresh.next())
+            .await
+            .is_err()
+    );
+    std::fs::remove_dir_all(dir).ok();
+}

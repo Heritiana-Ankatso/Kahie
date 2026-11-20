@@ -27,6 +27,9 @@ import uniffi.nb_ffi.casAvailable
 import uniffi.nb_ffi.casEval
 import uniffi.nb_ffi.exportKahie
 import uniffi.nb_ffi.syncPageOnce
+import uniffi.nb_ffi.newShareCode
+import uniffi.nb_ffi.parseShareCode
+import uniffi.nb_ffi.ShareInfo
 import uniffi.nb_ffi.importKahie
 import uniffi.nb_ffi.PageDoc
 import java.io.File
@@ -240,6 +243,9 @@ class MainActivity : Activity() {
         }
         prefs.edit().putString("notebook", dir.name).apply()
         notebookDir = dir
+        // A notebook joined with a viewer's code is read-only: pan and zoom only.
+        ink.readOnly = share()?.readOnly == true
+        if (ink.readOnly) toast(getString(R.string.sync_read_only_notebook))
         restartNotebookSync()
         pageIds = notebook.pageIds()
         pageIndex = -1
@@ -303,6 +309,8 @@ class MainActivity : Activity() {
     private fun relayToken() = prefs.getString("relayToken", "")!!
     /** Share code of the current notebook, or null when it is not synced. */
     private fun syncCode(): String? = notebookDir?.let { prefs.getString("sync_${it.name}", null) }
+    /** Parsed share code of the current notebook (group, key, read-only), or null. */
+    private fun share(): ShareInfo? = syncCode()?.let { parseShareCode(it) }
 
     private fun syncSettings() {
         val pad = (16 * resources.displayMetrics.density).toInt()
@@ -332,14 +340,27 @@ class MainActivity : Activity() {
     private fun shareNotebook() {
         val dir = notebookDir ?: return
         if (relayUrl().isEmpty()) { syncSettings(); return }
-        val code = syncCode() ?: ("n" + java.util.UUID.randomUUID().toString().replace("-", "").take(15)).also {
+        val code = syncCode() ?: newShareCode().also {
             prefs.edit().putString("sync_${dir.name}", it).apply()
             restartNotebookSync()
             restartPageSync()
         }
+        val info = parseShareCode(code)
+        val message = when {
+            info == null -> getString(R.string.sync_code_is, code)
+            info.readOnly -> getString(R.string.sync_read_only_notebook)
+            info.readOnlyCode != null -> getString(R.string.sync_codes_are, code, info.readOnlyCode)
+            else -> getString(R.string.sync_code_is, code)
+        }
+        val box = TextView(this).apply {
+            text = message
+            setTextIsSelectable(true)
+            val pad = (20 * dp).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+        }
         AlertDialog.Builder(this)
             .setTitle(R.string.sync_share)
-            .setMessage(getString(R.string.sync_code_is, code))
+            .setView(box)
             .setPositiveButton(android.R.string.ok, null)
             .show()
     }
@@ -347,7 +368,7 @@ class MainActivity : Activity() {
     private fun joinNotebook() {
         if (relayUrl().isEmpty()) { syncSettings(); return }
         askText(R.string.sync_join, "") { code ->
-            if (!code.matches(Regex("[A-Za-z0-9_-]{1,40}"))) { toast(getString(R.string.sync_bad_code)); return@askText }
+            if (parseShareCode(code) == null) { toast(getString(R.string.sync_bad_code)); return@askText }
             val next = (notebookDirs().mapNotNull { it.name.removePrefix("nb-").toIntOrNull() }.maxOrNull() ?: 0) + 1
             val dir = File(notebooksRoot, "nb-%04d".format(next))
             NotebookDoc.join(dir.path).save()
@@ -399,9 +420,9 @@ class MainActivity : Activity() {
 
     private fun restartNotebookSync() {
         notebookSync?.stop(); notebookSync = null
-        val code = syncCode() ?: return hideSyncDot()
+        val s = share() ?: return hideSyncDot()
         if (relayUrl().isEmpty()) return
-        notebookSync = SyncSession.startNotebook(notebook, relayUrl(), relayToken(), code, syncListenerFor(true))
+        notebookSync = SyncSession.startNotebook(notebook, relayUrl(), relayToken(), s.group, s.key, syncListenerFor(true))
         syncOtherPages()
     }
 
@@ -411,7 +432,7 @@ class MainActivity : Activity() {
     /** One-shot sync of every page except the open one (which syncs live). */
     private fun syncOtherPages() {
         main.removeCallbacks(periodicSync)
-        val code = syncCode() ?: return
+        val s = share() ?: return
         val url = relayUrl()
         if (url.isEmpty() || !backgroundSync.compareAndSet(false, true)) return
         val token = relayToken()
@@ -420,7 +441,7 @@ class MainActivity : Activity() {
         Thread {
             try {
                 for ((id, path) in targets) {
-                    runCatching { syncPageOnce(PageDoc.open(path), url, token, "$code-$id", 1500u) }
+                    runCatching { syncPageOnce(PageDoc.open(path), url, token, "${s.group}-$id", s.key, 1500u) }
                 }
             } finally {
                 backgroundSync.set(false)
@@ -431,11 +452,11 @@ class MainActivity : Activity() {
 
     private fun restartPageSync() {
         pageSync?.stop(); pageSync = null
-        val code = syncCode() ?: return
+        val s = share() ?: return
         val d = doc ?: return
         val pageId = pageIds.getOrNull(pageIndex) ?: return
         if (relayUrl().isEmpty()) return
-        pageSync = SyncSession.start(d, relayUrl(), relayToken(), "$code-$pageId", syncListenerFor(false))
+        pageSync = SyncSession.start(d, relayUrl(), relayToken(), "${s.group}-$pageId", s.key, syncListenerFor(false))
     }
 
     private fun hideSyncDot() {

@@ -88,4 +88,6 @@
     <string name="delete_section_confirm">Supprimer cette section et ses %1$d page(s) ? Vous pourrez la restaurer depuis la corbeille.</string>
     <string name="section_holds_all_pages">Un cahier garde au moins une page : sortez d’abord une page de cette section.</string>
     <string name="no_sections">Créez d’abord une section.</string>
+    <string name="sync_codes_are">La synchronisation est activée. Sur un autre appareil, choisissez « Rejoindre un cahier partagé » et saisissez un code :\n\nPour modifier (vos appareils, collègues) :\n%1$s\n\nEn lecture seule (élèves) :\n%2$s</string>
+    <string name="sync_read_only_notebook">Ce cahier est partagé avec vous en lecture seule : vous pouvez le consulter mais pas le modifier.</string>
 </resources>

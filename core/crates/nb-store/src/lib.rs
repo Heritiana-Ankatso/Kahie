@@ -6,6 +6,8 @@
 //!
 //! The store is CRDT-agnostic: it keeps opaque byte strings. `nb-model` produces them.
 
+pub mod access;
+
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::path::Path;
 

@@ -42,6 +42,41 @@ impl SyncListener for Silent {
     fn on_status(&self, _: SyncStatus) {}
 }
 
+/// A notebook share code, parsed (see `nb_store::access`).
+#[derive(uniffi::Record, Clone, Debug, PartialEq, Eq)]
+pub struct ShareInfo {
+    /// Relay document group: the outline is `<group>`, pages are `<group>-<page-id>`.
+    pub group: String,
+    /// Key to pass to the sync functions (empty for codes from before keys).
+    pub key: String,
+    pub read_only: bool,
+    /// Code to give viewers who may only read (`None` unless this is an editor code).
+    pub read_only_code: Option<String>,
+}
+
+/// Parse a share code typed or stored by the app; `None` if it is malformed.
+#[uniffi::export]
+pub fn parse_share_code(code: String) -> Option<ShareInfo> {
+    use nb_store::access::{Role, ShareCode};
+    let c = ShareCode::parse(&code)?;
+    Some(ShareInfo {
+        read_only: c.role() == Role::Read,
+        read_only_code: c.read_only().map(|r| r.to_code()),
+        group: c.group,
+        key: c.key,
+    })
+}
+
+/// A new editor share code: random group and write key (the first device to sync with it
+/// claims the notebook on the relay).
+#[uniffi::export]
+pub fn new_share_code() -> String {
+    let mut b = [0u8; 24];
+    let _ = rustls::crypto::ring::default_provider().secure_random.fill(&mut b);
+    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!("n{}.w{}", &hex[..15], &hex[16..48])
+}
+
 /// One-shot sync of a page that is not open: upload what the relay lacks, import what it
 /// has, and return once both sides are quiet for `idle_ms`. Returns the number of updates
 /// imported. Blocking: call it from a background thread.
@@ -51,15 +86,19 @@ pub fn sync_page_once(
     url: String,
     token: String,
     doc_id: String,
+    key: String,
     idle_ms: u32,
 ) -> Result<u32, crate::CoreError> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let stop = AtomicBool::new(false);
     run_connection(
         page.as_ref(),
-        &url,
-        &token,
-        &doc_id,
+        &Endpoint {
+            url: &url,
+            token: &token,
+            doc_id: &doc_id,
+            key: &key,
+        },
         &Silent,
         &stop,
         Some(Duration::from_millis(idle_ms.into())),
@@ -155,16 +194,28 @@ fn set_read_timeout(ws: &mut WebSocket<MaybeTlsStream<TcpStream>>, d: Duration) 
 }
 
 /// One connection, until it fails (Err) or the session is stopped (Ok).
+/// Where to sync: relay URL, server token, document id and notebook key.
+struct Endpoint<'a> {
+    url: &'a str,
+    token: &'a str,
+    doc_id: &'a str,
+    key: &'a str,
+}
+
 fn run_connection(
     page: &dyn SyncTarget,
-    url: &str,
-    token: &str,
-    doc_id: &str,
+    ep: &Endpoint,
     listener: &dyn SyncListener,
     stop: &AtomicBool,
     until_idle: Option<Duration>,
 ) -> Result<u32, String> {
     let mut cursor = load_cursor(page);
+    let Endpoint {
+        url,
+        token,
+        doc_id,
+        key,
+    } = *ep;
     let mut req = format!("{}/sync/{doc_id}?after={}", url.trim_end_matches('/'), cursor.seq)
         .into_client_request()
         .map_err(|e| e.to_string())?;
@@ -174,7 +225,13 @@ fn run_connection(
             format!("Bearer {token}").parse().map_err(|_| "bad token")?,
         );
     }
-    let (mut ws, _) = tungstenite::connect(req).map_err(|e| e.to_string())?;
+    if !key.is_empty() {
+        req.headers_mut()
+            .insert("x-kahie-key", key.parse().map_err(|_| "bad key")?);
+    }
+    let (mut ws, resp) = tungstenite::connect(req).map_err(|e| e.to_string())?;
+    // Read-only access (a viewer's code): never upload; local edits stay local.
+    let can_write = resp.headers().get("x-kahie-role").is_none_or(|v| v != "read");
     set_read_timeout(&mut ws, Duration::from_millis(200));
     listener.on_status(SyncStatus::Online);
     // At most one upload in flight; the cursor advances only when the relay acknowledges it.
@@ -190,13 +247,13 @@ fn run_connection(
             if in_flight.is_none() && last_activity.elapsed() >= idle {
                 // One-shot sync: nothing left to send and the relay has gone quiet.
                 let mut probe = cursor.vv.clone();
-                if page.outgoing(&mut probe).is_none() {
+                if !can_write || page.outgoing(&mut probe).is_none() {
                     let _ = ws.close(None);
                     return Ok(imported);
                 }
             }
         }
-        if in_flight.is_none() {
+        if can_write && in_flight.is_none() {
             let mut candidate = cursor.vv.clone();
             let update = page.outgoing(&mut candidate);
             if let Some(bytes) = update {
@@ -237,15 +294,17 @@ fn run_connection(
 #[uniffi::export]
 impl SyncSession {
     /// Start syncing `page` as document `doc_id` on the relay at `url` (`ws://` or `wss://`).
+    /// `key`: the notebook key from `parse_share_code` (empty for none).
     #[uniffi::constructor]
     pub fn start(
         page: Arc<PageDoc>,
         url: String,
         token: String,
         doc_id: String,
+        key: String,
         listener: Box<dyn SyncListener>,
     ) -> Arc<Self> {
-        Self::spawn(page, url, token, doc_id, listener)
+        Self::spawn(page, url, token, doc_id, key, listener)
     }
 
     /// Sync a notebook's outline (sections, pages, titles) as document `doc_id`.
@@ -255,9 +314,10 @@ impl SyncSession {
         url: String,
         token: String,
         doc_id: String,
+        key: String,
         listener: Box<dyn SyncListener>,
     ) -> Arc<Self> {
-        Self::spawn(notebook, url, token, doc_id, listener)
+        Self::spawn(notebook, url, token, doc_id, key, listener)
     }
 
     /// Stop syncing and wait for the thread to finish (≤ ~0.3 s).
@@ -275,6 +335,7 @@ impl SyncSession {
         url: String,
         token: String,
         doc_id: String,
+        key: String,
         listener: Box<dyn SyncListener>,
     ) -> Arc<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -284,9 +345,15 @@ impl SyncSession {
             .name("kahie-sync".into())
             .spawn(move || {
                 let mut backoff = Duration::from_secs(1);
+                let ep = Endpoint {
+                    url: &url,
+                    token: &token,
+                    doc_id: &doc_id,
+                    key: &key,
+                };
                 while !s.load(Ordering::Relaxed) {
                     listener.on_status(SyncStatus::Connecting);
-                    match run_connection(page.as_ref(), &url, &token, &doc_id, listener.as_ref(), &s, None) {
+                    match run_connection(page.as_ref(), &ep, listener.as_ref(), &s, None) {
                         Ok(_) => break,
                         Err(detail) => listener.on_status(SyncStatus::Offline { detail }),
                     }
@@ -368,6 +435,7 @@ mod tests {
             url.clone(),
             "t".into(),
             "page1".into(),
+            String::new(),
             Box::new(Counter(ca.clone(), statuses.clone())),
         );
         let sb = SyncSession::start(
@@ -375,6 +443,7 @@ mod tests {
             url.clone(),
             "t".into(),
             "page1".into(),
+            String::new(),
             Box::new(Counter(cb.clone(), Arc::default())),
         );
 
@@ -397,6 +466,7 @@ mod tests {
             url.clone(),
             "t".into(),
             "page1".into(),
+            String::new(),
             Box::new(Counter(cb, Arc::default())),
         );
         assert!(
@@ -413,6 +483,7 @@ mod tests {
             url,
             "wrong".into(),
             "page1".into(),
+            String::new(),
             Box::new(Counter(Arc::default(), bad.clone())),
         );
         assert!(wait_for(|| bad
@@ -426,14 +497,38 @@ mod tests {
 
         // A page that is not open syncs with one call.
         let pc = PageDoc::open(base.join("c.kpage").to_string_lossy().into()).unwrap();
-        let n = sync_page_once(pc.clone(), url_nb.clone(), "t".into(), "page1".into(), 300).unwrap();
+        let n = sync_page_once(
+            pc.clone(),
+            url_nb.clone(),
+            "t".into(),
+            "page1".into(),
+            String::new(),
+            300,
+        )
+        .unwrap();
         assert!(
             n >= 1 && pc.layout() == pa.layout(),
             "one-shot sync caught up ({n} updates)"
         );
         draw(&pc, 400.0);
-        sync_page_once(pc.clone(), url_nb.clone(), "t".into(), "page1".into(), 300).unwrap();
-        sync_page_once(pa.clone(), url_nb.clone(), "t".into(), "page1".into(), 300).unwrap();
+        sync_page_once(
+            pc.clone(),
+            url_nb.clone(),
+            "t".into(),
+            "page1".into(),
+            String::new(),
+            300,
+        )
+        .unwrap();
+        sync_page_once(
+            pa.clone(),
+            url_nb.clone(),
+            "t".into(),
+            "page1".into(),
+            String::new(),
+            300,
+        )
+        .unwrap();
         assert_eq!(pa.item_count(), 5, "one-shot sync uploads local edits");
 
         // Notebook outlines: device B joins A's notebook and sees its pages, without an extra page.
@@ -446,6 +541,7 @@ mod tests {
             url_nb.clone(),
             "t".into(),
             "nb1".into(),
+            String::new(),
             Box::new(Counter(Arc::default(), Arc::default())),
         );
         let s2 = SyncSession::start_notebook(
@@ -453,12 +549,75 @@ mod tests {
             url_nb,
             "t".into(),
             "nb1".into(),
+            String::new(),
             Box::new(Counter(Arc::default(), Arc::default())),
         );
         assert!(wait_for(|| nb_b.page_ids() == na.page_ids()), "outline synced");
         assert_eq!(nb_b.title(), "Physique");
         s1.stop();
         s2.stop();
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[test]
+    fn share_codes_and_read_only_viewers() {
+        let code = new_share_code();
+        let info = parse_share_code(code.clone()).unwrap();
+        assert!(!info.read_only && info.key.starts_with('w') && code.starts_with(&info.group));
+        let ro = parse_share_code(info.read_only_code.clone().unwrap()).unwrap();
+        assert!(ro.read_only && ro.read_only_code.is_none() && ro.group == info.group);
+        assert_ne!(new_share_code(), code, "random");
+        assert!(parse_share_code("bad code".into()).is_none());
+        assert_eq!(parse_share_code("nlegacy1".into()).unwrap().key, "");
+
+        let base = std::env::temp_dir().join(format!("kahie-sync-ro-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let listener = rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let cfg = nb_relay::Config {
+            data_dir: base.join("relay"),
+            token: None,
+        };
+        rt.spawn(async move { axum::serve(listener, nb_relay::router(cfg)).await.unwrap() });
+        let doc = format!("{}-p1", info.group);
+        let teacher = PageDoc::open(base.join("t.kpage").to_string_lossy().into()).unwrap();
+        let student = PageDoc::open(base.join("s.kpage").to_string_lossy().into()).unwrap();
+        draw(&teacher, 0.0);
+        sync_page_once(
+            teacher.clone(),
+            url.clone(),
+            String::new(),
+            doc.clone(),
+            info.key.clone(),
+            300,
+        )
+        .unwrap();
+        // The student (read-only code) receives the page; their own ink stays local.
+        draw(&student, 100.0);
+        let n = sync_page_once(
+            student.clone(),
+            url.clone(),
+            String::new(),
+            doc.clone(),
+            ro.key.clone(),
+            300,
+        )
+        .unwrap();
+        assert_eq!((n, student.item_count()), (1, 2));
+        sync_page_once(
+            teacher.clone(),
+            url.clone(),
+            String::new(),
+            doc.clone(),
+            info.key.clone(),
+            300,
+        )
+        .unwrap();
+        assert_eq!(teacher.item_count(), 1, "nothing uploaded by a viewer");
+        // Without a key, the claimed notebook is refused.
+        assert!(sync_page_once(student.clone(), url, String::new(), doc, String::new(), 300).is_err());
         std::fs::remove_dir_all(base).ok();
     }
 }

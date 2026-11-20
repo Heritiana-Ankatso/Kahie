@@ -17,6 +17,23 @@
 //!
 //! A client keeps the highest `seq` it has seen and reconnects with `after=<seq>`.
 //!
+//! ## Access control (per notebook)
+//!
+//! Documents `<group>` and `<group>-<suffix>` form one access group (a notebook: outline and
+//! pages). A client may present a key ([`nb_store::access`]) in the `X-Kahie-Key` header
+//! (or `?key=`):
+//!
+//! - group without keys + write key `w…`: the group is **claimed** — the relay stores the
+//!   hashes of that key and of its read key in `<group>.acl`; the client may write;
+//! - group without keys + read key or no key: allowed (no key: write, as before keys
+//!   existed; read key: read);
+//! - group with keys: the write key gives write access, the read key read access, anything
+//!   else is refused (403).
+//!
+//! The upgrade response carries `X-Kahie-Role: read|write`. A read-only client that sends
+//! an update is disconnected (close code 1008). The server token, when set, is required
+//! in every case.
+//!
 //! ## Compaction
 //!
 //! After [`COMPACT_AFTER`] updates, the relay folds its log into one Loro snapshot (the relay
@@ -30,6 +47,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
+pub use nb_store::access::valid_doc_id;
+use nb_store::access::{doc_group, key_hash, key_role, read_key, Role};
 use nb_store::Store;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -57,14 +76,50 @@ struct Relay {
     cfg: Config,
     rooms: Mutex<HashMap<String, Arc<Room>>>,
     next_conn: AtomicU64,
+    /// Serialises reading and claiming `.acl` files.
+    acl: Mutex<()>,
 }
 
-/// Document ids become file names: keep them boring.
-pub fn valid_doc_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
+/// Header carrying a notebook key, and the response header with the granted role.
+pub const KEY_HEADER: &str = "x-kahie-key";
+pub const ROLE_HEADER: &str = "x-kahie-role";
 
 impl Relay {
+    /// Role granted to `key` on document `doc` (claiming the group for a write key if it
+    /// has no keys yet), or `None` when refused.
+    fn role(&self, doc: &str, key: Option<&str>) -> Result<Option<Role>, String> {
+        let path = self.cfg.data_dir.join(format!("{}.acl", doc_group(doc)));
+        let _guard = self.acl.lock().unwrap();
+        let stored = match std::fs::read_to_string(&path) {
+            Ok(s) => Some(s),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e.to_string()),
+        };
+        let Some(stored) = stored else {
+            return Ok(match key.map(|k| (k, key_role(k))) {
+                None => Some(Role::Write),
+                Some((_, None)) => None,
+                Some((_, Some(Role::Read))) => Some(Role::Read),
+                Some((k, Some(Role::Write))) => {
+                    let r = read_key(k).expect("write key");
+                    let tmp = path.with_extension("acl.tmp");
+                    std::fs::write(&tmp, format!("{}\n{}\n", key_hash(k), key_hash(&r)))
+                        .and_then(|_| std::fs::rename(&tmp, &path))
+                        .map_err(|e| e.to_string())?;
+                    Some(Role::Write)
+                }
+            });
+        };
+        let mut lines = stored.lines();
+        let (w, r) = (lines.next().unwrap_or(""), lines.next().unwrap_or(""));
+        let h = key.map(key_hash);
+        Ok(match h.as_deref() {
+            Some(h) if h == w => Some(Role::Write),
+            Some(h) if h == r => Some(Role::Read),
+            _ => None,
+        })
+    }
+
     fn room(&self, doc: &str) -> Result<Arc<Room>, String> {
         let mut rooms = self.rooms.lock().unwrap();
         if let Some(r) = rooms.get(doc) {
@@ -88,6 +143,7 @@ pub fn router(cfg: Config) -> Router {
         cfg,
         rooms: Mutex::new(HashMap::new()),
         next_conn: AtomicU64::new(1),
+        acl: Mutex::new(()),
     });
     Router::new()
         .route("/sync/{doc}", get(sync))
@@ -154,17 +210,31 @@ async fn sync(
     if !valid_doc_id(&doc) {
         return (StatusCode::BAD_REQUEST, "invalid document id").into_response();
     }
+    let key = headers
+        .get(KEY_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .or(q.get("key").map(String::as_str));
+    let role = match relay.role(&doc, key) {
+        Ok(Some(r)) => r,
+        Ok(None) => return StatusCode::FORBIDDEN.into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    };
     let after: i64 = q.get("after").and_then(|v| v.parse().ok()).unwrap_or(0);
     let room = match relay.room(&doc) {
         Ok(r) => r,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
     };
     let conn = relay.next_conn.fetch_add(1, Ordering::Relaxed);
-    ws.max_message_size(16 << 20)
-        .on_upgrade(move |socket| client(socket, room, after, conn))
+    let mut resp = ws
+        .max_message_size(16 << 20)
+        .on_upgrade(move |socket| client(socket, room, after, conn, role));
+    let name = if role == Role::Write { "write" } else { "read" };
+    resp.headers_mut()
+        .insert(ROLE_HEADER, axum::http::HeaderValue::from_static(name));
+    resp
 }
 
-async fn client(mut socket: WebSocket, room: Arc<Room>, after: i64, conn: u64) {
+async fn client(mut socket: WebSocket, room: Arc<Room>, after: i64, conn: u64, role: Role) {
     // Subscribe before reading the backlog so nothing falls between the two.
     let mut rx = room.tx.subscribe();
     let store = room.store.clone();
@@ -204,6 +274,11 @@ async fn client(mut socket: WebSocket, room: Arc<Room>, after: i64, conn: u64) {
                     Message::Close(_) => return,
                     _ => continue,
                 };
+                if role == Role::Read {
+                    let close = axum::extract::ws::CloseFrame { code: 1008, reason: "read-only".into() };
+                    let _ = socket.send(Message::Close(Some(close))).await;
+                    return;
+                }
                 let store = room.store.clone();
                 let tx = room.tx.clone();
                 let payload = Arc::new(bytes);

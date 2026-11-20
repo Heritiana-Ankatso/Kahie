@@ -90,4 +90,6 @@
     <string name="delete_section_confirm">Delete this section and its %1$d page(s)? You can restore it later from the trash.</string>
     <string name="section_holds_all_pages">A notebook keeps at least one page: move a page out of this section first.</string>
     <string name="no_sections">Create a section first.</string>
+    <string name="sync_codes_are">Sync is on. On another device, choose “Join a shared notebook” and enter a code:\n\nTo edit (your devices, co-teachers):\n%1$s\n\nTo read only (students):\n%2$s</string>
+    <string name="sync_read_only_notebook">This notebook is shared with you read-only: you can view it but not change it.</string>
 </resources>

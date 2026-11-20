@@ -65,11 +65,19 @@ WebSocket upgrades are proxied automatically. With nginx, forward `Upgrade` and 
 
 In Kahie: **Notebooks → More → Sync settings**, enter `wss://relay.example.org` and the token.
 
-- To sync a notebook: **More → Share with my devices**. Kahie shows a code.
-- On another device: **More → Join a shared notebook**, enter the code.
+- To sync a notebook: **More → Share with my devices**. Kahie shows two codes:
+  - the **editor code** (`n….w…`) for your other devices and co-teachers: full access;
+  - the **read-only code** (`n….r…`) for students: they see the notebook and its updates, but cannot change it.
+- On another device: **More → Join a shared notebook**, enter one of the codes.
+
+### Access control
+
+The first device that syncs a notebook with its editor code *claims* it on the relay: the relay stores hashes of the editor key and of the read-only key in `<notebook>.acl` (never the keys themselves). From then on, a connection needs one of the two keys (in addition to the server token); a read-only connection that tries to upload is disconnected. Notebooks shared with older versions of Kahie (codes without a `.`) stay open to anyone with the token and the code.
+
+To revoke access, share the notebook again under a new code (export and re-import it, then Share) and delete the old `<notebook>*.db` and `.acl` files on the relay.
 
 ## Backups and privacy
 
 - Data lives in `KAHIE_RELAY_DATA`: one SQLite file per document. Back up that directory.
-- Anyone with the token and a notebook code can read and write that notebook. Treat codes like passwords. Per-document access control is planned.
+- Anyone with the token and an editor code can read and write that notebook; with a read-only code, read it. Treat codes like passwords.
 - The relay sees update contents (not encrypted end to end yet) and IP addresses; it keeps no other logs.

@@ -48,6 +48,8 @@ class InkView(context: Context) : View(context) {
             refresh()
         }
     var tool = Tool.PEN
+    /** Viewer of a read-only shared notebook: touches only pan and zoom. */
+    var readOnly = false
     var penColor = 0xFF1D1D1F.toInt()
     var highlighterColor = 0xFFFFE066.toInt()
     var penWidth = 3.0
@@ -444,6 +446,7 @@ class InkView(context: Context) : View(context) {
             return handleGesture(e)
         }
         if (panning) return handleGesture(e)
+        if (readOnly) return handleGesture(e)
 
         if (tool == Tool.SELECT && !drawing && !erasing && e.pointerCount == 1) {
             handleSelect(e)
@@ -588,8 +591,8 @@ class InkView(context: Context) : View(context) {
                 val still = tapMoved < 12 * density && kotlin.math.abs(s / tapScale - 1f) < 0.03f
                 if (quick && still) {
                     when (tapFingers) {
-                        2 -> onUndoGesture()
-                        3 -> onRedoGesture()
+                        2 -> if (!readOnly) onUndoGesture()
+                        3 -> if (!readOnly) onRedoGesture()
                     }
                 }
             }
