@@ -21,6 +21,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 - **Pages**: list of pages and sections; tap a page to open it, *Add a page* inserts after the current one. *More* has: rename the page, move it up or down, move it into a section, *New section*, *Delete page* (to the trash), *Trash* (restore). Tap a section to rename or delete it. *More → Earlier versions of this page* restores the page as it was (Kahie keeps a version each time you open a page and every 10 minutes of work; Undo reverses a restore).
 - **Notebooks**: switch notebooks, create one, *More → Rename*.
 - **Paper**: cycles lined, squared, dotted, millimetre graph, Cornell notes, music staves and blank.
+- **Templates**: *Pages → More → New page from a template…* adds a page from a built-in model (lesson plan, lecture notes, exercise sheet, research canvas, journal, weekly planner) or one of yours; *Save this page as a template* keeps any page as a model (marked ★ in the list).
 - **Paper size**: *Pages → More → Paper size* (A4, A5 or Letter, portrait or landscape) for the open page. Landscape PDF pages are imported as landscape pages; PDF export keeps each page's size.
 - **Language**: *Notebooks → More → Language* (English, Français, Malagasy, or the system's language).
 

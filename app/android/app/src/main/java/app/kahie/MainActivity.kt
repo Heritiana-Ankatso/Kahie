@@ -1204,6 +1204,8 @@ class MainActivity : Activity() {
                     getString(R.string.page_versions),
                     getString(R.string.paper_size),
                     getString(R.string.export_svg),
+                    getString(R.string.new_page_from_template),
+                    getString(R.string.save_as_template),
                 )
                 AlertDialog.Builder(this)
                     .setItems(actions) { _, which ->
@@ -1222,7 +1224,19 @@ class MainActivity : Activity() {
                             8 -> sharePng()
                             9 -> showVersions()
                             10 -> choosePageSize()
-                            else -> startSvgExport()
+                            11 -> startSvgExport()
+                            12 -> newPageFromTemplate()
+                            else -> askText(R.string.template_name, pageTitleOrEmpty()) { name ->
+                                val d = doc ?: return@askText
+                                saveNow()
+                                io.execute {
+                                    val r = runCatching { Templates.save(this, d, name) }
+                                    main.post {
+                                        r.onSuccess { toast(getString(R.string.template_saved)) }
+                                            .onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
+                                    }
+                                }
+                            }
                         }
                     }
                     .show()
@@ -1310,6 +1324,32 @@ class MainActivity : Activity() {
                         }
                         .show()
                 }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun pageTitleOrEmpty() = currentPageNode()?.title ?: ""
+
+    /** Insert a page after the current one, made from a built-in or saved template (P1-08). */
+    private fun newPageFromTemplate() {
+        val saved = Templates.saved(this)
+        val labels = Templates.builtIn.map { Templates.title(this, it) } +
+            saved.map { "★ " + it.first }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.new_page_from_template)
+            .setItems(labels.toTypedArray()) { _, which ->
+                val template = if (which < Templates.builtIn.size) {
+                    Templates.build(this, Templates.builtIn[which]) { t, w, sz -> ink.measureText(t, w, sz) }
+                } else {
+                    PageDoc.open(saved[which - Templates.builtIn.size].second.path)
+                }
+                val id = notebook.addPage(pageIds.getOrNull(pageIndex))
+                pageIds = notebook.pageIds()
+                goToPage(pageIds.indexOf(id))
+                doc?.copyContentFrom(template)
+                ink.refresh()
+                ink.onChanged()
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

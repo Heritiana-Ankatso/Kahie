@@ -829,6 +829,57 @@ impl PageDoc {
         st.commit(op)
     }
 
+    /// Make this page a copy of `template` (P1-08): its paper, size and background, and its
+    /// objects added on top of anything already here (new ids; images included). One undo
+    /// step for the objects. Returns the number of objects copied.
+    pub fn copy_content_from(&self, template: std::sync::Arc<PageDoc>) -> u32 {
+        if std::ptr::eq(self, template.as_ref()) {
+            return 0;
+        }
+        let (items, assets, paper, size, background) = {
+            let src = template.state.lock().unwrap();
+            let items = src.doc.page().items.clone();
+            let assets: Vec<(String, Vec<u8>)> = src
+                .doc
+                .asset_hashes()
+                .into_iter()
+                .filter_map(|h| src.doc.asset(&h).map(|b| (h, b)))
+                .collect();
+            let background = src.doc.background();
+            (
+                items,
+                assets,
+                src.doc.template().to_string(),
+                src.doc.size().to_string(),
+                background,
+            )
+        };
+        let mut st = self.state.lock().unwrap();
+        st.doc.set_template(&paper);
+        st.doc.set_size(&size);
+        if let Some(bg) = &background {
+            if let Some((_, bytes)) = assets.iter().find(|(h, _)| h == bg) {
+                st.doc.set_background(Some((bg, bytes)));
+            }
+        }
+        for (hash, bytes) in &assets {
+            if Some(hash) != background.as_ref() && st.doc.asset(hash).is_none() {
+                st.doc.put_asset(hash, bytes);
+            }
+        }
+        let n = items.len() as u32;
+        let mut copies = Vec::with_capacity(items.len());
+        for it in items {
+            st.seq += 1;
+            let mut c = it;
+            c.id = new_id(st.seq);
+            copies.push(c);
+        }
+        let op = Op::add(st.doc.page(), copies);
+        st.commit(op);
+        n
+    }
+
     /// Copy items to the app clipboard (P1-15), with the images they show, so they can be
     /// pasted on any page of any notebook. Returns the number of items copied.
     pub fn copy_items(&self, ids: Vec<String>) -> u32 {
@@ -1518,6 +1569,26 @@ mod tests {
         // The state that was replaced is now in the history too.
         assert!(d.versions().iter().any(|x| x.items == 1));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_page_can_be_made_from_a_template() {
+        let t = PageDoc::new_in_memory();
+        t.set_template("grid".into());
+        t.set_page_size("a4-landscape".into());
+        t.add_text(40.0, 40.0, 300.0, 30.0, "Lesson plan".into(), 28.0, 0);
+        t.add_image(40.0, 100.0, 50.0, 50.0, b"\x89PNG logo".to_vec());
+        let p = PageDoc::new_in_memory();
+        assert_eq!(p.copy_content_from(t.clone()), 2);
+        assert_eq!(
+            (p.template(), p.page_size()),
+            ("grid".to_string(), "a4-landscape".to_string())
+        );
+        assert_eq!(p.text_blocks()[0].text, "Lesson plan");
+        assert_ne!(p.text_blocks()[0].id, t.text_blocks()[0].id, "new ids");
+        let h = p.image_blocks()[0].hash.clone();
+        assert_eq!(p.image_bytes(h), Some(b"\x89PNG logo".to_vec()));
+        assert_eq!(t.copy_content_from(t.clone()), 0, "not onto itself");
     }
 
     #[test]
