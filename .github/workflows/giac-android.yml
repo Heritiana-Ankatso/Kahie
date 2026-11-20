@@ -46,18 +46,21 @@ jobs:
             echo "RANLIB=$TC/bin/llvm-ranlib"
             echo "STRIP=$TC/bin/llvm-strip"
             echo "PREFIX=$RUNNER_TEMP/android-prefix"
+            # Size: optimise for size and give every function/datum its own section so the
+            # final link (--gc-sections, also used by rustc for the APK library) drops unused code.
+            echo "SZ=-Os -ffunction-sections -fdata-sections"
           } >> "$GITHUB_ENV"
       - name: GMP
         run: |
           curl -fsSL https://ftp.gnu.org/gnu/gmp/$GMP.tar.xz | tar xJ
           cd $GMP
-          ./configure --host=$TARGET --prefix=$PREFIX --enable-cxx --disable-shared --with-pic CFLAGS="-O2 -fPIC" CXXFLAGS="-O2 -fPIC"
+          ./configure --host=$TARGET --prefix=$PREFIX --enable-cxx --disable-shared --with-pic CFLAGS="$SZ -fPIC" CXXFLAGS="$SZ -fPIC"
           make -j4 && make install
       - name: MPFR
         run: |
           curl -fsSL https://ftp.gnu.org/gnu/mpfr/$MPFR.tar.xz | tar xJ
           cd $MPFR
-          ./configure --host=$TARGET --prefix=$PREFIX --with-gmp=$PREFIX --disable-shared --with-pic CFLAGS="-O2 -fPIC"
+          ./configure --host=$TARGET --prefix=$PREFIX --with-gmp=$PREFIX --disable-shared --with-pic CFLAGS="$SZ -fPIC"
           make -j4 && make install
       - name: Giac (minimal)
         run: |
@@ -77,7 +80,7 @@ jobs:
             --disable-quickjs --disable-gettext --disable-gmpxx --disable-tommath --disable-bernmm \
             --disable-cocoa --disable-dl \
             CPPFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib" \
-            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1 -fpermissive -include $GITHUB_WORKSPACE/spikes/p0-07/android/android_compat.h" CFLAGS="-O2 -fPIC" > configure.out 2>&1 \
+            CXXFLAGS="$SZ -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1 -fpermissive -include $GITHUB_WORKSPACE/spikes/p0-07/android/android_compat.h" CFLAGS="$SZ -fPIC" > configure.out 2>&1 \
             || { tail -60 configure.out; exit 1; }
           grep -E "^#define HAVE_LIB(GMP|MPFR|PTHREAD)" config.h || true
           # -k: keep going, so one run reports every file that fails.
@@ -90,10 +93,12 @@ jobs:
           mkdir -p out inc/giac
           # The shim includes <giac/giac.h> and <giac/config.h>, as installed by distributions.
           cp giac/src/*.h inc/giac/ && cp giac/config.h inc/giac/
-          $CXX -shared -fPIC -O2 -std=c++17 -w -I inc -I $PREFIX/include \
+          # No --whole-archive: like the APK link, only what the shim reaches is kept.
+          $CXX -shared -fPIC -Os -std=c++17 -w -I inc -I $PREFIX/include \
+            -DHAVE_CONFIG_H -DTIMEOUT -DGIAC_GENERIC_CONSTANTS -DUSE_OBJET_BIDON \
             spikes/p0-07/src/shim.cpp -o out/libkahiecas.so \
-            -Wl,--gc-sections -Wl,--whole-archive $PREFIX/lib/libgiac.a -Wl,--no-whole-archive \
-            $PREFIX/lib/libmpfr.a $PREFIX/lib/libgmp.a -static-libstdc++ -llog -lm
+            -Wl,--gc-sections -Wl,--icf=all -Wl,--exclude-libs,ALL \
+            $PREFIX/lib/libgiac.a $PREFIX/lib/libmpfr.a $PREFIX/lib/libgmp.a -static-libstdc++ -llog -lm
           $STRIP --strip-unneeded out/libkahiecas.so
           ls -l out/libkahiecas.so | tee out/size.txt
           gzip -9 -k out/libkahiecas.so && ls -l out/libkahiecas.so.gz | tee -a out/size.txt
