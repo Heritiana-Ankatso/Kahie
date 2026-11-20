@@ -6,10 +6,11 @@ use nb_ink::{finish_points, outline, segment_hits_polyline, Point};
 use nb_model::crdt::CrdtPage;
 use nb_model::{Content, Interp, Item, Op, Page, Stroke, Tool};
 use nb_recog::{recognize, Shape};
+use nb_store::Store;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -68,7 +69,10 @@ struct Current {
 
 struct State {
     doc: CrdtPage,
-    path: Option<PathBuf>,
+    /// Durable storage; `None` for in-memory pages.
+    store: Option<Store>,
+    /// First persistence error since the last successful `save`, reported by `save`.
+    store_error: Option<String>,
     current: Option<Current>,
     erasing: Option<HashSet<String>>,
     seq: u64,
@@ -152,39 +156,78 @@ fn render_stroke(key: String, s: &Stroke) -> RenderItem {
     }
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let tmp = path.with_extension("tmp");
-    {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
+const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
+
+/// Compact the update log into a snapshot after this many updates.
+const COMPACT_AFTER: i64 = 500;
+
+impl State {
+    /// Apply a command and write it to storage.
+    fn commit(&mut self, op: Op) -> bool {
+        let changed = self.doc.apply(&op);
+        self.persist();
+        changed
     }
-    std::fs::rename(&tmp, path)
+
+    /// Append unsaved CRDT changes to the store (durable on return).
+    fn persist(&mut self) {
+        let Some(store) = self.store.as_mut() else {
+            self.doc.take_unsaved();
+            return;
+        };
+        let Some(update) = self.doc.take_unsaved() else { return };
+        let result = store.append_update(&update).and_then(|_| {
+            if store.pending_updates()? >= COMPACT_AFTER {
+                store.compact(&self.doc.snapshot())?;
+            }
+            Ok(())
+        });
+        if let Err(e) = result {
+            self.store_error.get_or_insert(e.to_string());
+        }
+    }
 }
 
 #[uniffi::export]
 impl PageDoc {
-    /// Open a page stored at `path` (created on first save), or an empty page.
+    /// Open the page stored at `path` (a SQLite database, created if missing). Every edit is
+    /// written to it as it happens. Older single-file pages (JSON, or a bare CRDT snapshot)
+    /// are migrated in place; the original file is kept next to it with a `.bak` suffix.
     #[uniffi::constructor]
     pub fn open(path: String) -> Result<std::sync::Arc<Self>, CoreError> {
         let p = PathBuf::from(&path);
-        let doc = match std::fs::read(&p) {
-            // Pages saved before the CRDT model are JSON: migrate them on open.
+        let io = |e: std::io::Error| CoreError::Io { detail: e.to_string() };
+        let fmt = |e: &dyn std::fmt::Display| CoreError::Format { detail: e.to_string() };
+        let legacy = match std::fs::read(&p) {
+            Ok(bytes) if bytes.starts_with(SQLITE_MAGIC) => None,
             Ok(bytes) if bytes.first() == Some(&b'{') => {
-                let page: Page =
-                    serde_json::from_slice(&bytes).map_err(|e| CoreError::Format { detail: e.to_string() })?;
-                CrdtPage::from_page(&page, peer_id())
+                let page: Page = serde_json::from_slice(&bytes).map_err(|e| fmt(&e))?;
+                Some(CrdtPage::from_page(&page, peer_id()))
             }
-            Ok(bytes) => {
-                CrdtPage::from_snapshot(&bytes, peer_id()).map_err(|e| CoreError::Format { detail: e.to_string() })?
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                CrdtPage::new(p.file_stem().and_then(|s| s.to_str()).unwrap_or("page"), peer_id())
-            }
-            Err(e) => return Err(CoreError::Io { detail: e.to_string() }),
+            Ok(bytes) => Some(CrdtPage::from_snapshot(&bytes, peer_id()).map_err(|e| fmt(&e))?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(io(e)),
         };
-        Ok(std::sync::Arc::new(Self::with_doc(doc, Some(p))))
+        if let Some(mut doc) = legacy {
+            let bak = PathBuf::from(format!("{path}.bak"));
+            std::fs::rename(&p, &bak).map_err(io)?;
+            let mut store = Store::open(&p).map_err(|e| fmt(&e))?;
+            store.compact(&doc.snapshot()).map_err(|e| fmt(&e))?;
+            doc.take_unsaved();
+            return Ok(std::sync::Arc::new(Self::with_doc(doc, Some(store))));
+        }
+        let store = Store::open(&p).map_err(|e| fmt(&e))?;
+        let loaded = store.load().map_err(|e| fmt(&e))?;
+        let mut chunks: Vec<&[u8]> = loaded.snapshot.iter().map(Vec::as_slice).collect();
+        chunks.extend(loaded.updates.iter().map(Vec::as_slice));
+        let doc = if chunks.is_empty() {
+            CrdtPage::new(p.file_stem().and_then(|s| s.to_str()).unwrap_or("page"), peer_id())
+        } else {
+            CrdtPage::load(&chunks, peer_id()).map_err(|e| fmt(&e))?
+        };
+        let d = Self::with_doc(doc, Some(store));
+        d.state.lock().unwrap().persist();
+        Ok(std::sync::Arc::new(d))
     }
 
     /// In-memory page (tests, previews).
@@ -193,10 +236,19 @@ impl PageDoc {
         std::sync::Arc::new(Self::with_doc(CrdtPage::new("memory", peer_id()), None))
     }
 
+    /// Edits are already durable when they happen; `save` compacts the log into a snapshot
+    /// (faster next open) and reports any earlier write failure.
     pub fn save(&self) -> Result<(), CoreError> {
-        let st = self.state.lock().unwrap();
-        let Some(path) = &st.path else { return Ok(()) };
-        write_atomic(path, &st.doc.snapshot()).map_err(|e| CoreError::Io { detail: e.to_string() })
+        let mut st = self.state.lock().unwrap();
+        st.persist();
+        if let Some(e) = st.store_error.take() {
+            return Err(CoreError::Io { detail: e });
+        }
+        let snapshot = st.doc.snapshot();
+        let Some(store) = st.store.as_mut() else { return Ok(()) };
+        store
+            .compact(&snapshot)
+            .map_err(|e| CoreError::Io { detail: e.to_string() })
     }
 
     pub fn template(&self) -> String {
@@ -204,7 +256,9 @@ impl PageDoc {
     }
 
     pub fn set_template(&self, template: String) {
-        self.state.lock().unwrap().doc.set_template(&template);
+        let mut st = self.state.lock().unwrap();
+        st.doc.set_template(&template);
+        st.persist();
     }
 
     pub fn item_count(&self) -> u32 {
@@ -294,7 +348,7 @@ impl PageDoc {
             }),
         };
         let op = Op::add(st.doc.page(), vec![item]);
-        st.doc.apply(&op)
+        st.commit(op)
     }
 
     pub fn cancel_stroke(&self) {
@@ -357,19 +411,23 @@ impl PageDoc {
         let Some(set) = st.erasing.take() else { return false };
         let ids: Vec<&str> = set.iter().map(String::as_str).collect();
         let op = Op::remove(st.doc.page(), &ids);
-        st.doc.apply(&op)
+        st.commit(op)
     }
 
     // ----- history -----
 
     pub fn undo(&self) -> bool {
         let mut st = self.state.lock().unwrap();
-        st.doc.undo()
+        let done = st.doc.undo();
+        st.persist();
+        done
     }
 
     pub fn redo(&self) -> bool {
         let mut st = self.state.lock().unwrap();
-        st.doc.redo()
+        let done = st.doc.redo();
+        st.persist();
+        done
     }
 
     pub fn can_undo(&self) -> bool {
@@ -385,7 +443,7 @@ impl PageDoc {
         let ids: Vec<String> = st.doc.page().items.iter().map(|i| i.id.clone()).collect();
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
         let op = Op::remove(st.doc.page(), &refs);
-        st.doc.apply(&op)
+        st.commit(op)
     }
 
     // ----- rendering -----
@@ -416,11 +474,12 @@ impl PageDoc {
 }
 
 impl PageDoc {
-    fn with_doc(doc: CrdtPage, path: Option<PathBuf>) -> Self {
+    fn with_doc(doc: CrdtPage, store: Option<Store>) -> Self {
         Self {
             state: Mutex::new(State {
                 doc,
-                path,
+                store,
+                store_error: None,
                 current: None,
                 erasing: None,
                 seq: 0,
@@ -532,6 +591,54 @@ mod tests {
         assert_ne!(std::fs::read(&path).unwrap()[0], b'{', "saved in the CRDT format");
         let again = PageDoc::open(path.to_string_lossy().into()).unwrap();
         assert_eq!(again.layout(), doc.layout());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn edits_are_durable_without_save() {
+        let dir = std::env::temp_dir().join(format!("kahie-ffi-durable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.kahiepage").to_string_lossy().to_string();
+        {
+            let doc = PageDoc::open(path.clone()).unwrap();
+            draw(&doc, &circle(), false);
+            draw(&doc, &[(0.0, 0.0), (50.0, 50.0)], false);
+            assert!(doc.undo());
+            // No save(): simulates the app being killed.
+        }
+        let again = PageDoc::open(path).unwrap();
+        assert_eq!(again.item_count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// P0-12 budget: load a 2 000-stroke page in ≤ 400 ms (release build, desktop).
+    /// Run with `cargo test --release -p nb-ffi -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn load_2000_stroke_page_budget() {
+        let dir = std::env::temp_dir().join(format!("kahie-ffi-perf-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("big.kahiepage").to_string_lossy().to_string();
+        {
+            let doc = PageDoc::open(path.clone()).unwrap();
+            for i in 0..2_000 {
+                let y = (i % 40) as f64 * 25.0;
+                let x0 = (i / 40) as f64 * 15.0;
+                let pts: Vec<(f64, f64)> = (0..150)
+                    .map(|k| (x0 + k as f64 * 0.1, y + (k as f64 * 0.3).sin() * 5.0))
+                    .collect();
+                draw(&doc, &pts, false);
+            }
+            doc.save().unwrap();
+        }
+        let t = std::time::Instant::now();
+        let doc = PageDoc::open(path).unwrap();
+        let keys = doc.layout();
+        let geoms = keys.iter().filter(|k| doc.geometry((*k).clone()).is_some()).count();
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        eprintln!("open + geometry of {geoms} strokes: {ms:.0} ms");
+        assert_eq!(geoms, 2_000);
+        assert!(ms <= 400.0, "{ms:.0} ms");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

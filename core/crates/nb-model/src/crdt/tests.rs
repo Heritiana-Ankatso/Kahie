@@ -225,3 +225,21 @@ fn three_replicas_converge_under_random_concurrent_commands() {
         );
     }
 }
+
+#[test]
+fn unsaved_changes_are_handed_out_once_and_reload_exactly() {
+    let mut p = CrdtPage::new("p", 1);
+    let mut log: Vec<Vec<u8>> = vec![];
+    log.push(p.take_unsaved().expect("initial meta"));
+    assert!(p.take_unsaved().is_none());
+    p.apply(&Op::add(p.page(), vec![stroke("a", &[(0.0, 0.0), (4.0, 4.0)])]));
+    log.push(p.take_unsaved().unwrap());
+    p.undo();
+    p.redo();
+    p.set_template("dots");
+    log.push(p.take_unsaved().unwrap());
+    let chunks: Vec<&[u8]> = log.iter().map(Vec::as_slice).collect();
+    let mut q = CrdtPage::load(&chunks, 2).unwrap();
+    assert_eq!(q.page(), p.page());
+    assert!(q.take_unsaved().is_none(), "loaded state counts as saved");
+}

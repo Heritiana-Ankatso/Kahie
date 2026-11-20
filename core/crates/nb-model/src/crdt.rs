@@ -49,6 +49,8 @@ pub struct CrdtPage {
     undo: UndoManager,
     view: Page,
     ink_cache: HashMap<String, Arc<Vec<Point>>>,
+    /// Version already handed out by [`CrdtPage::take_unsaved`].
+    saved: VersionVector,
 }
 
 impl CrdtPage {
@@ -81,13 +83,38 @@ impl CrdtPage {
 
     /// Load from bytes produced by [`CrdtPage::snapshot`].
     pub fn from_snapshot(bytes: &[u8], peer: u64) -> Result<Self, ModelError> {
+        Self::load(&[bytes], peer)
+    }
+
+    /// Load from a snapshot and/or updates, applied in order (e.g. from `nb-store`).
+    /// Everything loaded counts as saved.
+    pub fn load(chunks: &[&[u8]], peer: u64) -> Result<Self, ModelError> {
         let doc = LoroDoc::new();
-        doc.import(bytes).map_err(err)?;
+        for c in chunks {
+            doc.import(c).map_err(err)?;
+        }
         doc.set_peer_id(peer).map_err(err)?;
         if doc.get_map(META).get("id").is_none() {
             return Err(ModelError("not a Kahie page".into()));
         }
-        Ok(Self::wrap(doc))
+        let mut p = Self::wrap(doc);
+        p.saved = p.doc.oplog_vv();
+        Ok(p)
+    }
+
+    /// Changes not yet handed out for persistence (local edits and merged remote ones),
+    /// or `None` when there are none. Each change is returned once.
+    pub fn take_unsaved(&mut self) -> Option<Vec<u8>> {
+        let now = self.doc.oplog_vv();
+        if now == self.saved {
+            return None;
+        }
+        let bytes = self
+            .doc
+            .export(ExportMode::updates(&self.saved))
+            .expect("export updates");
+        self.saved = now;
+        Some(bytes)
     }
 
     fn undo_manager(doc: &LoroDoc) -> UndoManager {
@@ -104,6 +131,7 @@ impl CrdtPage {
             undo,
             view: Page::new(""),
             ink_cache: HashMap::new(),
+            saved: VersionVector::default(),
         };
         p.rebuild();
         p
