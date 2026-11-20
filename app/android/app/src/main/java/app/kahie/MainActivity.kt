@@ -73,6 +73,35 @@ class MainActivity : Activity() {
         const val REQ_IMPORT_PDF = 46
     }
 
+    /**
+     * Apply the language chosen in the app ("" = follow the system). Needed on Android 12, which
+     * has no per-app language setting, and because Android offers no Malagasy system language.
+     */
+    override fun attachBaseContext(base: Context) {
+        val lang = base.getSharedPreferences("kahie", Context.MODE_PRIVATE).getString("language", "")!!
+        if (lang.isEmpty()) return super.attachBaseContext(base)
+        val config = android.content.res.Configuration(base.resources.configuration)
+        config.setLocale(java.util.Locale.forLanguageTag(lang))
+        super.attachBaseContext(base.createConfigurationContext(config))
+    }
+
+    private fun chooseLanguage() {
+        val tags = listOf("", "en", "fr", "mg")
+        val names = arrayOf(getString(R.string.language_system), "English", "Français", "Malagasy")
+        val current = tags.indexOf(prefs.getString("language", "")).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.language)
+            .setSingleChoiceItems(names, current) { d, which ->
+                d.dismiss()
+                if (which != current) {
+                    saveNow()
+                    prefs.edit().putString("language", tags[which]).commit()
+                    recreate()
+                }
+            }
+            .show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ink = InkView(this)
@@ -283,6 +312,7 @@ class MainActivity : Activity() {
             getString(R.string.rename), getString(R.string.export_kahie), getString(R.string.import_kahie),
             getString(R.string.export_pdf), getString(R.string.import_pdf),
             getString(R.string.sync_share), getString(R.string.sync_join), getString(R.string.sync_settings),
+            getString(R.string.language),
         )
         AlertDialog.Builder(this)
             .setItems(actions) { _, which ->
@@ -295,6 +325,7 @@ class MainActivity : Activity() {
                     5 -> shareNotebook()
                     6 -> joinNotebook()
                     7 -> syncSettings()
+                    8 -> chooseLanguage()
                 }
             }
             .show()

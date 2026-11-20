@@ -91,4 +91,6 @@
     <string name="no_sections">Mamorona fizarana aloha.</string>
     <string name="sync_codes_are">Mandeha ny fampifanarahana. Amin’ny fitaovana hafa, safidio ny “Hiditra amin’ny kahie zaraina” ary ampidiro kaody iray:\n\nHanovana (ny fitaovanao, mpampianatra namana):\n%1$s\n\nHamakiana fotsiny (mpianatra):\n%2$s</string>
     <string name="sync_read_only_notebook">Nozaraina taminao ho vakiana fotsiny ity kahie ity: azonao jerena fa tsy azonao ovaina.</string>
+    <string name="language">Fiteny</string>
+    <string name="language_system">Araka ny rafitra</string>
 </resources>
