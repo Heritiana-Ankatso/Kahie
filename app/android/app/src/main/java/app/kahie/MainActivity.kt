@@ -869,13 +869,13 @@ class MainActivity : Activity() {
         ink.invalidate()
     }
 
-    /** Outline of the notebook: tap a page to open it; delete the current page (restorable). */
+    /** Outline of the notebook: tap a page to open it, a section to rename or delete it. */
     private fun showPages() {
         val entries = notebook.outline()
         val labels = entries.map { e ->
             val indent = "    ".repeat(e.depth.toInt())
             when (e.kind) {
-                OutlineKind.SECTION -> indent + e.title
+                OutlineKind.SECTION -> indent + "▸ " + e.title.ifEmpty { getString(R.string.new_section) }
                 OutlineKind.PAGE -> {
                     val n = pageIds.indexOf(e.pageId) + 1
                     val name = e.title.ifEmpty { getString(R.string.page_n, n) }
@@ -886,19 +886,110 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle(R.string.pages)
             .setItems(labels) { _, which ->
-                entries[which].pageId?.let { id -> goToPage(pageIds.indexOf(id)) }
+                val e = entries[which]
+                when (e.kind) {
+                    OutlineKind.PAGE -> e.pageId?.let { id -> goToPage(pageIds.indexOf(id)) }
+                    OutlineKind.SECTION -> showSectionActions(entries, which)
+                }
             }
             .setPositiveButton(R.string.add_page) { _, _ -> addPage() }
             .setNeutralButton(R.string.more) { _, _ ->
+                val actions = arrayOf(
+                    getString(R.string.rename_page),
+                    getString(R.string.move_page),
+                    getString(R.string.new_section),
+                    getString(R.string.delete_page),
+                    getString(R.string.trash),
+                    getString(R.string.export_png),
+                )
                 AlertDialog.Builder(this)
-                    .setItems(arrayOf(getString(R.string.delete_page), getString(R.string.trash), getString(R.string.export_png))) { _, which ->
+                    .setItems(actions) { _, which ->
                         when (which) {
-                            0 -> confirmDeletePage()
-                            1 -> showTrash()
+                            0 -> renameCurrentPage()
+                            1 -> moveCurrentPage()
+                            2 -> askText(R.string.section_title, "") { t ->
+                                if (t.isNotEmpty()) notebook.addSection(t)
+                                showPages()
+                            }
+                            3 -> confirmDeletePage()
+                            4 -> showTrash()
                             else -> startPngExport()
                         }
                     }
                     .show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun currentPageNode() =
+        pageIds.getOrNull(pageIndex)?.let { id -> notebook.outline().firstOrNull { it.pageId == id } }
+
+    private fun renameCurrentPage() {
+        val e = currentPageNode() ?: return
+        askText(R.string.page_title, e.title) { t ->
+            notebook.rename(e.node, t)
+            showPages()
+        }
+    }
+
+    /** Move the open page to the end of a section (or to the top level). */
+    private fun moveCurrentPage() {
+        val e = currentPageNode() ?: return
+        val sections = notebook.outline().filter { it.kind == OutlineKind.SECTION }
+        if (sections.isEmpty()) {
+            toast(getString(R.string.no_sections))
+            return
+        }
+        val labels = (listOf(getString(R.string.top_level)) +
+            sections.map { "    ".repeat(it.depth.toInt()) + it.title }).toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.move_page)
+            .setItems(labels) { _, which ->
+                val parent = if (which == 0) null else sections[which - 1].node
+                notebook.moveNode(e.node, parent, UInt.MAX_VALUE)
+                pageIds = notebook.pageIds()
+                pageIndex = pageIds.indexOf(e.pageId).coerceAtLeast(0)
+                pageLabel.text = getString(R.string.page_count, pageIndex + 1, pageIds.size)
+                showPages()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Rename or delete the section at `entries[i]`. */
+    private fun showSectionActions(entries: List<uniffi.nb_ffi.OutlineEntry>, i: Int) {
+        val sec = entries[i]
+        // Pages of the section: the rows after it that are deeper.
+        val inside = entries.drop(i + 1).takeWhile { it.depth > sec.depth }.mapNotNull { it.pageId }
+        AlertDialog.Builder(this)
+            .setTitle(sec.title)
+            .setItems(arrayOf(getString(R.string.rename), getString(R.string.delete_section))) { _, which ->
+                if (which == 0) {
+                    askText(R.string.section_title, sec.title) { t ->
+                        if (t.isNotEmpty()) notebook.rename(sec.node, t)
+                        showPages()
+                    }
+                } else if (inside.size >= pageIds.size) {
+                    toast(getString(R.string.section_holds_all_pages))
+                } else {
+                    AlertDialog.Builder(this)
+                        .setMessage(getString(R.string.delete_section_confirm, inside.size))
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(R.string.delete_section) { _, _ ->
+                            val current = pageIds.getOrNull(pageIndex)
+                            notebook.deleteNode(sec.node)
+                            pageIds = notebook.pageIds()
+                            val j = pageIds.indexOf(current)
+                            if (j >= 0) {
+                                pageIndex = j
+                                pageLabel.text = getString(R.string.page_count, j + 1, pageIds.size)
+                            } else {
+                                goToPage(pageIndex.coerceAtMost(pageIds.size - 1))
+                            }
+                        }
+                        .show()
+                }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

@@ -80,4 +80,14 @@
     <string name="image_tool">Image</string>
     <string name="import_pdf">Import a PDF (annotate it)</string>
     <string name="importing_pdf">Importing the PDF…</string>
+    <string name="rename_page">Rename this page</string>
+    <string name="move_page">Move this page to a section</string>
+    <string name="new_section">New section</string>
+    <string name="section_title">Section name</string>
+    <string name="page_title">Page name</string>
+    <string name="top_level">No section (top level)</string>
+    <string name="delete_section">Delete section</string>
+    <string name="delete_section_confirm">Delete this section and its %1$d page(s)? You can restore it later from the trash.</string>
+    <string name="section_holds_all_pages">A notebook keeps at least one page: move a page out of this section first.</string>
+    <string name="no_sections">Create a section first.</string>
 </resources>

@@ -78,4 +78,14 @@
     <string name="image_tool">Image</string>
     <string name="import_pdf">Importer un PDF (pour l’annoter)</string>
     <string name="importing_pdf">Import du PDF…</string>
+    <string name="rename_page">Renommer cette page</string>
+    <string name="move_page">Déplacer cette page dans une section</string>
+    <string name="new_section">Nouvelle section</string>
+    <string name="section_title">Nom de la section</string>
+    <string name="page_title">Nom de la page</string>
+    <string name="top_level">Aucune section (premier niveau)</string>
+    <string name="delete_section">Supprimer la section</string>
+    <string name="delete_section_confirm">Supprimer cette section et ses %1$d page(s) ? Vous pourrez la restaurer depuis la corbeille.</string>
+    <string name="section_holds_all_pages">Un cahier garde au moins une page : sortez d’abord une page de cette section.</string>
+    <string name="no_sections">Créez d’abord une section.</string>
 </resources>

@@ -52,6 +52,7 @@
 - Hot input path: one call per input event (`add_points`), never per sample. Pen-up commit ≤ 1 ms (P0-04: 0.06 ms in memory, 0.47 ms durable on desktop).
 - Error variants must not have a field named `message` (clashes with Kotlin `Throwable.message`); use `detail`.
 - Check generated bindings compile before pushing: generate them with `uniffi-bindgen` and compile with `kotlinc -cp jna.jar` (no Android SDK needed).
+- Check the whole app's Kotlin compiles before pushing: `app/android/ci/kt-check.sh` (no Android SDK needed; compiles against Robolectric's `android-all`, with stubs for `R` and `androidx.ink`). It does not replace the CI APK build (resources, manifest, AGP, linking).
 
 ## 7. Privacy and offline rules
 

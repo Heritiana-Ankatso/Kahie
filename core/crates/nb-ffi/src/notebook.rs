@@ -338,4 +338,38 @@ mod tests {
         assert!(!dir.join("page-0002.json").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    #[test]
+    fn sections_group_pages_and_can_be_renamed_moved_and_deleted() {
+        let dir = tmp("sections");
+        let nb = NotebookDoc::open(dir.to_string_lossy().into(), "N".into()).unwrap();
+        let a = nb.page_ids()[0].clone();
+        let b = nb.add_page(Some(a.clone()));
+        let sec = nb.add_section("Algebra".into());
+        let node_of = |id: &str| {
+            nb.outline()
+                .into_iter()
+                .find(|e| e.page_id.as_deref() == Some(id))
+                .unwrap()
+        };
+        // The app moves a page to the end of a section with index u32::MAX.
+        assert!(nb.move_node(node_of(&b).node, Some(sec.clone()), u32::MAX));
+        let o = nb.outline();
+        assert_eq!(o.len(), 3);
+        assert_eq!(
+            (o[1].kind, o[1].title.as_str(), o[1].depth),
+            (OutlineKind::Section, "Algebra", 0)
+        );
+        assert_eq!((o[2].page_id.as_deref(), o[2].depth), (Some(b.as_str()), 1));
+        // A page is not a valid parent.
+        assert!(!nb.move_node(node_of(&a).node, Some(node_of(&b).node), 0));
+        nb.rename(node_of(&b).node, "Équations".into());
+        assert_eq!(node_of(&b).title, "Équations");
+        // Back to the top level, then deleting the section leaves the pages.
+        assert!(nb.move_node(node_of(&b).node, None, u32::MAX));
+        nb.delete_node(sec.clone());
+        assert_eq!(nb.page_ids(), [a.clone(), b.clone()]);
+        assert_eq!(nb.trash().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
