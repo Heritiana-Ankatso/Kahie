@@ -54,7 +54,7 @@ How to iterate without the Android SDK here: generate bindings and compile them 
 ## Needs the owner (cannot be done by the agent)
 
 - Buy/borrow reference devices (P0-15); run device measurements for P0-02/03/04/08.
-- Approve the corpus protocol and consent text; organise collection sessions; native-speaker review of Malagasy prompts.
+- Approve the corpus protocol and consent text; organise collection sessions; native-speaker review of Malagasy prompts and of the **Malagasy UI draft** (`app/android/app/src/main/res/values-mg/strings.xml`, written without a native speaker).
 - Trademark check for "Kahie" (D10).
 - Merge the working branch into `main` (squash).
 
