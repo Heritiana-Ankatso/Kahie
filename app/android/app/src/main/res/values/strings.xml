@@ -70,4 +70,6 @@
     <string name="export_pdf">Export PDF</string>
     <string name="preparing_export">Preparing the export…</string>
     <string name="export_png">Export this page (PNG)</string>
+    <string name="sync_online">Synced</string>
+    <string name="sync_offline">Not synced: %1$s</string>
 </resources>

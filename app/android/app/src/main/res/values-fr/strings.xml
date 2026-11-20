@@ -68,4 +68,6 @@
     <string name="export_pdf">Exporter en PDF</string>
     <string name="preparing_export">Préparation de l’export…</string>
     <string name="export_png">Exporter cette page (PNG)</string>
+    <string name="sync_online">Synchronisé</string>
+    <string name="sync_offline">Non synchronisé : %1$s</string>
 </resources>

@@ -48,6 +48,7 @@ class MainActivity : Activity() {
     /** One directory per notebook under `notebooks/`. */
     private val notebooksRoot by lazy { File(filesDir, "notebooks").apply { mkdirs() } }
     private lateinit var notebook: NotebookDoc
+    private var syncDot: TextView? = null
     private var mathRenderer: MathRenderer? = null
     private var pageIds: List<String> = emptyList()
     private var pageIndex = 0
@@ -142,6 +143,14 @@ class MainActivity : Activity() {
             setPadding((4 * dp).toInt(), 0, (4 * dp).toInt(), 0)
         }
         bar.addView(pageLabel)
+        syncDot = TextView(this).apply {
+            text = "●"
+            textSize = 14f
+            visibility = View.GONE
+            setPadding((6 * dp).toInt(), 0, (6 * dp).toInt(), 0)
+            setOnClickListener { toast(syncState ?: getString(R.string.sync_online)) }
+        }
+        bar.addView(syncDot)
         bar.addView(iconButton(R.drawable.ic_next, R.string.next_page) { goToPage(pageIndex + 1) })
         bar.addView(iconButton(R.drawable.ic_plus, R.string.add_page) { addPage() })
 
@@ -350,8 +359,19 @@ class MainActivity : Activity() {
                 }
             }
             override fun onStatus(status: SyncStatus) {
-                if (status is SyncStatus.Offline && !isNotebook) main.post { syncState = status.detail }
-                if (status is SyncStatus.Online && !isNotebook) main.post { syncState = null }
+                if (isNotebook) return
+                main.post {
+                    val dot = syncDot ?: return@post
+                    dot.visibility = View.VISIBLE
+                    when (status) {
+                        is SyncStatus.Online -> { syncState = null; dot.setTextColor(0xFF2E9E5B.toInt()) }
+                        is SyncStatus.Connecting -> dot.setTextColor(0xFF9AA3B2.toInt())
+                        is SyncStatus.Offline -> {
+                            syncState = getString(R.string.sync_offline, status.detail)
+                            dot.setTextColor(0xFFD0453A.toInt())
+                        }
+                    }
+                }
             }
         }
     }
@@ -361,7 +381,7 @@ class MainActivity : Activity() {
 
     private fun restartNotebookSync() {
         notebookSync?.stop(); notebookSync = null
-        val code = syncCode() ?: return
+        val code = syncCode() ?: return hideSyncDot()
         if (relayUrl().isEmpty()) return
         notebookSync = SyncSession.startNotebook(notebook, relayUrl(), relayToken(), code, syncListenerFor(true))
     }
@@ -373,6 +393,10 @@ class MainActivity : Activity() {
         val pageId = pageIds.getOrNull(pageIndex) ?: return
         if (relayUrl().isEmpty()) return
         pageSync = SyncSession.start(d, relayUrl(), relayToken(), "$code-$pageId", syncListenerFor(false))
+    }
+
+    private fun hideSyncDot() {
+        syncDot?.visibility = View.GONE
     }
 
     private fun stopSync() {
