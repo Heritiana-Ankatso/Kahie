@@ -1,9 +1,9 @@
 // Offline cache for the app shell. Bump VERSION on every release.
-const VERSION = 'kahie-v0.1.0';
+const VERSION = 'kahie-v0.1.1';
 const SHELL = [
-  './', 'index.html', 'styles.css', 'manifest.webmanifest',
+  './', 'index.html', 'collect.html', 'styles.css', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-192.png', 'icons/maskable-512.png',
-  'src/app.js', 'src/editor.js', 'src/export.js', 'src/expr.js', 'src/i18n.js', 'src/icons.js', 'src/ink.js',
+  'src/app.js', 'src/collect.js', 'src/collect-prompts.js', 'src/editor.js', 'src/export.js', 'src/expr.js', 'src/i18n.js', 'src/icons.js', 'src/ink.js',
   'src/mathtex.js', 'src/model.js', 'src/render.js', 'src/search.js', 'src/shapes.js', 'src/store.js', 'src/ui.js',
   'vendor/mathjax/tex-svg-full.js',
   'vendor/pdfjs/pdf.min.mjs', 'vendor/pdfjs/pdf.worker.min.mjs',
