@@ -70,4 +70,9 @@
     <string name="export_png">Exporter cette page (PNG)</string>
     <string name="sync_online">Synchronisé</string>
     <string name="sync_offline">Non synchronisé : %1$s</string>
+    <string name="plot_tool">Courbe</string>
+    <string name="plot_tool_hint">Touchez la page pour tracer des fonctions de x, ou une courbe pour la modifier</string>
+    <string name="add_plot">Tracer des fonctions de x</string>
+    <string name="edit_plot">Modifier la courbe (aucune expression pour supprimer)</string>
+    <string name="plot_bad_window">Vérifiez la fenêtre : x min < x max et y min < y max</string>
 </resources>

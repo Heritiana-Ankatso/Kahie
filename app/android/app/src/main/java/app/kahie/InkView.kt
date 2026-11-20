@@ -23,7 +23,7 @@ import kotlin.math.min
 
 /** Page canvas: stylus/touch/mouse input, pan and zoom, and drawing of the core's geometry. */
 class InkView(context: Context) : View(context) {
-    enum class Tool { PEN, HIGHLIGHTER, ERASER, TEXT, SELECT, MATH }
+    enum class Tool { PEN, HIGHLIGHTER, ERASER, TEXT, SELECT, MATH, PLOT }
 
     /** Optional low-latency renderer for the stroke in progress (see [JetpackWetInk]). */
     interface WetInk {
@@ -104,6 +104,11 @@ class InkView(context: Context) : View(context) {
         style = Paint.Style.STROKE
         color = 0x55888888
     }
+
+    private var plots: List<uniffi.nb_ffi.PlotBlock> = emptyList()
+
+    /** Plot tool tap at page coordinates, with the id of the plot there (if any). */
+    var onPlotTap: (x: Float, y: Float, blockId: String?) -> Unit = { _, _, _ -> }
 
     /** Maths tool tap at page coordinates, with the id of the maths block there (if any). */
     var onMathTap: (x: Float, y: Float, blockId: String?) -> Unit = { _, _, _ -> }
@@ -186,6 +191,7 @@ class InkView(context: Context) : View(context) {
         paths.keys.retainAll(live)
         for (key in order) if (key !in paths) d.geometry(key)?.let { paths[key] = toPath(it) }
         maths = d.mathBlocks()
+        plots = d.plotBlocks()
         val blocks = d.textBlocks()
         textLayouts.keys.retainAll(blocks.map { it.key }.toSet())
         texts = blocks.map { b -> textLayouts.getOrPut(b.key) { CachedText(b, layoutText(b.text, b.width, b.size, b.color)) } }
@@ -283,6 +289,13 @@ class InkView(context: Context) : View(context) {
             if (moving && t.block.id in selection) canvas.translate(dragDx, dragDy)
             canvas.translate(t.block.x, t.block.y)
             t.layout.draw(canvas)
+            canvas.restore()
+        }
+        for (p in plots) {
+            if (p.key in hidden) continue
+            canvas.save()
+            if (moving && p.id in selection) canvas.translate(dragDx, dragDy)
+            PageRenderer.drawPlot(canvas, p, 1f / s * density)
             canvas.restore()
         }
         for (m in maths) {
@@ -422,6 +435,14 @@ class InkView(context: Context) : View(context) {
 
         if (tool == Tool.SELECT && !drawing && !erasing && e.pointerCount == 1) {
             handleSelect(e)
+            return true
+        }
+        if (tool == Tool.PLOT && !drawing && !erasing) {
+            if (e.actionMasked == MotionEvent.ACTION_UP) {
+                val x = toPageX(e.x)
+                val y = toPageY(e.y)
+                onPlotTap(x, y, doc?.plotAt(x.toDouble(), y.toDouble()))
+            }
             return true
         }
         if (tool == Tool.MATH && !drawing && !erasing) {

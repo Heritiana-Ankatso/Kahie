@@ -72,4 +72,9 @@
     <string name="export_png">Export this page (PNG)</string>
     <string name="sync_online">Synced</string>
     <string name="sync_offline">Not synced: %1$s</string>
+    <string name="plot_tool">Plot</string>
+    <string name="plot_tool_hint">Tap the page to plot functions of x, or a plot to edit it</string>
+    <string name="add_plot">Plot functions of x</string>
+    <string name="edit_plot">Edit plot (no expression to delete)</string>
+    <string name="plot_bad_window">Check the window: x min < x max and y min < y max</string>
 </resources>

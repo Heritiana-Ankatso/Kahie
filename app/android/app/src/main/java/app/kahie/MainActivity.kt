@@ -79,6 +79,7 @@ class MainActivity : Activity() {
         mathRenderer = renderer
         ink.math = renderer
         ink.onMathTap = { x, y, blockId -> editMath(x, y, blockId) }
+        ink.onPlotTap = { x, y, blockId -> editPlot(x, y, blockId) }
         ink.onChanged = {
             updateHistoryButtons()
             main.removeCallbacks(saveRunnable)
@@ -120,6 +121,12 @@ class MainActivity : Activity() {
             if (ink.tool == InkView.Tool.SELECT) toast(getString(R.string.select_hint))
         })
         bar.addView(textButton(R.string.selection) { showSelectionActions() })
+        bar.addView(textButton(R.string.plot_tool) {
+            ink.clearSelection()
+            ink.tool = if (ink.tool == InkView.Tool.PLOT) InkView.Tool.PEN else InkView.Tool.PLOT
+            updateToolbar()
+            if (ink.tool == InkView.Tool.PLOT) toast(getString(R.string.plot_tool_hint))
+        })
         bar.addView(textButton(R.string.math_tool) {
             ink.clearSelection()
             ink.tool = if (ink.tool == InkView.Tool.MATH) InkView.Tool.PEN else InkView.Tool.MATH
@@ -598,6 +605,55 @@ class MainActivity : Activity() {
                     ink.refresh()
                     ink.onChanged()
                 }
+            }
+            .show()
+    }
+
+    /** Create a plot at (x, y) or edit the one tapped: one expression per line + window. */
+    private fun editPlot(x: Float, y: Float, blockId: String?) {
+        val d = doc ?: return
+        val existing = blockId?.let { id -> d.plotBlocks().firstOrNull { it.id == id } }
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad / 2, pad, 0) }
+        val exprs = android.widget.EditText(this).apply {
+            hint = "y = x^2 - 2\n2sin(x)"
+            minLines = 2
+            gravity = Gravity.TOP
+            setText(existing?.exprs?.joinToString("\n") ?: "")
+        }
+        fun num(label: String, v: Double) = android.widget.EditText(this).apply {
+            hint = label
+            setText(if (v == Math.rint(v)) v.toLong().toString() else v.toString())
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val x0 = num("x min", existing?.x0 ?: -5.0)
+        val x1 = num("x max", existing?.x1 ?: 5.0)
+        val y0 = num("y min", existing?.y0 ?: -5.0)
+        val y1 = num("y max", existing?.y1 ?: 5.0)
+        box.addView(exprs)
+        box.addView(LinearLayout(this).apply { addView(x0); addView(x1) })
+        box.addView(LinearLayout(this).apply { addView(y0); addView(y1) })
+        AlertDialog.Builder(this)
+            .setTitle(if (existing == null) R.string.add_plot else R.string.edit_plot)
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val list = exprs.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }
+                val w = listOf(x0, x1, y0, y1).map { it.text.toString().replace(',', '.').toDoubleOrNull() }
+                if (w.any { it == null }) { toast(getString(R.string.plot_bad_window)); return@setPositiveButton }
+                val result: Result<String?> = runCatching {
+                    when {
+                        existing != null -> { d.setPlot(existing.id, list, w[0]!!, w[1]!!, w[2]!!, w[3]!!); existing.id }
+                        list.isNotEmpty() -> d.addPlot(x.toDouble(), y.toDouble(), 360.0, 270.0, list, w[0]!!, w[1]!!, w[2]!!, w[3]!!)
+                        else -> null
+                    }
+                }
+                result.onFailure { toast(getString(R.string.plot_bad_window)) }
+                val plotId = result.getOrNull()
+                d.plotBlocks().firstOrNull { it.id == plotId }?.errors?.firstOrNull { it.isNotEmpty() }?.let { toast(it) }
+                ink.refresh()
+                ink.onChanged()
             }
             .show()
     }

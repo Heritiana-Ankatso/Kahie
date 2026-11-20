@@ -84,6 +84,85 @@ pub struct MathBlock {
     pub color: u32,
 }
 
+/// A function plot: expressions of x drawn in a window, inside a box on the page.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct PlotBlock {
+    pub key: String,
+    pub id: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub exprs: Vec<String>,
+    pub x0: f64,
+    pub x1: f64,
+    pub y0: f64,
+    pub y1: f64,
+    /// One entry per expression: polylines in page coordinates (x0, y0, x1, y1, …), split at
+    /// poles and undefined points. Empty when the expression does not parse.
+    pub curves: Vec<Vec<Vec<f32>>>,
+    /// Expressions that do not parse, with the reason (same order as `exprs`, empty if fine).
+    pub errors: Vec<String>,
+    /// Tick spacing on each axis, in window units.
+    pub x_step: f64,
+    pub y_step: f64,
+}
+
+fn plot_block(it: &Item) -> Option<PlotBlock> {
+    let Content::Plot {
+        rect,
+        exprs,
+        x0,
+        x1,
+        y0,
+        y1,
+    } = &it.content
+    else {
+        return None;
+    };
+    // Window → box: x right, y up.
+    let sx = rect.w / (x1 - x0);
+    let sy = rect.h / (y1 - y0);
+    let to_page = |(x, y): (f64, f64)| [(rect.x + (x - x0) * sx) as f32, (rect.y + (y1 - y) * sy) as f32];
+    let mut curves = Vec::with_capacity(exprs.len());
+    let mut errors = Vec::with_capacity(exprs.len());
+    for e in exprs {
+        match nb_math::parse(e) {
+            Ok(f) => {
+                let n = (rect.w as usize).clamp(64, 2000);
+                curves.push(
+                    nb_math::sample(&f, *x0, *x1, *y0, *y1, n)
+                        .into_iter()
+                        .map(|seg| seg.into_iter().flat_map(to_page).collect())
+                        .collect(),
+                );
+                errors.push(String::new());
+            }
+            Err(err) => {
+                curves.push(vec![]);
+                errors.push(err.0);
+            }
+        }
+    }
+    Some(PlotBlock {
+        key: item_key(it),
+        id: it.id.clone(),
+        x: rect.x as f32,
+        y: rect.y as f32,
+        width: rect.w as f32,
+        height: rect.h as f32,
+        exprs: exprs.clone(),
+        x0: *x0,
+        x1: *x1,
+        y0: *y0,
+        y1: *y1,
+        curves,
+        errors,
+        x_step: nb_math::tick_step(x1 - x0, 8.0),
+        y_step: nb_math::tick_step(y1 - y0, 8.0),
+    })
+}
+
 /// Geometry the UI can turn into a path. `coords` is x0, y0, x1, y1, …
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct RenderItem {
@@ -130,6 +209,17 @@ pub(crate) fn peer_id() -> u64 {
     (t, std::process::id()).hash(&mut h);
     // Loro reserves u64::MAX; keep within range.
     h.finish() >> 1
+}
+
+fn check_window(x0: f64, x1: f64, y0: f64, y1: f64) -> Result<(), CoreError> {
+    let ok = [x0, x1, y0, y1].iter().all(|v| v.is_finite()) && x1 > x0 && y1 > y0;
+    if ok {
+        Ok(())
+    } else {
+        Err(CoreError::Format {
+            detail: "the window needs x min < x max and y min < y max".into(),
+        })
+    }
 }
 
 fn new_id(seq: u64) -> String {
@@ -603,6 +693,101 @@ impl PageDoc {
         new_ids
     }
 
+    // ----- plots -----
+
+    pub fn plot_blocks(&self) -> Vec<PlotBlock> {
+        let st = self.state.lock().unwrap();
+        st.doc.page().items.iter().filter_map(plot_block).collect()
+    }
+
+    /// Add a plot box at (x, y) of `width` × `height` for the window [x0, x1] × [y0, y1].
+    #[allow(clippy::too_many_arguments)] // flat FFI signature
+    pub fn add_plot(
+        &self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        exprs: Vec<String>,
+        x0: f64,
+        x1: f64,
+        y0: f64,
+        y1: f64,
+    ) -> Result<String, CoreError> {
+        check_window(x0, x1, y0, y1)?;
+        let mut st = self.state.lock().unwrap();
+        st.seq += 1;
+        let id = new_id(st.seq);
+        let item = Item {
+            id: id.clone(),
+            content: Content::Plot {
+                rect: nb_model::Rect {
+                    x,
+                    y,
+                    w: width,
+                    h: height,
+                },
+                exprs,
+                x0,
+                x1,
+                y0,
+                y1,
+            },
+        };
+        let op = Op::add(st.doc.page(), vec![item]);
+        st.commit(op);
+        Ok(id)
+    }
+
+    /// Change a plot's expressions and window. No expressions deletes the plot.
+    pub fn set_plot(
+        &self,
+        id: String,
+        exprs: Vec<String>,
+        x0: f64,
+        x1: f64,
+        y0: f64,
+        y1: f64,
+    ) -> Result<bool, CoreError> {
+        let mut st = self.state.lock().unwrap();
+        let Some(old) = st.doc.page().items.iter().find(|i| i.id == id).cloned() else {
+            return Ok(false);
+        };
+        if exprs.iter().all(|e| e.trim().is_empty()) {
+            let op = Op::remove(st.doc.page(), &[id.as_str()]);
+            return Ok(st.commit(op));
+        }
+        check_window(x0, x1, y0, y1)?;
+        let Content::Plot { rect, .. } = &old.content else {
+            return Ok(false);
+        };
+        let item = Item {
+            id,
+            content: Content::Plot {
+                rect: rect.clone(),
+                exprs,
+                x0,
+                x1,
+                y0,
+                y1,
+            },
+        };
+        let op = Op::update(st.doc.page(), vec![item]);
+        Ok(st.commit(op))
+    }
+
+    /// Topmost plot containing (x, y), if any.
+    pub fn plot_at(&self, x: f64, y: f64) -> Option<String> {
+        let st = self.state.lock().unwrap();
+        st.doc
+            .page()
+            .items
+            .iter()
+            .rev()
+            .find(|it| matches!(it.content, Content::Plot { .. }) && it.bounds().contains(x, y))
+            .map(|it| it.id.clone())
+    }
+
     // ----- maths blocks -----
 
     pub fn math_blocks(&self) -> Vec<MathBlock> {
@@ -956,6 +1141,57 @@ mod tests {
         );
         assert!(doc.set_math(id, "".into(), 0.0, 0.0));
         assert!(doc.math_blocks().is_empty());
+    }
+
+    #[test]
+    fn plots_add_sample_edit_delete() {
+        let doc = PageDoc::new_in_memory();
+        let id = doc
+            .add_plot(
+                100.0,
+                100.0,
+                400.0,
+                300.0,
+                vec!["y = x^2 - 2".into(), "1/x".into(), "sin(".into()],
+                -5.0,
+                5.0,
+                -5.0,
+                5.0,
+            )
+            .unwrap();
+        let p = &doc.plot_blocks()[0];
+        assert_eq!(p.curves.len(), 3);
+        assert_eq!(p.curves[0].len(), 1, "a parabola is one polyline");
+        assert!(p.curves[1].len() >= 2, "1/x is split at its pole");
+        assert!(
+            p.curves[2].is_empty() && !p.errors[2].is_empty(),
+            "bad expression reported, not drawn"
+        );
+        // The vertex of x^2-2 at (0,-2) maps to the box: x centre, y = 100 + (5-(-2))*30 = 310.
+        let pts = &p.curves[0][0];
+        let (mut best, mut by) = (f32::MAX, 0.0f32);
+        for xy in pts.chunks(2) {
+            if (xy[0] - 300.0).abs() < best {
+                best = (xy[0] - 300.0).abs();
+                by = xy[1];
+            }
+        }
+        assert!((by - 310.0).abs() < 2.0, "vertex at y={by}");
+        assert!(
+            doc.add_plot(0.0, 0.0, 10.0, 10.0, vec!["x".into()], 1.0, 1.0, 0.0, 1.0)
+                .is_err(),
+            "empty window refused"
+        );
+        assert!(doc
+            .set_plot(id.clone(), vec!["cos(x)".into()], -3.0, 3.0, -2.0, 2.0)
+            .unwrap());
+        assert_eq!(doc.plot_blocks()[0].exprs, vec!["cos(x)".to_string()]);
+        assert_eq!(doc.plot_at(150.0, 150.0), Some(id.clone()));
+        assert!(
+            doc.set_plot(id, vec![], 0.0, 1.0, 0.0, 1.0).unwrap(),
+            "no expression deletes"
+        );
+        assert!(doc.plot_blocks().is_empty());
     }
 
     #[test]

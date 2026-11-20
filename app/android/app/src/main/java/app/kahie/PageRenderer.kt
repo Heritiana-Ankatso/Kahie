@@ -108,6 +108,59 @@ object PageRenderer {
         }
     }
 
+    private val curveColors = intArrayOf(0xFF2F5BD3.toInt(), 0xFFD0453A.toInt(), 0xFF2E9E5B.toInt(), 0xFF8E44AD.toInt(), 0xFFE67E22.toInt())
+
+    /** Draw a function plot: frame, light grid, axes with tick labels, curves. `unit` = 1 screen px in page units. */
+    fun drawPlot(canvas: Canvas, p: uniffi.nb_ffi.PlotBlock, unit: Float) {
+        val frame = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = 0xFFB0B7C3.toInt(); strokeWidth = unit }
+        val grid = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFEEF1F5.toInt(); strokeWidth = unit }
+        val axis = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF6B6F78.toInt(); strokeWidth = 1.2f * unit }
+        val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF6B6F78.toInt(); textSize = 11f }
+        val l = p.x
+        val t = p.y
+        val r = p.x + p.width
+        val b = p.y + p.height
+        fun px(x: Double) = (l + (x - p.x0) / (p.x1 - p.x0) * p.width).toFloat()
+        fun py(y: Double) = (t + (p.y1 - y) / (p.y1 - p.y0) * p.height).toFloat()
+        canvas.save()
+        canvas.clipRect(l, t, r, b)
+        canvas.drawColor(Color.WHITE)
+        var gx = kotlin.math.ceil(p.x0 / p.xStep) * p.xStep
+        while (gx <= p.x1) { canvas.drawLine(px(gx), t, px(gx), b, grid); gx += p.xStep }
+        var gy = kotlin.math.ceil(p.y0 / p.yStep) * p.yStep
+        while (gy <= p.y1) { canvas.drawLine(l, py(gy), r, py(gy), grid); gy += p.yStep }
+        val ax = if (0.0 in p.x0..p.x1) px(0.0) else null
+        val ay = if (0.0 in p.y0..p.y1) py(0.0) else null
+        ay?.let { canvas.drawLine(l, it, r, it, axis) }
+        ax?.let { canvas.drawLine(it, t, it, b, axis) }
+        fun fmt(v: Double) = if (kotlin.math.abs(v - Math.rint(v)) < 1e-9) Math.rint(v).toLong().toString() else "%.2f".format(v).trimEnd('0').trimEnd('.')
+        val labelY = (ay ?: b) - 3f
+        gx = kotlin.math.ceil(p.x0 / p.xStep) * p.xStep
+        while (gx <= p.x1) { if (kotlin.math.abs(gx) > 1e-12) canvas.drawText(fmt(gx), px(gx) + 2f, labelY, label); gx += p.xStep }
+        val labelX = (ax ?: l) + 3f
+        gy = kotlin.math.ceil(p.y0 / p.yStep) * p.yStep
+        while (gy <= p.y1) { if (kotlin.math.abs(gy) > 1e-12) canvas.drawText(fmt(gy), labelX, py(gy) - 2f, label); gy += p.yStep }
+        p.curves.forEachIndexed { i, segments ->
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                color = curveColors[i % curveColors.size]
+                strokeWidth = 2f
+                strokeJoin = Paint.Join.ROUND
+                strokeCap = Paint.Cap.ROUND
+            }
+            for (seg in segments) {
+                if (seg.size < 4) continue
+                val path = Path()
+                path.moveTo(seg[0], seg[1])
+                var k = 2
+                while (k + 1 < seg.size) { path.lineTo(seg[k], seg[k + 1]); k += 2 }
+                canvas.drawPath(path, paint)
+            }
+        }
+        canvas.restore()
+        canvas.drawRect(l, t, r, b, frame)
+    }
+
     /** All maths of a page, so an export can wait until every formula is rendered. */
     fun mathRequests(d: PageDoc): List<Triple<String, Float, Int>> =
         d.mathBlocks().map { Triple(it.latex, it.size, opaque(it.color)) }
@@ -120,6 +173,7 @@ object PageRenderer {
             val g = d.geometry(key) ?: continue
             canvas.drawPath(inkPath(g), inkPaint(g))
         }
+        for (p in d.plotBlocks()) drawPlot(canvas, p, 0.75f)
         for (b in d.textBlocks()) {
             val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = b.size; color = opaque(b.color) }
             val layout = StaticLayout.Builder.obtain(b.text, 0, b.text.length, tp, b.width.toInt().coerceAtLeast(20)).build()
