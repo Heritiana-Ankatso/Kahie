@@ -10,7 +10,7 @@ Google services are proposed for authentication, sync, collaboration and backup,
 
 ## Decision
 
-Define Rust traits for `SyncTransport`, `AuthProvider`, `BlobStore`, `TextHwr`, `MathHwr`, `CasBackend`, `LlmRuntime`. Google Drive and Firebase are *implementations*, not dependencies of the core. A **local folder / WebDAV** sync adapter is shipped alongside the Google adapters (Phase 4) to prove independence. The portable `.nbk` format includes a human-readable JSON export.
+Define Rust traits for `SyncTransport`, `AuthProvider`, `BlobStore`, `TextHwr`, `MathHwr`, `CasBackend`, `LlmRuntime`. Google Drive and Firebase are *implementations*, not dependencies of the core. A **local folder / WebDAV** sync adapter is shipped alongside the Google adapters (Phase 4) to prove independence. The portable `.kahie` format includes a human-readable JSON export.
 
 ## Consequences
 

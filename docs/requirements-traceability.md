@@ -70,7 +70,7 @@ Maps every requirement of the [product description](product/app-description.md) 
 | Local storage, autosave, backup | WS2 | 1 | E1.7 |
 | Optional Google integration | WS7 | 4 | E4.1 |
 | User-owned portable data, standard formats | WS2 | 1–2 | P0-13, P1-35, E2.12 |
-| No provider dependence for existing work | WS2/WS7 | 1, 4 | `.nbk` + JSON, E4.3 |
+| No provider dependence for existing work | WS2/WS7 | 1, 4 | `.kahie` + JSON, E4.3 |
 
 ## 6. User experience
 

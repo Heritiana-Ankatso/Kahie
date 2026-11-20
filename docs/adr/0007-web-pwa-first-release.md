@@ -37,7 +37,7 @@ Dependencies are permissive only (MathJax and pdf.js, both Apache-2.0), so licen
   - PDF pages are stored as raster backgrounds.
 - **Follow-up work:**
   - Measure pen latency on real tablets (P0-02 can use this app as its baseline).
-  - Write a `.kahie` → `.nbk` migration when the native model lands (P0-13).
+  - Write a migration from the web `.kahie` backup format to the native `.kahie` format (same extension since D10; distinguish by format version) when the native model lands (P0-13).
   - Decide the hosting channel for the PWA.
 
 ## Validation

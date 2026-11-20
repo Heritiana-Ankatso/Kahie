@@ -29,7 +29,7 @@
 |---|---|---|
 | Unit | `cargo test`, JUnit/Kotlin test | All crates/modules |
 | Property-based | `proptest` | CRDT convergence, undo/redo invariants, ADR-0003 ink preservation, solver invariants, format round-trips |
-| Fuzzing | `cargo-fuzz` | PDF import, `.nbk` import, LaTeX/expression parsers |
+| Fuzzing | `cargo-fuzz` | PDF import, `.kahie` import, LaTeX/expression parsers |
 | Golden images | Display-list rasteriser in CI; device screenshots nightly | Rendering, export |
 | Curriculum suites | Custom runners | CAS (≥ 300 tasks), constructions (≥ 100), curve fitting (200 sketches) |
 | Recognition evaluation | `ml/` evaluation scripts on frozen sets | Any model/engine change |
@@ -67,6 +67,6 @@
 
 ## 9. Versioning and releases
 
-- Semantic versioning for the app and for the `.nbk` format (independently).
+- Semantic versioning for the app and for the `.kahie` format (independently).
 - Format readers support all older format versions (migration tests with stored fixtures in `testdata/formats/`).
 - Release channels: internal → pilot → beta → stable.

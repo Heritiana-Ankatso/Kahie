@@ -149,12 +149,12 @@ One SQLite database per notebook (`<notebook-id>.db`), WAL mode:
 
 Crash safety: an edit is durable once its update row is committed. Snapshots are an optimisation only.
 
-## 10. Portable file format — `.nbk`
+## 10. Portable file format — `.kahie`
 
 A documented, versioned **ZIP container**:
 
 ```
-notebook.nbk
+notebook.kahie
 ├── manifest.json        format version, notebook metadata, spec URL
 ├── document.crdt        compacted CRDT snapshot (full history optional)
 ├── document.json        human-readable JSON export of current state (for independence)

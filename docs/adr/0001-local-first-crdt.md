@@ -20,6 +20,8 @@ Every notebook is a CRDT document. All edits are CRDT operations produced by cor
 
 Candidate libraries: **Loro** (preferred: movable tree, rich text, time travel), **Automerge**, **Yrs**. Final choice by spike P0-03.
 
+**Update (2026-11-20):** Loro chosen (decision D6). P0-03 now validates it against the performance budgets.
+
 ## Consequences
 
 - Positive: offline, sync, collaboration, history and restore share one mechanism; any dumb storage (Drive, folder, WebDAV) can serve as a sync medium.

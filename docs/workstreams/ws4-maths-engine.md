@@ -20,7 +20,7 @@ Reliable, offline mathematical computation and beautiful typesetting — the det
 
 | Topic | Approach |
 |---|---|
-| CAS | `CasBackend` trait. Candidates: **SymEngine** (MIT, C++; strong core, limited solve/integrate → supplement with our own routines) or **Giac** (GPL, very complete). Decision D7 after spike P0-07 |
+| CAS | `CasBackend` trait. Candidates: **SymEngine** (MIT, C++; strong core, limited solve/integrate → supplement with our own routines) or **Giac** (GPL, very complete). **Chosen: Giac** (D7, enabled by GPL-3 licence D1); P0-07 validates the Android build and curriculum coverage |
 | Numerics | Rust: robust root finding (bracketing + Newton), interval arithmetic for plotting and certified intersections |
 | Plotter | Adaptive sampling driven by interval arithmetic: detects discontinuities/poles, avoids false connecting lines; implicit curves by marching squares + refinement |
 | Asymptotes | Symbolic limits via CAS; numeric fallback with explicit "approximate" flag |
