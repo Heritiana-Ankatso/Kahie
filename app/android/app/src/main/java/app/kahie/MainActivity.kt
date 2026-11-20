@@ -26,6 +26,7 @@ import uniffi.nb_ffi.SyncStatus
 import uniffi.nb_ffi.casAvailable
 import uniffi.nb_ffi.casEval
 import uniffi.nb_ffi.exportKahie
+import uniffi.nb_ffi.syncPageOnce
 import uniffi.nb_ffi.importKahie
 import uniffi.nb_ffi.PageDoc
 import java.io.File
@@ -346,6 +347,7 @@ class MainActivity : Activity() {
                     if (isNotebook) {
                         val current = pageIds.getOrNull(pageIndex)
                         pageIds = notebook.pageIds()
+                        syncOtherPages()
                         when {
                             pageIndex < 0 || current == null -> goToPage(0)
                             current in pageIds -> pageIndex = pageIds.indexOf(current)
@@ -384,6 +386,31 @@ class MainActivity : Activity() {
         val code = syncCode() ?: return hideSyncDot()
         if (relayUrl().isEmpty()) return
         notebookSync = SyncSession.startNotebook(notebook, relayUrl(), relayToken(), code, syncListenerFor(true))
+        syncOtherPages()
+    }
+
+    private val backgroundSync = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val periodicSync = Runnable { syncOtherPages() }
+
+    /** One-shot sync of every page except the open one (which syncs live). */
+    private fun syncOtherPages() {
+        main.removeCallbacks(periodicSync)
+        val code = syncCode() ?: return
+        val url = relayUrl()
+        if (url.isEmpty() || !backgroundSync.compareAndSet(false, true)) return
+        val token = relayToken()
+        val open = pageIds.getOrNull(pageIndex)
+        val targets = pageIds.filter { it != open }.map { it to notebook.pagePath(it) }
+        Thread {
+            try {
+                for ((id, path) in targets) {
+                    runCatching { syncPageOnce(PageDoc.open(path), url, token, "$code-$id", 1500u) }
+                }
+            } finally {
+                backgroundSync.set(false)
+                main.postDelayed(periodicSync, 5 * 60_000L)
+            }
+        }.apply { name = "kahie-sync-pages"; isDaemon = true }.start()
     }
 
     private fun restartPageSync() {
@@ -400,6 +427,7 @@ class MainActivity : Activity() {
     }
 
     private fun stopSync() {
+        main.removeCallbacks(periodicSync)
         notebookSync?.stop(); notebookSync = null
         pageSync?.stop(); pageSync = null
     }

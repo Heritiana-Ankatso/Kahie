@@ -36,6 +36,37 @@ pub trait SyncListener: Send + Sync {
     fn on_status(&self, status: SyncStatus);
 }
 
+struct Silent;
+impl SyncListener for Silent {
+    fn on_remote_change(&self) {}
+    fn on_status(&self, _: SyncStatus) {}
+}
+
+/// One-shot sync of a page that is not open: upload what the relay lacks, import what it
+/// has, and return once both sides are quiet for `idle_ms`. Returns the number of updates
+/// imported. Blocking: call it from a background thread.
+#[uniffi::export]
+pub fn sync_page_once(
+    page: Arc<PageDoc>,
+    url: String,
+    token: String,
+    doc_id: String,
+    idle_ms: u32,
+) -> Result<u32, crate::CoreError> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let stop = AtomicBool::new(false);
+    run_connection(
+        page.as_ref(),
+        &url,
+        &token,
+        &doc_id,
+        &Silent,
+        &stop,
+        Some(Duration::from_millis(idle_ms.into())),
+    )
+    .map_err(|detail| crate::CoreError::Io { detail })
+}
+
 #[derive(uniffi::Object)]
 pub struct SyncSession {
     stop: Arc<AtomicBool>,
@@ -131,7 +162,8 @@ fn run_connection(
     doc_id: &str,
     listener: &dyn SyncListener,
     stop: &AtomicBool,
-) -> Result<(), String> {
+    until_idle: Option<Duration>,
+) -> Result<u32, String> {
     let mut cursor = load_cursor(page);
     let mut req = format!("{}/sync/{doc_id}?after={}", url.trim_end_matches('/'), cursor.seq)
         .into_client_request()
@@ -147,10 +179,22 @@ fn run_connection(
     listener.on_status(SyncStatus::Online);
     // At most one upload in flight; the cursor advances only when the relay acknowledges it.
     let mut in_flight: Option<VersionVector> = None;
+    let mut imported = 0u32;
+    let mut last_activity = std::time::Instant::now();
     loop {
         if stop.load(Ordering::Relaxed) {
             let _ = ws.close(None);
-            return Ok(());
+            return Ok(imported);
+        }
+        if let Some(idle) = until_idle {
+            if in_flight.is_none() && last_activity.elapsed() >= idle {
+                // One-shot sync: nothing left to send and the relay has gone quiet.
+                let mut probe = cursor.vv.clone();
+                if page.outgoing(&mut probe).is_none() {
+                    let _ = ws.close(None);
+                    return Ok(imported);
+                }
+            }
         }
         if in_flight.is_none() {
             let mut candidate = cursor.vv.clone();
@@ -158,10 +202,12 @@ fn run_connection(
             if let Some(bytes) = update {
                 ws.send(Message::Binary(bytes.into())).map_err(|e| e.to_string())?;
                 in_flight = Some(candidate);
+                last_activity = std::time::Instant::now();
             }
         }
         match ws.read() {
             Ok(Message::Binary(b)) if b.len() >= 8 => {
+                last_activity = std::time::Instant::now();
                 let seq = u64::from_be_bytes(b[..8].try_into().expect("8 bytes")) as i64;
                 let payload = &b[8..];
                 if payload.is_empty() {
@@ -174,6 +220,7 @@ fn run_connection(
                     continue;
                 }
                 page.incoming(payload, &mut cursor.vv)?;
+                imported += 1;
                 cursor.seq = cursor.seq.max(seq);
                 save_cursor(page, &cursor);
                 listener.on_remote_change();
@@ -239,8 +286,8 @@ impl SyncSession {
                 let mut backoff = Duration::from_secs(1);
                 while !s.load(Ordering::Relaxed) {
                     listener.on_status(SyncStatus::Connecting);
-                    match run_connection(page.as_ref(), &url, &token, &doc_id, listener.as_ref(), &s) {
-                        Ok(()) => break,
+                    match run_connection(page.as_ref(), &url, &token, &doc_id, listener.as_ref(), &s, None) {
+                        Ok(_) => break,
                         Err(detail) => listener.on_status(SyncStatus::Offline { detail }),
                     }
                     // Interruptible wait before reconnecting.
@@ -376,6 +423,18 @@ mod tests {
         sc.stop();
         sa.stop();
         sb.stop();
+
+        // A page that is not open syncs with one call.
+        let pc = PageDoc::open(base.join("c.kpage").to_string_lossy().into()).unwrap();
+        let n = sync_page_once(pc.clone(), url_nb.clone(), "t".into(), "page1".into(), 300).unwrap();
+        assert!(
+            n >= 1 && pc.layout() == pa.layout(),
+            "one-shot sync caught up ({n} updates)"
+        );
+        draw(&pc, 400.0);
+        sync_page_once(pc.clone(), url_nb.clone(), "t".into(), "page1".into(), 300).unwrap();
+        sync_page_once(pa.clone(), url_nb.clone(), "t".into(), "page1".into(), 300).unwrap();
+        assert_eq!(pa.item_count(), 5, "one-shot sync uploads local edits");
 
         // Notebook outlines: device B joins A's notebook and sees its pages, without an extra page.
         let na = NotebookDoc::open(base.join("nb-a").to_string_lossy().into(), "Physique".into()).unwrap();

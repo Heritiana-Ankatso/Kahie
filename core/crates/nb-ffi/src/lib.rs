@@ -23,7 +23,7 @@ mod sync;
 pub use cas::{cas_available, cas_eval, CasAnswer};
 pub use kahie_file::{export_kahie, import_kahie};
 pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
-pub use sync::{SyncListener, SyncSession, SyncStatus};
+pub use sync::{sync_page_once, SyncListener, SyncSession, SyncStatus};
 
 #[derive(Debug, uniffi::Error)]
 pub enum CoreError {
