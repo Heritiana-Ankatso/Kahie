@@ -16,6 +16,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 uniffi::setup_scaffolding!();
 
+mod notebook;
+pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
+
 #[derive(Debug, uniffi::Error)]
 pub enum CoreError {
     Io { detail: String },
@@ -84,7 +87,7 @@ pub struct PageDoc {
 }
 
 /// CRDT peer id for this session: must differ between devices and app runs.
-fn peer_id() -> u64 {
+pub(crate) fn peer_id() -> u64 {
     let t = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())

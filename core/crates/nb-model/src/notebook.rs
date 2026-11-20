@@ -33,6 +33,7 @@ pub struct Node {
 pub struct CrdtNotebook {
     doc: LoroDoc,
     undo: UndoManager,
+    saved: VersionVector,
 }
 
 impl CrdtNotebook {
@@ -56,14 +57,49 @@ impl CrdtNotebook {
         if doc.get_map(META).get("id").is_none() {
             return Err(ModelError("not a Kahie notebook".into()));
         }
-        Ok(Self::wrap(doc))
+        let mut nb = Self::wrap(doc);
+        nb.saved = nb.doc.oplog_vv();
+        Ok(nb)
     }
 
     fn wrap(doc: LoroDoc) -> Self {
         let mut undo = UndoManager::new(&doc);
         undo.set_merge_interval(0);
         undo.set_max_undo_steps(200);
-        Self { doc, undo }
+        Self {
+            doc,
+            undo,
+            saved: VersionVector::default(),
+        }
+    }
+
+    /// Changes not yet handed out for persistence, each returned once (see `CrdtPage`).
+    pub fn take_unsaved(&mut self) -> Option<Vec<u8>> {
+        let now = self.doc.oplog_vv();
+        if now == self.saved {
+            return None;
+        }
+        let bytes = self.doc.export(ExportMode::updates(&self.saved)).expect("export");
+        self.saved = now;
+        Some(bytes)
+    }
+
+    /// Forget the undo history (e.g. after a migration that must not be undoable).
+    pub fn clear_undo(&mut self) {
+        self.undo.clear();
+    }
+
+    /// Parent section and index among its siblings.
+    pub fn position(&self, node: TreeID) -> Option<(Option<TreeID>, usize)> {
+        let t = self.tree();
+        let parent = t.parent(node)?;
+        let siblings = t.children(parent)?;
+        let index = siblings.iter().position(|&s| s == node)?;
+        let parent = match parent {
+            TreeParentId::Node(p) => Some(p),
+            _ => None,
+        };
+        Some((parent, index))
     }
 
     fn tree(&self) -> LoroTree {

@@ -18,6 +18,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import uniffi.nb_ffi.CoreException
+import uniffi.nb_ffi.NotebookDoc
+import uniffi.nb_ffi.OutlineKind
 import uniffi.nb_ffi.PageDoc
 import java.io.File
 import java.util.concurrent.Executors
@@ -37,7 +39,8 @@ class MainActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("kahie", Context.MODE_PRIVATE) }
 
     private val notebookDir by lazy { File(filesDir, "notebook").apply { mkdirs() } }
-    private var pages: MutableList<File> = mutableListOf()
+    private lateinit var notebook: NotebookDoc
+    private var pageIds: List<String> = emptyList()
     private var pageIndex = 0
     private var doc: PageDoc? = null
 
@@ -86,6 +89,7 @@ class MainActivity : Activity() {
         }
         bar.addView(shapesBtn)
         bar.addView(textButton(R.string.paper) { cycleTemplate() })
+        bar.addView(textButton(R.string.pages) { showPages() })
         bar.addView(iconButton(R.drawable.ic_fit, R.string.fit) { ink.fit() })
         bar.addView(iconButton(R.drawable.ic_trash, R.string.clear) { confirmClear() })
         bar.addView(divider())
@@ -123,9 +127,15 @@ class MainActivity : Activity() {
         root.setBackgroundColor(0xFFF6F4EF.toInt())
         setContentView(root)
 
-        pages = notebookDir.listFiles { f -> f.name.endsWith(".json") }?.sortedBy { it.name }?.toMutableList() ?: mutableListOf()
-        if (pages.isEmpty()) pages.add(File(notebookDir, pageName(1)))
-        goToPage(prefs.getInt("page", 0).coerceIn(0, pages.size - 1))
+        notebook = try {
+            NotebookDoc.open(notebookDir.path, getString(R.string.app_name))
+        } catch (e: CoreException) {
+            toast(getString(R.string.open_failed, e.message ?: ""))
+            NotebookDoc.open(File(filesDir, "notebook-recovered-${System.currentTimeMillis()}").path, getString(R.string.app_name))
+        }
+        pageIds = notebook.pageIds()
+        val lastId = prefs.getString("pageId", null)
+        goToPage(pageIds.indexOf(lastId).takeIf { it >= 0 } ?: 0)
         updateToolbar()
     }
 
@@ -133,7 +143,8 @@ class MainActivity : Activity() {
         super.onPause()
         main.removeCallbacks(saveRunnable)
         saveNow()
-        prefs.edit().putInt("page", pageIndex).apply()
+        pageIds.getOrNull(pageIndex)?.let { prefs.edit().putString("pageId", it).apply() }
+        io.execute { runCatching { notebook.save() } }
     }
 
     override fun onDestroy() {
@@ -143,31 +154,73 @@ class MainActivity : Activity() {
 
     // ---------- pages ----------
 
-    private fun pageName(n: Int) = "page-%04d.json".format(n)
-
     private fun goToPage(i: Int) {
-        if (i < 0 || i >= pages.size) return
+        if (i < 0 || i >= pageIds.size) return
         main.removeCallbacks(saveRunnable)
         saveNow()
         pageIndex = i
         doc = try {
-            PageDoc.open(pages[i].path)
+            PageDoc.open(notebook.pagePath(pageIds[i]))
         } catch (e: CoreException) {
             toast(getString(R.string.open_failed, e.message ?: ""))
             PageDoc.newInMemory()
         }
         ink.doc = doc
-        pageLabel.text = getString(R.string.page_count, i + 1, pages.size)
+        pageLabel.text = getString(R.string.page_count, i + 1, pageIds.size)
         updateHistoryButtons()
     }
 
+    /** Insert a page after the current one, with the same paper. */
     private fun addPage() {
-        val next = (pages.maxOfOrNull { it.name.removePrefix("page-").removeSuffix(".json").toIntOrNull() ?: 0 } ?: 0) + 1
         val template = doc?.template() ?: "lined"
-        pages.add(File(notebookDir, pageName(next)))
-        goToPage(pages.size - 1)
+        val id = notebook.addPage(pageIds.getOrNull(pageIndex))
+        pageIds = notebook.pageIds()
+        goToPage(pageIds.indexOf(id))
         doc?.setTemplate(template)
-        saveAsync()
+        ink.invalidate()
+    }
+
+    /** Outline of the notebook: tap a page to open it; delete the current page (restorable). */
+    private fun showPages() {
+        val entries = notebook.outline()
+        val labels = entries.map { e ->
+            val indent = "    ".repeat(e.depth.toInt())
+            when (e.kind) {
+                OutlineKind.SECTION -> indent + e.title
+                OutlineKind.PAGE -> {
+                    val n = pageIds.indexOf(e.pageId) + 1
+                    val name = e.title.ifEmpty { getString(R.string.page_n, n) }
+                    indent + (if (e.pageId == pageIds.getOrNull(pageIndex)) "• " else "") + name
+                }
+            }
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.pages)
+            .setItems(labels) { _, which ->
+                entries[which].pageId?.let { id -> goToPage(pageIds.indexOf(id)) }
+            }
+            .setPositiveButton(R.string.add_page) { _, _ -> addPage() }
+            .setNeutralButton(R.string.delete_page) { _, _ -> confirmDeletePage() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmDeletePage() {
+        if (pageIds.size <= 1) {
+            toast(getString(R.string.last_page))
+            return
+        }
+        val id = pageIds.getOrNull(pageIndex) ?: return
+        AlertDialog.Builder(this)
+            .setMessage(R.string.delete_page_confirm)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.delete_page) { _, _ ->
+                val node = notebook.outline().firstOrNull { it.pageId == id }?.node ?: return@setPositiveButton
+                notebook.deleteNode(node)
+                pageIds = notebook.pageIds()
+                goToPage(pageIndex.coerceAtMost(pageIds.size - 1))
+            }
+            .show()
     }
 
     private fun cycleTemplate() {

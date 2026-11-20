@@ -1,0 +1,313 @@
+//! `NotebookDoc`: the section/page outline of one notebook directory, for the app.
+//!
+//! Layout of a notebook directory:
+//! - `notebook.db` — SQLite log of the outline CRDT ([`nb_model::notebook::CrdtNotebook`]);
+//! - `<page-id>.kpage` — one SQLite page database per page ([`crate::PageDoc`]).
+//!
+//! Directories written before the outline existed hold `page-NNNN.json` files: they are
+//! adopted in name order on first open and renamed to `.kpage` (contents migrate when
+//! the page is opened).
+
+use crate::{peer_id, CoreError};
+use loro::TreeID;
+use nb_model::notebook::{CrdtNotebook, NodeKind};
+use nb_store::Store;
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutlineKind {
+    Section,
+    Page,
+}
+
+/// One row of the outline, in display order.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct OutlineEntry {
+    /// Opaque node id (use with `rename`, `move_node`, `delete_node`, `restore_node`).
+    pub node: String,
+    pub kind: OutlineKind,
+    pub title: String,
+    /// For pages: id of the page, see `page_path`.
+    pub page_id: Option<String>,
+    pub depth: u32,
+}
+
+struct State {
+    nb: CrdtNotebook,
+    store: Store,
+    dir: PathBuf,
+    error: Option<String>,
+}
+
+impl State {
+    fn persist(&mut self) {
+        let Some(update) = self.nb.take_unsaved() else { return };
+        let r = self.store.append_update(&update).and_then(|_| {
+            if self.store.pending_updates()? >= 200 {
+                self.store.compact(&self.nb.snapshot())?;
+            }
+            Ok(())
+        });
+        if let Err(e) = r {
+            self.error.get_or_insert(e.to_string());
+        }
+    }
+
+    fn node(&self, id: &str) -> Option<TreeID> {
+        TreeID::try_from(id).ok()
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct NotebookDoc {
+    state: Mutex<State>,
+}
+
+fn fmt_err(e: impl std::fmt::Display) -> CoreError {
+    CoreError::Format { detail: e.to_string() }
+}
+
+fn new_page_id() -> String {
+    // Unique across devices (hashed time + process) and within a session (counter).
+    static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("p{:012x}{n:x}", peer_id() >> 16)
+}
+
+fn entry(n: nb_model::notebook::Node) -> OutlineEntry {
+    OutlineEntry {
+        node: n.id.to_string(),
+        kind: if n.kind == NodeKind::Section {
+            OutlineKind::Section
+        } else {
+            OutlineKind::Page
+        },
+        title: n.title,
+        page_id: n.page_id,
+        depth: n.depth as u32,
+    }
+}
+
+#[uniffi::export]
+impl NotebookDoc {
+    /// Open (or create) the notebook stored in directory `dir`.
+    #[uniffi::constructor]
+    pub fn open(dir: String, title: String) -> Result<std::sync::Arc<Self>, CoreError> {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).map_err(|e| CoreError::Io { detail: e.to_string() })?;
+        let store = Store::open(dir.join("notebook.db")).map_err(fmt_err)?;
+        let loaded = store.load().map_err(fmt_err)?;
+        let mut chunks: Vec<&[u8]> = loaded.snapshot.iter().map(Vec::as_slice).collect();
+        chunks.extend(loaded.updates.iter().map(Vec::as_slice));
+        let fresh = chunks.is_empty();
+        let nb = if fresh {
+            CrdtNotebook::new("notebook", &title, peer_id())
+        } else {
+            CrdtNotebook::load(&chunks, peer_id()).map_err(fmt_err)?
+        };
+        let mut st = State {
+            nb,
+            store,
+            dir,
+            error: None,
+        };
+        if fresh {
+            // Adopt pages written before the outline existed.
+            let mut legacy: Vec<PathBuf> = std::fs::read_dir(&st.dir)
+                .map_err(|e| CoreError::Io { detail: e.to_string() })?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().is_some_and(|x| x == "json"))
+                .collect();
+            legacy.sort();
+            for p in &legacy {
+                let id = p.file_stem().and_then(|s| s.to_str()).unwrap_or("page").to_string();
+                std::fs::rename(p, st.dir.join(format!("{id}.kpage")))
+                    .map_err(|e| CoreError::Io { detail: e.to_string() })?;
+                st.nb.add_page(None, None, &id, "");
+            }
+            if legacy.is_empty() {
+                st.nb.add_page(None, None, &new_page_id(), "");
+            }
+            st.nb.clear_undo();
+        }
+        st.persist();
+        Ok(std::sync::Arc::new(Self { state: Mutex::new(st) }))
+    }
+
+    pub fn title(&self) -> String {
+        self.state.lock().unwrap().nb.title()
+    }
+
+    /// Visible outline (sections and pages, depth-first).
+    pub fn outline(&self) -> Vec<OutlineEntry> {
+        self.state.lock().unwrap().nb.outline().into_iter().map(entry).collect()
+    }
+
+    /// Visible page ids in reading order.
+    pub fn page_ids(&self) -> Vec<String> {
+        self.state.lock().unwrap().nb.page_ids()
+    }
+
+    /// File of a page, to pass to `PageDoc.open`.
+    pub fn page_path(&self, page_id: String) -> String {
+        let st = self.state.lock().unwrap();
+        st.dir.join(format!("{page_id}.kpage")).to_string_lossy().into_owned()
+    }
+
+    /// Insert a new page right after `after_page_id` (at the end when `None` or unknown).
+    /// Returns the new page id.
+    pub fn add_page(&self, after_page_id: Option<String>) -> String {
+        let mut st = self.state.lock().unwrap();
+        let id = new_page_id();
+        let outline = st.nb.outline();
+        let anchor = after_page_id.and_then(|a| {
+            outline
+                .iter()
+                .find(|n| n.page_id.as_deref() == Some(a.as_str()))
+                .cloned()
+        });
+        match anchor {
+            Some(a) => {
+                let (parent, index) = st.nb.position(a.id).unwrap_or((None, usize::MAX));
+                st.nb.add_page(parent, Some(index.saturating_add(1)), &id, "");
+            }
+            None => {
+                st.nb.add_page(None, None, &id, "");
+            }
+        }
+        st.persist();
+        id
+    }
+
+    pub fn add_section(&self, title: String) -> String {
+        let mut st = self.state.lock().unwrap();
+        let id = st.nb.add_section(None, &title).to_string();
+        st.persist();
+        id
+    }
+
+    pub fn rename(&self, node: String, title: String) {
+        let mut st = self.state.lock().unwrap();
+        if let Some(n) = st.node(&node) {
+            st.nb.rename(n, &title);
+            st.persist();
+        }
+    }
+
+    /// Move `node` under section `parent` (top level when `None`) at `index`.
+    pub fn move_node(&self, node: String, parent: Option<String>, index: u32) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let Some(n) = st.node(&node) else { return false };
+        let p = match parent {
+            Some(p) => match st.node(&p) {
+                Some(p) => Some(p),
+                None => return false,
+            },
+            None => None,
+        };
+        let ok = st.nb.move_node(n, p, index as usize);
+        st.persist();
+        ok
+    }
+
+    /// Put a node in the trash (its pages stay on disk until the trash is emptied).
+    pub fn delete_node(&self, node: String) {
+        let mut st = self.state.lock().unwrap();
+        if let Some(n) = st.node(&node) {
+            st.nb.delete(n);
+            st.persist();
+        }
+    }
+
+    pub fn restore_node(&self, node: String) {
+        let mut st = self.state.lock().unwrap();
+        if let Some(n) = st.node(&node) {
+            st.nb.restore(n);
+            st.persist();
+        }
+    }
+
+    pub fn trash(&self) -> Vec<OutlineEntry> {
+        self.state.lock().unwrap().nb.trash().into_iter().map(entry).collect()
+    }
+
+    pub fn undo(&self) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let done = st.nb.undo();
+        st.persist();
+        done
+    }
+
+    /// Compact the log and report any earlier write failure.
+    pub fn save(&self) -> Result<(), CoreError> {
+        let mut st = self.state.lock().unwrap();
+        st.persist();
+        if let Some(e) = st.error.take() {
+            return Err(CoreError::Io { detail: e });
+        }
+        let snap = st.nb.snapshot();
+        st.store
+            .compact(&snap)
+            .map_err(|e| CoreError::Io { detail: e.to_string() })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("kahie-nb-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn fresh_notebook_has_one_page_and_persists_edits() {
+        let dir = tmp("fresh");
+        let d = dir.to_string_lossy().to_string();
+        let first;
+        {
+            let nb = NotebookDoc::open(d.clone(), "Maths".into()).unwrap();
+            assert_eq!(nb.page_ids().len(), 1);
+            first = nb.page_ids()[0].clone();
+            let second = nb.add_page(Some(first.clone()));
+            let third = nb.add_page(Some(first.clone()));
+            assert_eq!(nb.page_ids(), [first.clone(), third.clone(), second.clone()]);
+            let node = nb
+                .outline()
+                .iter()
+                .find(|e| e.page_id.as_deref() == Some(&second))
+                .unwrap()
+                .node
+                .clone();
+            nb.delete_node(node.clone());
+            assert_eq!(nb.trash().len(), 1);
+            assert!(nb.page_path(first.clone()).ends_with(".kpage"));
+            // No save(): edits must already be durable.
+        }
+        let nb = NotebookDoc::open(d, "ignored".into()).unwrap();
+        assert_eq!(nb.title(), "Maths");
+        assert_eq!(nb.page_ids().len(), 2);
+        assert_eq!(nb.page_ids()[0], first);
+        assert!(!nb.undo(), "undo history is per session");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_page_files_are_adopted_in_order() {
+        let dir = tmp("legacy");
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in [2, 1, 10] {
+            std::fs::write(dir.join(format!("page-{n:04}.json")), r#"{"id":"x","items":[]}"#).unwrap();
+        }
+        let nb = NotebookDoc::open(dir.to_string_lossy().into(), "N".into()).unwrap();
+        assert_eq!(nb.page_ids(), ["page-0001", "page-0002", "page-0010"]);
+        let p = nb.page_path("page-0002".into());
+        let page = crate::PageDoc::open(p).unwrap();
+        assert_eq!(page.item_count(), 0, "legacy JSON content migrates on open");
+        assert!(!dir.join("page-0002.json").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

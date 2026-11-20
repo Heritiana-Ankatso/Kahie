@@ -18,4 +18,9 @@
     <string name="shapes_off">Formes : restez immobile en fin de trait</string>
     <string name="save_failed">Enregistrement impossible : %1$s</string>
     <string name="open_failed">Impossible d’ouvrir cette page : %1$s</string>
+    <string name="pages">Pages</string>
+    <string name="page_n">Page %1$d</string>
+    <string name="delete_page">Supprimer la page</string>
+    <string name="delete_page_confirm">Supprimer cette page ? Vous pourrez la restaurer depuis la corbeille.</string>
+    <string name="last_page">Un cahier garde au moins une page.</string>
 </resources>

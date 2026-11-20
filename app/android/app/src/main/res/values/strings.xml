@@ -20,4 +20,9 @@
     <string name="shapes_off">Shapes: hold the pen still to tidy</string>
     <string name="save_failed">Could not save: %1$s</string>
     <string name="open_failed">This page could not be opened: %1$s</string>
+    <string name="pages">Pages</string>
+    <string name="page_n">Page %1$d</string>
+    <string name="delete_page">Delete page</string>
+    <string name="delete_page_confirm">Delete this page? You can restore it later from the trash.</string>
+    <string name="last_page">A notebook keeps at least one page.</string>
 </resources>
