@@ -1,0 +1,475 @@
+//! A page stored in a Loro document (ADR-0001, decision D6; measurements in
+//! `docs/spikes/p0-03-loro.md`).
+//!
+//! Layout of the Loro document:
+//!
+//! | Root container | Type | Content |
+//! |---|---|---|
+//! | `meta` | map | `id`, `template` |
+//! | `order` | movable list | object ids, bottom to top (z-order) |
+//! | `objects` | map | object id → map of fields (below) |
+//!
+//! Object fields: `t` (`"stroke"` or `"block"`), `deleted` (bool, trash tombstone).
+//! Strokes: `tool`, `color`, `width`, `ink` (packed points, [`crate::inkcodec`],
+//! **immutable once written** — ADR-0003), `dx`/`dy` (translation applied to the ink),
+//! `interp` (JSON of [`Interp`] or null). Other objects: `json` (JSON of [`Content`]).
+//!
+//! The plain [`Page`] returned by [`CrdtPage::page`] is a materialised view rebuilt
+//! after every change; decoded ink is cached per object id because ink never changes.
+
+use crate::{inkcodec, Content, Interp, Item, Op, Page, Stroke, Tool};
+use loro::{Container, ExportMode, LoroDoc, LoroMap, LoroValue, UndoManager, ValueOrContainer, VersionVector};
+use nb_ink::Point;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+const META: &str = "meta";
+const ORDER: &str = "order";
+const OBJECTS: &str = "objects";
+
+/// Errors from loading or merging CRDT data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelError(pub String);
+
+impl std::fmt::Display for ModelError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ModelError {}
+
+fn err(e: impl std::fmt::Display) -> ModelError {
+    ModelError(e.to_string())
+}
+
+/// One page as a CRDT document, with per-user undo/redo.
+pub struct CrdtPage {
+    doc: LoroDoc,
+    undo: UndoManager,
+    view: Page,
+    ink_cache: HashMap<String, Arc<Vec<Point>>>,
+}
+
+impl CrdtPage {
+    /// New empty page. `peer` must be unique per device session (use a random u64).
+    pub fn new(id: &str, peer: u64) -> Self {
+        let doc = LoroDoc::new();
+        doc.set_peer_id(peer).expect("valid peer id");
+        let meta = doc.get_map(META);
+        meta.insert("id", id).expect("insert");
+        meta.insert("template", "lined").expect("insert");
+        doc.commit();
+        Self::wrap(doc)
+    }
+
+    /// Import a page from the pre-CRDT JSON model (migration path).
+    pub fn from_page(page: &Page, peer: u64) -> Self {
+        let mut p = Self::new(&page.id, peer);
+        p.doc
+            .get_map(META)
+            .insert("template", page.template.as_str())
+            .expect("insert");
+        for (i, item) in page.items.iter().enumerate() {
+            p.write_new(i, item);
+        }
+        p.doc.commit();
+        p.undo = Self::undo_manager(&p.doc); // migration is not undoable
+        p.rebuild();
+        p
+    }
+
+    /// Load from bytes produced by [`CrdtPage::snapshot`].
+    pub fn from_snapshot(bytes: &[u8], peer: u64) -> Result<Self, ModelError> {
+        let doc = LoroDoc::new();
+        doc.import(bytes).map_err(err)?;
+        doc.set_peer_id(peer).map_err(err)?;
+        if doc.get_map(META).get("id").is_none() {
+            return Err(ModelError("not a Kahie page".into()));
+        }
+        Ok(Self::wrap(doc))
+    }
+
+    fn undo_manager(doc: &LoroDoc) -> UndoManager {
+        let mut u = UndoManager::new(doc);
+        u.set_max_undo_steps(500);
+        u.set_merge_interval(0);
+        u
+    }
+
+    fn wrap(doc: LoroDoc) -> Self {
+        let undo = Self::undo_manager(&doc);
+        let mut p = Self {
+            doc,
+            undo,
+            view: Page::new(""),
+            ink_cache: HashMap::new(),
+        };
+        p.rebuild();
+        p
+    }
+
+    // ---------- persistence and sync ----------
+
+    /// Full snapshot (state + history).
+    pub fn snapshot(&self) -> Vec<u8> {
+        self.doc.export(ExportMode::Snapshot).expect("export snapshot")
+    }
+
+    /// Current version, to ask a peer for what we are missing.
+    pub fn version(&self) -> VersionVector {
+        self.doc.oplog_vv()
+    }
+
+    /// Changes the holder of `since` does not have yet.
+    pub fn updates_since(&self, since: &VersionVector) -> Vec<u8> {
+        self.doc.export(ExportMode::updates(since)).expect("export updates")
+    }
+
+    /// Merge updates or a snapshot from another replica.
+    pub fn import(&mut self, bytes: &[u8]) -> Result<(), ModelError> {
+        self.doc.import(bytes).map_err(err)?;
+        self.rebuild();
+        Ok(())
+    }
+
+    // ---------- reading ----------
+
+    /// Materialised page (visible objects in z-order).
+    pub fn page(&self) -> &Page {
+        &self.view
+    }
+
+    /// Deleted objects that can still be restored.
+    pub fn trash(&self) -> Vec<Item> {
+        let LoroValue::Map(objs) = self.doc.get_map(OBJECTS).get_deep_value() else {
+            return vec![];
+        };
+        let mut out: Vec<Item> = objs
+            .iter()
+            .filter(|(_, v)| matches!(field(v, "deleted"), Some(LoroValue::Bool(true))))
+            .filter_map(|(id, v)| self.decode_item(id, v))
+            .collect();
+        out.sort_by(|a, b| a.id.cmp(&b.id));
+        out
+    }
+
+    // ---------- commands ----------
+
+    /// Apply a command built against [`CrdtPage::page`]. Returns false if it changed nothing.
+    pub fn apply(&mut self, op: &Op) -> bool {
+        if op.is_empty() {
+            return false;
+        }
+        match op {
+            Op::Add(entries) => {
+                let mut sorted = entries.clone();
+                sorted.sort_by_key(|(i, _)| *i);
+                for (i, item) in &sorted {
+                    self.write_new(*i, item);
+                }
+            }
+            Op::Remove(entries) => {
+                let ids: Vec<&str> = entries.iter().map(|(_, it)| it.id.as_str()).collect();
+                self.remove_ids(&ids);
+            }
+            Op::Update { before, after } => {
+                for (old, new) in before.iter().zip(after) {
+                    self.write_update(old, new);
+                }
+            }
+        }
+        self.doc.commit();
+        self.rebuild();
+        true
+    }
+
+    /// Restore objects from the trash to the top of the page.
+    pub fn restore(&mut self, ids: &[&str]) -> bool {
+        let objects = self.doc.get_map(OBJECTS);
+        let order = self.doc.get_movable_list(ORDER);
+        let mut changed = false;
+        for id in ids {
+            if let Some(m) = child_map(&objects, id) {
+                if matches!(m.get("deleted"), Some(ValueOrContainer::Value(LoroValue::Bool(true)))) {
+                    m.insert("deleted", false).expect("insert");
+                    order.push(*id).expect("push");
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.doc.commit();
+            self.rebuild();
+        }
+        changed
+    }
+
+    pub fn template(&self) -> &str {
+        &self.view.template
+    }
+
+    pub fn set_template(&mut self, template: &str) {
+        if template == self.view.template {
+            return;
+        }
+        self.doc.get_map(META).insert("template", template).expect("insert");
+        self.doc.commit();
+        self.rebuild();
+    }
+
+    // ---------- undo (local changes only; remote changes are never undone) ----------
+
+    pub fn undo(&mut self) -> bool {
+        let done = self.undo.undo().unwrap_or(false);
+        if done {
+            self.rebuild();
+        }
+        done
+    }
+
+    pub fn redo(&mut self) -> bool {
+        let done = self.undo.redo().unwrap_or(false);
+        if done {
+            self.rebuild();
+        }
+        done
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.undo.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.undo.can_redo()
+    }
+
+    // ---------- writing ----------
+
+    fn write_new(&mut self, index: usize, item: &Item) {
+        let objects = self.doc.get_map(OBJECTS);
+        let order = self.doc.get_movable_list(ORDER);
+        let m = objects
+            .insert_container(&item.id, LoroMap::new())
+            .expect("insert object");
+        match &item.content {
+            Content::Stroke(s) => {
+                m.insert("t", "stroke").expect("insert");
+                m.insert("tool", tool_name(s.tool)).expect("insert");
+                m.insert("color", i64::from(s.color)).expect("insert");
+                m.insert("width", s.width).expect("insert");
+                m.insert("ink", LoroValue::Binary(inkcodec::encode(&s.points).into()))
+                    .expect("insert");
+                m.insert("dx", 0.0).expect("insert");
+                m.insert("dy", 0.0).expect("insert");
+                m.insert("interp", interp_value(&s.interp)).expect("insert");
+            }
+            other => {
+                m.insert("t", "block").expect("insert");
+                m.insert("json", serde_json::to_string(other).expect("serialise"))
+                    .expect("insert");
+            }
+        }
+        m.insert("deleted", false).expect("insert");
+        let at = index.min(order.len());
+        order.insert(at, item.id.as_str()).expect("insert order");
+    }
+
+    fn remove_ids(&mut self, ids: &[&str]) {
+        let objects = self.doc.get_map(OBJECTS);
+        let order = self.doc.get_movable_list(ORDER);
+        // Delete from the end so earlier indices stay valid.
+        let mut idx: Vec<usize> = (0..order.len())
+            .filter(|&i| matches!(order.get(i), Some(ValueOrContainer::Value(LoroValue::String(s))) if ids.contains(&s.as_str())))
+            .collect();
+        idx.sort_unstable_by(|a, b| b.cmp(a));
+        for i in idx {
+            order.delete(i, 1).expect("delete order");
+        }
+        for id in ids {
+            if let Some(m) = child_map(&objects, id) {
+                m.insert("deleted", true).expect("insert");
+            }
+        }
+    }
+
+    fn write_update(&mut self, old: &Item, new: &Item) {
+        let Some(m) = child_map(&self.doc.get_map(OBJECTS), &new.id) else {
+            return;
+        };
+        match (&old.content, &new.content) {
+            (Content::Stroke(a), Content::Stroke(b)) => {
+                // Ink is immutable: only a translation of the raw points is representable.
+                let (dx, dy) = match (a.points.first(), b.points.first()) {
+                    (Some(p), Some(q)) => (q.x - p.x, q.y - p.y),
+                    _ => (0.0, 0.0),
+                };
+                debug_assert!(
+                    a.points.len() == b.points.len()
+                        && a.points
+                            .iter()
+                            .zip(&b.points)
+                            .all(|(p, q)| { (q.x - p.x - dx).abs() < 1e-6 && (q.y - p.y - dy).abs() < 1e-6 }),
+                    "stroke update must be a pure translation (ADR-0003)"
+                );
+                let (ox, oy) = (num(m.get("dx")), num(m.get("dy")));
+                if dx != 0.0 || dy != 0.0 {
+                    m.insert("dx", ox + dx).expect("insert");
+                    m.insert("dy", oy + dy).expect("insert");
+                }
+                if a.color != b.color {
+                    m.insert("color", i64::from(b.color)).expect("insert");
+                }
+                if a.width != b.width {
+                    m.insert("width", b.width).expect("insert");
+                }
+                if a.tool != b.tool {
+                    m.insert("tool", tool_name(b.tool)).expect("insert");
+                }
+                if a.interp != b.interp {
+                    m.insert("interp", interp_value(&b.interp)).expect("insert");
+                }
+            }
+            (_, other) => {
+                m.insert("json", serde_json::to_string(other).expect("serialise"))
+                    .expect("insert");
+            }
+        }
+    }
+
+    // ---------- materialisation ----------
+
+    fn rebuild(&mut self) {
+        let meta = self.doc.get_map(META).get_value();
+        let id = str_field(&meta, "id").unwrap_or_default();
+        let template = str_field(&meta, "template").unwrap_or_else(|| "lined".into());
+        let LoroValue::Map(objs) = self.doc.get_map(OBJECTS).get_deep_value() else {
+            unreachable!("root map")
+        };
+        let LoroValue::List(order) = self.doc.get_movable_list(ORDER).get_value() else {
+            unreachable!("root list")
+        };
+        // Ink blobs never change for a given id, so decode each one once.
+        for (oid, fields) in objs.iter() {
+            if !self.ink_cache.contains_key(oid) {
+                if let Some(LoroValue::Binary(b)) = field(fields, "ink") {
+                    if let Ok(p) = inkcodec::decode(b) {
+                        self.ink_cache.insert(oid.clone(), Arc::new(p));
+                    }
+                }
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        let mut items = Vec::with_capacity(order.len());
+        for v in order.iter() {
+            let LoroValue::String(oid) = v else { continue };
+            // Concurrent restores can list an id twice; keep its first occurrence only.
+            if !seen.insert(oid.to_string()) {
+                continue;
+            }
+            let Some(fields) = objs.get(oid.as_str()) else { continue };
+            if matches!(field(fields, "deleted"), Some(LoroValue::Bool(true))) {
+                continue;
+            }
+            if let Some(item) = self.decode_item(oid, fields) {
+                items.push(item);
+            }
+        }
+        self.ink_cache.retain(|k, _| objs.contains_key(k));
+        self.view = Page { id, template, items };
+    }
+
+    fn decode_item(&self, id: &str, fields: &LoroValue) -> Option<Item> {
+        let content = match str_field(fields, "t")?.as_str() {
+            "stroke" => {
+                let raw = match self.ink_cache.get(id) {
+                    Some(p) => p.clone(),
+                    None => {
+                        let Some(LoroValue::Binary(b)) = field(fields, "ink") else {
+                            return None;
+                        };
+                        Arc::new(inkcodec::decode(b).ok()?)
+                    }
+                };
+                let (dx, dy) = (num_v(field(fields, "dx")), num_v(field(fields, "dy")));
+                let points = raw.iter().map(|p| Point::new(p.x + dx, p.y + dy, p.p)).collect();
+                let interp = match field(fields, "interp") {
+                    Some(LoroValue::String(s)) => serde_json::from_str::<Interp>(s).ok(),
+                    _ => None,
+                };
+                Content::Stroke(Stroke {
+                    tool: if str_field(fields, "tool").as_deref() == Some("highlighter") {
+                        Tool::Highlighter
+                    } else {
+                        Tool::Pen
+                    },
+                    color: match field(fields, "color") {
+                        Some(LoroValue::I64(c)) => *c as u32,
+                        _ => 0,
+                    },
+                    width: num_v(field(fields, "width")),
+                    points,
+                    interp,
+                })
+            }
+            _ => serde_json::from_str(&str_field(fields, "json")?).ok()?,
+        };
+        Some(Item {
+            id: id.to_string(),
+            content,
+        })
+    }
+}
+
+fn tool_name(t: Tool) -> &'static str {
+    match t {
+        Tool::Pen => "pen",
+        Tool::Highlighter => "highlighter",
+    }
+}
+
+fn interp_value(i: &Option<Interp>) -> LoroValue {
+    match i {
+        Some(i) => LoroValue::from(serde_json::to_string(i).expect("serialise")),
+        None => LoroValue::Null,
+    }
+}
+
+fn child_map(objects: &LoroMap, id: &str) -> Option<LoroMap> {
+    match objects.get(id) {
+        Some(ValueOrContainer::Container(Container::Map(m))) => Some(m),
+        _ => None,
+    }
+}
+
+fn field<'a>(v: &'a LoroValue, key: &str) -> Option<&'a LoroValue> {
+    match v {
+        LoroValue::Map(m) => m.get(key),
+        _ => None,
+    }
+}
+
+fn str_field(v: &LoroValue, key: &str) -> Option<String> {
+    match field(v, key) {
+        Some(LoroValue::String(s)) => Some(s.to_string()),
+        _ => None,
+    }
+}
+
+fn num_v(v: Option<&LoroValue>) -> f64 {
+    match v {
+        Some(LoroValue::Double(d)) => *d,
+        Some(LoroValue::I64(i)) => *i as f64,
+        _ => 0.0,
+    }
+}
+
+fn num(v: Option<ValueOrContainer>) -> f64 {
+    match v {
+        Some(ValueOrContainer::Value(v)) => num_v(Some(&v)),
+        _ => 0.0,
+    }
+}
+
+#[cfg(test)]
+mod tests;

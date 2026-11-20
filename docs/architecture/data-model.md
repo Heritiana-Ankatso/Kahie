@@ -1,6 +1,6 @@
 # Data model and file format
 
-**Status:** Proposed — v0 implemented in [P0-11](../backlog/phase-0.md#p0-11--document-model-v0); CRDT library chosen in [P0-03](../backlog/phase-0.md#p0-03--crdt-library-evaluation).
+**Status:** v0 implemented on Loro (`core/crates/nb-model/src/crdt.rs`) — see [P0-11](../backlog/phase-0.md#p0-11--document-model-v0); CRDT library chosen in [P0-03](../backlog/phase-0.md#p0-03--crdt-library-evaluation).
 
 ---
 
@@ -17,7 +17,7 @@ Library (per device / per account)
                 └── Interpretation[]
 ```
 
-- **Notebook** is the unit of persistence, sync and sharing. One CRDT document per notebook.
+- **Notebook** is the unit of sharing. **Each page is its own Loro document** (P0-03 finding: bounds open time to the page being viewed); a small notebook-level document holds the section/page movable tree.
 - The library/folder tree is a separate small CRDT document (per user), so moving notebooks does not touch notebook data.
 - Large binary assets (images, PDFs, fonts) are **content-addressed** (SHA-256) and stored outside the CRDT; the CRDT holds only the hash.
 
@@ -63,7 +63,7 @@ Common fields for every object:
 
 ## 4. Ink encoding
 
-Each point: `x, y` (float32, page units), `pressure` (u16), `tilt_x, tilt_y` (i8), `t` (ms delta, u16). Stored as **delta-encoded, varint-packed** arrays per channel (columnar), then compressed. Target ≤ 6 bytes/point average.
+v1 (implemented, `nb_model::inkcodec`): `x, y` quantised to 1/16 page unit, `pressure` to 1/1024, stored as **delta-encoded zig-zag varints per channel (columnar)**. Measured ≈ 3 bytes/point on handwriting-like strokes (target ≤ 6). Tilt and timestamps are reserved for a later version byte.
 
 Strokes are committed as **one CRDT operation per stroke** (never per point) to keep history and sync volume manageable.
 
@@ -122,13 +122,13 @@ Constraint { id, kind: Parallel|Perpendicular|EqualLength|PointOn|Tangent|Coinci
 
 ## 8. CRDT mapping
 
-| Model element | CRDT structure (indicative; finalised after P0-03) |
+| Model element | CRDT structure (Loro; v0 layout in `nb_model::crdt`) |
 |---|---|
 | Notebook tree (sections/pages) | Movable tree |
-| Objects of a page | Map `ObjectId → Map(fields)` |
-| Z-order | Fractional index field |
+| Objects of a page | Map `objects`: `ObjectId → Map(fields)`, with a `deleted` tombstone for the trash |
+| Z-order | Movable list `order` of object ids (v0); fractional index if layers need it |
 | Text content | CRDT rich text |
-| Ink points | Opaque immutable binary value (set once) |
+| Ink points | Opaque immutable binary value (set once); moves are stored as a `dx`/`dy` translation |
 | Construction graph | Map of `GeoObject` maps; constraints map |
 | Comments | List per anchor |
 

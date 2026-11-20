@@ -1,5 +1,9 @@
 //! Document model: pages, items and reversible operations with undo/redo.
-//! Port of `app/web/src/model.js`; CRDT backing (ADR-0001) comes later.
+//! Port of `app/web/src/model.js`. [`crdt::CrdtPage`] stores a page in Loro (ADR-0001, D6);
+//! [`Page`] and [`Op`] remain the plain in-memory view and command vocabulary.
+
+pub mod crdt;
+pub mod inkcodec;
 
 use nb_ink::Point;
 use nb_recog::Shape;

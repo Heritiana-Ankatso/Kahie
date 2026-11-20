@@ -1,9 +1,10 @@
-//! UniFFI bindings for the Android (Kotlin) app. One `PageDoc` holds a page,
-//! its undo history, the stroke being drawn and the eraser gesture in progress.
+//! UniFFI bindings for the Android (Kotlin) app. One `PageDoc` holds a page
+//! (a Loro CRDT document with per-user undo, [`CrdtPage`]), the stroke being drawn and the eraser gesture in progress.
 //! The UI sends input events and asks for render geometry; all logic stays here.
 
 use nb_ink::{finish_points, outline, segment_hits_polyline, Point};
-use nb_model::{Content, History, Interp, Item, Op, Page, Stroke, Tool};
+use nb_model::crdt::CrdtPage;
+use nb_model::{Content, Interp, Item, Op, Page, Stroke, Tool};
 use nb_recog::{recognize, Shape};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
@@ -66,8 +67,7 @@ struct Current {
 }
 
 struct State {
-    page: Page,
-    history: History,
+    doc: CrdtPage,
     path: Option<PathBuf>,
     current: Option<Current>,
     erasing: Option<HashSet<String>>,
@@ -77,6 +77,18 @@ struct State {
 #[derive(uniffi::Object)]
 pub struct PageDoc {
     state: Mutex<State>,
+}
+
+/// CRDT peer id for this session: must differ between devices and app runs.
+fn peer_id() -> u64 {
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mut h = DefaultHasher::new();
+    (t, std::process::id()).hash(&mut h);
+    // Loro reserves u64::MAX; keep within range.
+    h.finish() >> 1
 }
 
 fn new_id(seq: u64) -> String {
@@ -157,39 +169,46 @@ impl PageDoc {
     #[uniffi::constructor]
     pub fn open(path: String) -> Result<std::sync::Arc<Self>, CoreError> {
         let p = PathBuf::from(&path);
-        let page = match std::fs::read(&p) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| CoreError::Format { message: e.to_string() })?,
+        let doc = match std::fs::read(&p) {
+            // Pages saved before the CRDT model are JSON: migrate them on open.
+            Ok(bytes) if bytes.first() == Some(&b'{') => {
+                let page: Page =
+                    serde_json::from_slice(&bytes).map_err(|e| CoreError::Format { message: e.to_string() })?;
+                CrdtPage::from_page(&page, peer_id())
+            }
+            Ok(bytes) => {
+                CrdtPage::from_snapshot(&bytes, peer_id()).map_err(|e| CoreError::Format { message: e.to_string() })?
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Page::new(p.file_stem().and_then(|s| s.to_str()).unwrap_or("page"))
+                CrdtPage::new(p.file_stem().and_then(|s| s.to_str()).unwrap_or("page"), peer_id())
             }
             Err(e) => return Err(CoreError::Io { message: e.to_string() }),
         };
-        Ok(std::sync::Arc::new(Self::with_page(page, Some(p))))
+        Ok(std::sync::Arc::new(Self::with_doc(doc, Some(p))))
     }
 
     /// In-memory page (tests, previews).
     #[uniffi::constructor]
     pub fn new_in_memory() -> std::sync::Arc<Self> {
-        std::sync::Arc::new(Self::with_page(Page::new("memory"), None))
+        std::sync::Arc::new(Self::with_doc(CrdtPage::new("memory", peer_id()), None))
     }
 
     pub fn save(&self) -> Result<(), CoreError> {
         let st = self.state.lock().unwrap();
         let Some(path) = &st.path else { return Ok(()) };
-        let json = serde_json::to_vec(&st.page).map_err(|e| CoreError::Format { message: e.to_string() })?;
-        write_atomic(path, &json).map_err(|e| CoreError::Io { message: e.to_string() })
+        write_atomic(path, &st.doc.snapshot()).map_err(|e| CoreError::Io { message: e.to_string() })
     }
 
     pub fn template(&self) -> String {
-        self.state.lock().unwrap().page.template.clone()
+        self.state.lock().unwrap().doc.template().to_string()
     }
 
     pub fn set_template(&self, template: String) {
-        self.state.lock().unwrap().page.template = template;
+        self.state.lock().unwrap().doc.set_template(&template);
     }
 
     pub fn item_count(&self) -> u32 {
-        self.state.lock().unwrap().page.items.len() as u32
+        self.state.lock().unwrap().doc.page().items.len() as u32
     }
 
     // ----- ink -----
@@ -274,9 +293,8 @@ impl PageDoc {
                 interp: shape.map(|shape| Interp { shape, show: true }),
             }),
         };
-        let State { page, history, .. } = &mut *st;
-        let op = Op::add(page, vec![item]);
-        history.apply(page, op)
+        let op = Op::add(st.doc.page(), vec![item]);
+        st.doc.apply(&op)
     }
 
     pub fn cancel_stroke(&self) {
@@ -292,7 +310,8 @@ impl PageDoc {
     /// Mark items touched by the segment; returns true when something new was hit.
     pub fn erase_segment(&self, ax: f64, ay: f64, bx: f64, by: f64, radius: f64) -> bool {
         let mut st = self.state.lock().unwrap();
-        let State { page, erasing, .. } = &mut *st;
+        let State { doc, erasing, .. } = &mut *st;
+        let page = doc.page();
         let Some(set) = erasing.as_mut() else { return false };
         let (a, b) = (Point::xy(ax, ay), Point::xy(bx, by));
         let mut hit = false;
@@ -319,7 +338,8 @@ impl PageDoc {
     pub fn erasing_keys(&self) -> Vec<String> {
         let st = self.state.lock().unwrap();
         let Some(set) = &st.erasing else { return vec![] };
-        st.page
+        st.doc
+            .page()
             .items
             .iter()
             .filter(|it| set.contains(&it.id))
@@ -336,40 +356,36 @@ impl PageDoc {
         let mut st = self.state.lock().unwrap();
         let Some(set) = st.erasing.take() else { return false };
         let ids: Vec<&str> = set.iter().map(String::as_str).collect();
-        let op = Op::remove(&st.page, &ids);
-        let State { page, history, .. } = &mut *st;
-        history.apply(page, op)
+        let op = Op::remove(st.doc.page(), &ids);
+        st.doc.apply(&op)
     }
 
     // ----- history -----
 
     pub fn undo(&self) -> bool {
         let mut st = self.state.lock().unwrap();
-        let State { page, history, .. } = &mut *st;
-        history.undo(page)
+        st.doc.undo()
     }
 
     pub fn redo(&self) -> bool {
         let mut st = self.state.lock().unwrap();
-        let State { page, history, .. } = &mut *st;
-        history.redo(page)
+        st.doc.redo()
     }
 
     pub fn can_undo(&self) -> bool {
-        self.state.lock().unwrap().history.can_undo()
+        self.state.lock().unwrap().doc.can_undo()
     }
 
     pub fn can_redo(&self) -> bool {
-        self.state.lock().unwrap().history.can_redo()
+        self.state.lock().unwrap().doc.can_redo()
     }
 
     pub fn clear(&self) -> bool {
         let mut st = self.state.lock().unwrap();
-        let ids: Vec<String> = st.page.items.iter().map(|i| i.id.clone()).collect();
+        let ids: Vec<String> = st.doc.page().items.iter().map(|i| i.id.clone()).collect();
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-        let op = Op::remove(&st.page, &refs);
-        let State { page, history, .. } = &mut *st;
-        history.apply(page, op)
+        let op = Op::remove(st.doc.page(), &refs);
+        st.doc.apply(&op)
     }
 
     // ----- rendering -----
@@ -377,13 +393,21 @@ impl PageDoc {
     /// Item keys in drawing order. A key changes whenever the item's geometry does,
     /// so the UI can cache one path per key.
     pub fn layout(&self) -> Vec<String> {
-        self.state.lock().unwrap().page.items.iter().map(item_key).collect()
+        self.state
+            .lock()
+            .unwrap()
+            .doc
+            .page()
+            .items
+            .iter()
+            .map(item_key)
+            .collect()
     }
 
     pub fn geometry(&self, key: String) -> Option<RenderItem> {
         let st = self.state.lock().unwrap();
         let id = key.split(':').next()?;
-        let item = st.page.items.iter().find(|i| i.id == id)?;
+        let item = st.doc.page().items.iter().find(|i| i.id == id)?;
         match &item.content {
             Content::Stroke(s) => Some(render_stroke(item_key(item), s)),
             _ => None,
@@ -392,11 +416,10 @@ impl PageDoc {
 }
 
 impl PageDoc {
-    fn with_page(page: Page, path: Option<PathBuf>) -> Self {
+    fn with_doc(doc: CrdtPage, path: Option<PathBuf>) -> Self {
         Self {
             state: Mutex::new(State {
-                page,
-                history: History::new(500),
+                doc,
                 path,
                 current: None,
                 erasing: None,
@@ -485,6 +508,30 @@ mod tests {
             PageDoc::open(path.to_string_lossy().into()),
             Err(CoreError::Format { .. })
         ));
+        std::fs::write(&path, b"\x00garbage").unwrap();
+        assert!(matches!(
+            PageDoc::open(path.to_string_lossy().into()),
+            Err(CoreError::Format { .. })
+        ));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_json_page_is_migrated_on_open() {
+        let dir = std::env::temp_dir().join(format!("kahie-ffi-legacy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.json");
+        let json = r#"{"id":"p","template":"grid","items":[{"id":"a","content":{"type":"stroke",
+            "tool":"pen","color":0,"width":3.0,"points":[{"x":1.0,"y":2.0,"p":0.5},{"x":30.0,"y":2.0,"p":0.5}],
+            "interp":null}}]}"#;
+        std::fs::write(&path, json).unwrap();
+        let doc = PageDoc::open(path.to_string_lossy().into()).unwrap();
+        assert_eq!((doc.template(), doc.item_count()), ("grid".to_string(), 1));
+        assert!(!doc.can_undo(), "migration is not an undo step");
+        doc.save().unwrap();
+        assert_ne!(std::fs::read(&path).unwrap()[0], b'{', "saved in the CRDT format");
+        let again = PageDoc::open(path.to_string_lossy().into()).unwrap();
+        assert_eq!(again.layout(), doc.layout());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
