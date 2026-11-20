@@ -54,6 +54,20 @@ pub enum GeometryKind {
     Line,
 }
 
+/// A typed block on the page (text for now; maths, plots and images come later).
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct TextBlock {
+    pub key: String,
+    pub id: String,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub text: String,
+    pub size: f32,
+    pub color: u32,
+}
+
 /// Geometry the UI can turn into a path. `coords` is x0, y0, x1, y1, …
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct RenderItem {
@@ -130,6 +144,9 @@ fn item_key(item: &Item) -> String {
         if let Some(i) = &s.interp {
             i.show.hash(&mut h);
         }
+    } else {
+        // Blocks: any change to content or position gives a new key.
+        serde_json::to_string(&item.content).unwrap_or_default().hash(&mut h);
     }
     format!("{}:{:x}", item.id, h.finish())
 }
@@ -488,6 +505,104 @@ impl PageDoc {
             .collect()
     }
 
+    // ----- text blocks -----
+
+    /// Text blocks in drawing order.
+    pub fn text_blocks(&self) -> Vec<TextBlock> {
+        let st = self.state.lock().unwrap();
+        st.doc
+            .page()
+            .items
+            .iter()
+            .filter_map(|it| match &it.content {
+                Content::Text {
+                    rect,
+                    text,
+                    size,
+                    color,
+                } => Some(TextBlock {
+                    key: item_key(it),
+                    id: it.id.clone(),
+                    x: rect.x as f32,
+                    y: rect.y as f32,
+                    width: rect.w as f32,
+                    height: rect.h as f32,
+                    text: text.clone(),
+                    size: *size as f32,
+                    color: *color,
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Add a text block with its top-left corner at (x, y); returns its id.
+    /// `height` is the laid-out height measured by the UI (used for hit tests and erasing).
+    #[allow(clippy::too_many_arguments)] // flat FFI signature
+    pub fn add_text(&self, x: f64, y: f64, width: f64, height: f64, text: String, size: f64, color: u32) -> String {
+        let mut st = self.state.lock().unwrap();
+        st.seq += 1;
+        let id = new_id(st.seq);
+        let item = Item {
+            id: id.clone(),
+            content: Content::Text {
+                rect: nb_model::Rect {
+                    x,
+                    y,
+                    w: width,
+                    h: height,
+                },
+                text,
+                size,
+                color,
+            },
+        };
+        let op = Op::add(st.doc.page(), vec![item]);
+        st.commit(op);
+        id
+    }
+
+    /// Replace the text of a block (and its measured height). Empty text deletes the block.
+    pub fn set_text(&self, id: String, text: String, height: f64) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let Some(old) = st.doc.page().items.iter().find(|i| i.id == id).cloned() else {
+            return false;
+        };
+        if text.trim().is_empty() {
+            let op = Op::remove(st.doc.page(), &[id.as_str()]);
+            return st.commit(op);
+        }
+        let Content::Text { rect, size, color, .. } = &old.content else {
+            return false;
+        };
+        let item = Item {
+            id,
+            content: Content::Text {
+                rect: nb_model::Rect {
+                    h: height,
+                    ..rect.clone()
+                },
+                text,
+                size: *size,
+                color: *color,
+            },
+        };
+        let op = Op::update(st.doc.page(), vec![item]);
+        st.commit(op)
+    }
+
+    /// Topmost text block containing (x, y), if any.
+    pub fn text_at(&self, x: f64, y: f64) -> Option<String> {
+        let st = self.state.lock().unwrap();
+        st.doc
+            .page()
+            .items
+            .iter()
+            .rev()
+            .find(|it| matches!(it.content, Content::Text { .. }) && it.bounds().contains(x, y))
+            .map(|it| it.id.clone())
+    }
+
     pub fn geometry(&self, key: String) -> Option<RenderItem> {
         let st = self.state.lock().unwrap();
         let id = key.split(':').next()?;
@@ -582,6 +697,31 @@ mod tests {
             a.geometry(a.layout()[0].clone()).unwrap().coords,
             b.geometry(b.layout()[0].clone()).unwrap().coords
         );
+    }
+
+    #[test]
+    fn text_blocks_add_edit_find_delete_undo() {
+        let doc = PageDoc::new_in_memory();
+        let id = doc.add_text(100.0, 50.0, 300.0, 24.0, "Bonjour".into(), 18.0, 0x1d1d1f);
+        let k1 = doc.text_blocks()[0].key.clone();
+        assert_eq!(doc.text_at(110.0, 60.0), Some(id.clone()));
+        assert_eq!(doc.text_at(10.0, 10.0), None);
+        assert!(doc.set_text(id.clone(), "Bonjour à tous\nLigne 2".into(), 48.0));
+        let b = &doc.text_blocks()[0];
+        assert_eq!((b.text.as_str(), b.height), ("Bonjour à tous\nLigne 2", 48.0));
+        assert_ne!(b.key, k1, "edited block gets a new key");
+        assert!(doc.layout().contains(&b.key));
+        assert!(doc.set_text(id.clone(), "  ".into(), 0.0), "empty text deletes");
+        assert!(doc.text_blocks().is_empty());
+        assert!(doc.undo());
+        assert_eq!(doc.text_blocks().len(), 1);
+        doc.begin_erase();
+        assert!(
+            doc.erase_segment(90.0, 60.0, 120.0, 60.0, 4.0),
+            "the eraser removes text blocks"
+        );
+        assert!(doc.end_erase());
+        assert!(doc.text_blocks().is_empty());
     }
 
     #[test]

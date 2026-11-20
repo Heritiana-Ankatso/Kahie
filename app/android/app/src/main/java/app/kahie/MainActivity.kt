@@ -65,6 +65,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         ink = InkView(this)
         ink.autoShapes = prefs.getBoolean("autoShapes", false)
+        ink.onTextTap = { x, y, blockId -> editText(x, y, blockId) }
         ink.onChanged = {
             updateHistoryButtons()
             main.removeCallbacks(saveRunnable)
@@ -99,6 +100,11 @@ class MainActivity : Activity() {
             toast(getString(if (ink.autoShapes) R.string.shapes_on else R.string.shapes_off))
         }
         bar.addView(shapesBtn)
+        bar.addView(textButton(R.string.text_tool) {
+            ink.tool = if (ink.tool == InkView.Tool.TEXT) InkView.Tool.PEN else InkView.Tool.TEXT
+            updateToolbar()
+            if (ink.tool == InkView.Tool.TEXT) toast(getString(R.string.text_tool_hint))
+        })
         bar.addView(textButton(R.string.paper) { cycleTemplate() })
         bar.addView(textButton(R.string.notebooks) { showNotebooks() })
         bar.addView(textButton(R.string.pages) { showPages() })
@@ -398,6 +404,37 @@ class MainActivity : Activity() {
             }
         }
     }
+
+    /** Create a text block at (x, y) or edit the one tapped. */
+    private fun editText(x: Float, y: Float, blockId: String?) {
+        val d = doc ?: return
+        val existing = blockId?.let { id -> d.textBlocks().firstOrNull { it.id == id } }
+        val input = android.widget.EditText(this).apply {
+            setText(existing?.text ?: "")
+            minLines = 3
+            gravity = Gravity.TOP
+            setSelection(text.length)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(if (existing == null) R.string.add_text else R.string.edit_text)
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val text = input.text.toString()
+                if (existing != null) {
+                    d.setText(existing.id, text, ink.measureText(text, existing.width, existing.size).toDouble())
+                } else if (text.isNotBlank()) {
+                    val width = 420f
+                    val size = 20f
+                    d.addText(x.toDouble(), y.toDouble(), width.toDouble(), ink.measureText(text, width, size).toDouble(), text, size.toDouble(), (penColor() and 0xFFFFFF).toUInt())
+                }
+                ink.refresh()
+                ink.onChanged()
+            }
+            .show()
+    }
+
+    private fun penColor(): Int = ink.penColor
 
     private fun askText(title: Int, initial: String, onOk: (String) -> Unit) {
         val input = android.widget.EditText(this).apply {

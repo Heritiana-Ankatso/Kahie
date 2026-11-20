@@ -23,7 +23,7 @@ import kotlin.math.min
 
 /** Page canvas: stylus/touch/mouse input, pan and zoom, and drawing of the core's geometry. */
 class InkView(context: Context) : View(context) {
-    enum class Tool { PEN, HIGHLIGHTER, ERASER }
+    enum class Tool { PEN, HIGHLIGHTER, ERASER, TEXT }
 
     /** Optional low-latency renderer for the stroke in progress (see [JetpackWetInk]). */
     interface WetInk {
@@ -55,6 +55,14 @@ class InkView(context: Context) : View(context) {
 
     /** Called after every committed change (stroke, erase, undo…). */
     var onChanged: () -> Unit = {}
+
+    /** Text tool tap at page coordinates, with the id of the text block there (if any). */
+    var onTextTap: (x: Float, y: Float, blockId: String?) -> Unit = { _, _, _ -> }
+
+    // Text blocks: laid out once per key (a key changes whenever the block does).
+    private class CachedText(val block: uniffi.nb_ffi.TextBlock, val layout: android.text.StaticLayout)
+    private var texts: List<CachedText> = emptyList()
+    private val textLayouts = HashMap<String, CachedText>()
 
     private val pageW = 794f
     private val pageH = 1123f
@@ -125,8 +133,22 @@ class InkView(context: Context) : View(context) {
         val live = order.toHashSet()
         paths.keys.retainAll(live)
         for (key in order) if (key !in paths) d.geometry(key)?.let { paths[key] = toPath(it) }
+        val blocks = d.textBlocks()
+        textLayouts.keys.retainAll(blocks.map { it.key }.toSet())
+        texts = blocks.map { b -> textLayouts.getOrPut(b.key) { CachedText(b, layoutText(b.text, b.width, b.size, b.color)) } }
         invalidate()
     }
+
+    private fun layoutText(text: String, width: Float, size: Float, color: UInt): android.text.StaticLayout {
+        val paint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = size
+            this.color = (color.toInt() and 0xFFFFFF) or (0xFF shl 24)
+        }
+        return android.text.StaticLayout.Builder.obtain(text, 0, text.length, paint, width.toInt().coerceAtLeast(20)).build()
+    }
+
+    /** Height in page units that `text` takes when wrapped to `width` (for new and edited blocks). */
+    fun measureText(text: String, width: Float, size: Float): Float = layoutText(text, width, size, 0u).height.toFloat()
 
     private fun toPath(g: RenderItem): CachedPath {
         val c = g.coords
@@ -193,6 +215,13 @@ class InkView(context: Context) : View(context) {
             if (key in hidden) continue
             val p = paths[key] ?: continue
             canvas.drawPath(p.path, p.paint)
+        }
+        for (t in texts) {
+            if (t.block.key in hidden) continue
+            canvas.save()
+            canvas.translate(t.block.x, t.block.y)
+            t.layout.draw(canvas)
+            canvas.restore()
         }
         drawWet(canvas)
         canvas.restore()
@@ -275,6 +304,14 @@ class InkView(context: Context) : View(context) {
         }
         if (panning) return handleGesture(e)
 
+        if (tool == Tool.TEXT && !drawing && !erasing) {
+            if (e.actionMasked == MotionEvent.ACTION_UP) {
+                val x = toPageX(e.x)
+                val y = toPageY(e.y)
+                onTextTap(x, y, doc?.textAt(x.toDouble(), y.toDouble()))
+            }
+            return true
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 requestUnbufferedDispatch(e)

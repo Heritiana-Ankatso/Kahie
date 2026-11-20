@@ -43,4 +43,8 @@
     <string name="trash_empty">La corbeille est vide.</string>
     <string name="untitled_page">Page sans titre</string>
     <string name="restored">Restauré</string>
+    <string name="text_tool">Texte</string>
+    <string name="text_tool_hint">Touchez la page pour ajouter du texte, ou un texte pour le modifier</string>
+    <string name="add_text">Ajouter du texte</string>
+    <string name="edit_text">Modifier le texte (vide pour supprimer)</string>
 </resources>
