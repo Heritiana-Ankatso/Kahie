@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Same Ubuntu as the dev container, so autoreconf regenerates the exact configure tested locally.
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       API: 31
@@ -56,6 +57,7 @@ jobs:
       - name: Giac (minimal)
         run: |
           sudo apt-get install -y -qq autopoint gettext autoconf automake libtool flex bison >/dev/null
+          lsb_release -ds; autoconf --version | head -1; automake --version | head -1; gettextize --version | head -1
           curl -fsSL -o giac.tar.xz "$GIAC_URL"
           mkdir giac && tar xJf giac.tar.xz -C giac --strip-components=1
           # Library-only build of the Debian source tree (see the script for why).
