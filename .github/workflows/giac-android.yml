@@ -1,0 +1,85 @@
+name: giac-android
+
+# P0-07: cross-compile GMP, MPFR and a minimal Giac for Android arm64 and measure the size
+# of the resulting CAS library (docs/spikes/p0-07-giac.md). Slow (~30 min); runs only when
+# this workflow or the CAS spike changes, or by hand.
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/giac-android.yml', 'spikes/p0-07/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      API: 31
+      TARGET: aarch64-linux-android
+      NDK_VERSION: 27.2.12479018
+      GMP: gmp-6.3.0
+      MPFR: mpfr-4.2.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;27.2.12479018'
+      - name: Toolchain
+        run: |
+          TC=$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64
+          {
+            echo "TC=$TC"
+            echo "CC=$TC/bin/$TARGET$API-clang"
+            echo "CXX=$TC/bin/$TARGET$API-clang++"
+            echo "AR=$TC/bin/llvm-ar"
+            echo "RANLIB=$TC/bin/llvm-ranlib"
+            echo "STRIP=$TC/bin/llvm-strip"
+            echo "PREFIX=$RUNNER_TEMP/android-prefix"
+          } >> "$GITHUB_ENV"
+      - name: GMP
+        run: |
+          curl -fsSL https://ftp.gnu.org/gnu/gmp/$GMP.tar.xz | tar xJ
+          cd $GMP
+          ./configure --host=$TARGET --prefix=$PREFIX --enable-cxx --disable-shared --with-pic CFLAGS="-O2 -fPIC" CXXFLAGS="-O2 -fPIC"
+          make -j4 && make install
+      - name: MPFR
+        run: |
+          curl -fsSL https://ftp.gnu.org/gnu/mpfr/$MPFR.tar.xz | tar xJ
+          cd $MPFR
+          ./configure --host=$TARGET --prefix=$PREFIX --with-gmp=$PREFIX --disable-shared --with-pic CFLAGS="-O2 -fPIC"
+          make -j4 && make install
+      - name: Giac (minimal)
+        run: |
+          curl -fsSL -o giac.tgz https://www-fourier.univ-grenoble-alpes.fr/~parisse/giac/giac_stable.tgz
+          mkdir giac && tar xzf giac.tgz -C giac --strip-components=1
+          cd giac
+          ./configure --host=$TARGET --prefix=$PREFIX --disable-shared --enable-static --with-pic \
+            --disable-gui --disable-fltk --disable-ntl --disable-pari --disable-gsl --disable-lapack \
+            --disable-glpk --disable-png --disable-curl --disable-ao --disable-ecm --disable-samplerate \
+            --disable-micropy --disable-quickjs --disable-nls --disable-gmpxx --disable-tommath \
+            CPPFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib" \
+            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY" CFLAGS="-O2 -fPIC" 2>&1 | tail -40
+          make -C src -j4 libgiac.la 2>&1 | grep -E "error|Error" -A3 | head -80 || true
+          test -f src/.libs/libgiac.a
+          cp src/.libs/libgiac.a $PREFIX/lib/
+      - name: Link the CAS library and measure it
+        run: |
+          mkdir -p out
+          $CXX -shared -fPIC -O2 -std=c++17 -w -I giac/src -I $PREFIX/include \
+            spikes/p0-07/src/shim.cpp -o out/libkahiecas.so \
+            -Wl,--gc-sections -Wl,--whole-archive $PREFIX/lib/libgiac.a -Wl,--no-whole-archive \
+            $PREFIX/lib/libmpfr.a $PREFIX/lib/libgmp.a -static-libstdc++ -llog -lm
+          $STRIP --strip-unneeded out/libkahiecas.so
+          ls -l out/libkahiecas.so | tee out/size.txt
+          gzip -9 -k out/libkahiecas.so && ls -l out/libkahiecas.so.gz | tee -a out/size.txt
+          echo "### libkahiecas.so (arm64, stripped): $(stat -c %s out/libkahiecas.so) bytes; gzip $(stat -c %s out/libkahiecas.so.gz) bytes" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: giac-android-arm64
+          path: |
+            out
+            giac/config.log
