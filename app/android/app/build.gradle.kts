@@ -41,7 +41,8 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDir(generatedKotlin.get().asFile)
+            // AGP 9 compiles Kotlin itself: generated .kt files must be Kotlin source dirs.
+            kotlin.srcDir(generatedKotlin.get().asFile)
             jniLibs.srcDir(generatedJni.get().asFile)
         }
     }

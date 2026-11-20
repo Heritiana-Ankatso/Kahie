@@ -452,7 +452,7 @@ class InkView(context: Context) : View(context) {
         if (e.actionMasked == MotionEvent.ACTION_SCROLL) {
             val v = e.getAxisValue(MotionEvent.AXIS_VSCROLL)
             val hz = e.getAxisValue(MotionEvent.AXIS_HSCROLL)
-            if (e.isCtrlPressed) zoomAt(e.x, e.y, if (v > 0) 1.1f else 1 / 1.1f)
+            if ((e.metaState and android.view.KeyEvent.META_CTRL_ON) != 0) zoomAt(e.x, e.y, if (v > 0) 1.1f else 1 / 1.1f)
             else { oy += v * 60 * density; ox -= hz * 60 * density; invalidate() }
             return true
         }
