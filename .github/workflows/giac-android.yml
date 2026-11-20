@@ -73,8 +73,10 @@ jobs:
           cp src/.libs/libgiac.a $PREFIX/lib/
       - name: Link the CAS library and measure it
         run: |
-          mkdir -p out
-          $CXX -shared -fPIC -O2 -std=c++17 -w -I giac/src -I $PREFIX/include \
+          mkdir -p out inc/giac
+          # The shim includes <giac/giac.h> and <giac/config.h>, as installed by distributions.
+          cp giac/src/*.h inc/giac/ && cp giac/config.h inc/giac/
+          $CXX -shared -fPIC -O2 -std=c++17 -w -I inc -I $PREFIX/include \
             spikes/p0-07/src/shim.cpp -o out/libkahiecas.so \
             -Wl,--gc-sections -Wl,--whole-archive $PREFIX/lib/libgiac.a -Wl,--no-whole-archive \
             $PREFIX/lib/libmpfr.a $PREFIX/lib/libgmp.a -static-libstdc++ -llog -lm
