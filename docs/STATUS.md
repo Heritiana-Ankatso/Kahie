@@ -36,6 +36,8 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 - Every edit saved immediately (SQLite per page); legacy JSON pages migrate automatically.
 - Several notebooks (Notebooks dialog: switch, create, rename), pages outline (Pages dialog: open, add, delete to trash).
 - `.kahie` export/import through the system file picker.
+- Text blocks (Text tool: tap to add, tap a block to edit; erasable, undoable).
+- Sync with a self-hosted relay: Sync settings, Share (join code), Join; open page and outline sync live. Trash view restores deleted pages.
 
 CI: `android.yml` builds the APK (artifact `kahie-debug-apk`) and runs an emulator smoke test (draws strokes, checks ink pixels and crashes; screenshots in artifact `smoke-screenshots`). `giac-android.yml` cross-compiles the CAS for arm64 and reports its size. Lessons: UniFFI bindings must be Kotlin source dirs (AGP 9); error fields must not be named `message`; Rust is pinned in `core/rust-toolchain.toml`; check bindings locally with kotlinc (conventions §6).
 
