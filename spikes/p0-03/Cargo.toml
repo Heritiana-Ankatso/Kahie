@@ -1,0 +1,14 @@
+[package]
+name = "p0-03-loro-bench"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace]
+
+[dependencies]
+loro = "1.18"
+
+[profile.release]
+debug = false
