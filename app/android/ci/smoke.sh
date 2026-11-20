@@ -39,7 +39,7 @@ dump() {
 # Tap the node labelled $1; the toolbar scrolls, so swipe it both ways until the label shows.
 tap() {
   local xy
-  for swipe in none left left left right right right right; do
+  for swipe in none left left left left right right right right right; do
     case $swipe in
       left) adb shell input swipe $((W * 4 / 5)) "$BAR_Y" $((W / 5)) "$BAR_Y" 300 ;;
       right) adb shell input swipe $((W / 5)) "$BAR_Y" $((W * 4 / 5)) "$BAR_Y" 300 ;;
@@ -50,7 +50,11 @@ tap() {
       adb shell input tap $xy; return 0
     fi
   done
-  echo "UI element not found: $1"; cp "$OUT/ui.xml" "$OUT/missing-$1.xml"; return 1
+  echo "UI element not found: $1"; cp "$OUT/ui.xml" "$OUT/missing-$1.xml"
+  echo "visible: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --labels)"
+  adb shell pidof app.kahie >/dev/null && echo "app is running" || echo "app is NOT running"
+  adb logcat -d | grep -E "FATAL|AndroidRuntime|kahie" | tail -30
+  return 1
 }
 # Tap a button in the open dialog (no toolbar swipes: touching outside would dismiss the dialog).
 press() {

@@ -2,6 +2,7 @@
 
 Usage: python3 ui.py dump.xml LABEL      -> prints "x y" (centre of the first match), exit 1 if none
        python3 ui.py dump.xml --edit     -> prints the text of the first EditText
+       python3 ui.py dump.xml --labels   -> prints every visible text / description
 Matching ignores case (dialog buttons may be shown in capitals).
 """
 import re
@@ -9,6 +10,9 @@ import sys
 import xml.etree.ElementTree as ET
 
 root = ET.parse(sys.argv[1]).getroot()
+if sys.argv[2] == "--labels":
+    print(" | ".join(filter(None, ((n.get("text") or n.get("content-desc") or "") for n in root.iter("node")))))
+    sys.exit(0)
 if sys.argv[2] == "--edit":
     for n in root.iter("node"):
         if n.get("class") == "android.widget.EditText":
