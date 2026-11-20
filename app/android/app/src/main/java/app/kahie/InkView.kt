@@ -50,6 +50,15 @@ class InkView(context: Context) : View(context) {
     var tool = Tool.PEN
     /** Viewer of a read-only shared notebook: touches only pan and zoom. */
     var readOnly = false
+    /**
+     * Horizontal page scrolling: pages fit the screen and a sideways pan past the edge of the
+     * page turns to the next (left) or previous (right) page, like a book.
+     */
+    var horizontal = false
+        set(value) { field = value; fit() }
+    /** Turn the page by +1 or -1; returns false when there is no such page. */
+    var onPageTurn: (Int) -> Boolean = { false }
+    private var slide: android.animation.ValueAnimator? = null
     var penColor = 0xFF1D1D1F.toInt()
     var highlighterColor = 0xFFFFE066.toInt()
     var penWidth = 3.0
@@ -250,9 +259,48 @@ class InkView(context: Context) : View(context) {
     fun fit() {
         if (width == 0) return
         s = min((width - 32 * density) / pageW, 1.5f * density)
+        if (horizontal) s = min(s, (height - 32 * density) / pageH)
         ox = (width - pageW * s) / 2
-        oy = 16 * density
+        oy = if (horizontal) (height - pageH * s) / 2 else 16 * density
         invalidate()
+    }
+
+    /** Space left of the page when it is centred, or the 16 dp margin when it is wider. */
+    private fun restGap() = max(16 * density, (width - pageW * s) / 2)
+
+    /** End of a pan in horizontal mode: turn the page or settle back to the page edge. */
+    private fun settleHorizontal() {
+        val gap = restGap()
+        val pulledLeft = (width - (ox + pageW * s)) - gap // past the right edge
+        val pulledRight = ox - gap // past the left edge
+        val threshold = width * 0.2f
+        val dir = when {
+            pulledLeft > threshold -> 1
+            pulledRight > threshold -> -1
+            else -> 0
+        }
+        if (dir != 0 && onPageTurn(dir)) {
+            // The new page slides in from the side the gesture came from.
+            fit()
+            val target = ox
+            animateOx(target + dir * width, target)
+            return
+        }
+        // Back to the nearest edge (or centred if the page is narrower than the view).
+        val target = if (pageW * s + 2 * gap <= width) (width - pageW * s) / 2
+            else ox.coerceIn(width - gap - pageW * s, gap)
+        animateOx(ox, target)
+    }
+
+    private fun animateOx(from: Float, to: Float) {
+        slide?.cancel()
+        if (from == to) { invalidate(); return }
+        slide = android.animation.ValueAnimator.ofFloat(from, to).apply {
+            duration = 220
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { ox = it.animatedValue as Float; invalidate() }
+            start()
+        }
     }
 
     private fun zoomAt(fx: Float, fy: Float, factor: Float) {
@@ -563,6 +611,7 @@ class InkView(context: Context) : View(context) {
     private var tapScale = 1f
 
     private fun handleGesture(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) slide?.cancel()
         if (!panning) {
             tapStart = e.eventTime
             tapFingers = 0
@@ -601,6 +650,8 @@ class InkView(context: Context) : View(context) {
                         2 -> if (!readOnly) onUndoGesture()
                         3 -> if (!readOnly) onRedoGesture()
                     }
+                } else if (horizontal) {
+                    settleHorizontal()
                 }
             }
             MotionEvent.ACTION_CANCEL -> panning = false

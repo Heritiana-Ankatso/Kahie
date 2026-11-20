@@ -304,6 +304,67 @@ impl NotebookDoc {
         removed
     }
 
+    /// Fill this notebook from `template` (P1-08 notebook templates): the same sections, page
+    /// titles and order, each page a copy of the template's (paper, size, background,
+    /// objects; new ids, no history and no sync state), appended at the end. If this
+    /// notebook held only its initial empty page, that page is removed. Returns the number of
+    /// pages copied.
+    pub fn copy_from_template(&self, template: std::sync::Arc<NotebookDoc>) -> Result<u32, CoreError> {
+        if std::ptr::eq(self, template.as_ref()) {
+            return Ok(0);
+        }
+        let (outline, src_dir) = {
+            let t = template.state.lock().unwrap();
+            (t.nb.outline(), t.dir.clone())
+        };
+        let mut st = self.state.lock().unwrap();
+        let before = st.nb.outline();
+        let blank = match before.as_slice() {
+            [only] if only.kind == NodeKind::Page => {
+                let pid = only.page_id.clone().unwrap_or_default();
+                let path = st.dir.join(format!("{pid}.kpage"));
+                let empty = !path.exists()
+                    || crate::PageDoc::open(path.to_string_lossy().into()).is_ok_and(|p| p.item_count() == 0);
+                empty.then_some((only.id, pid))
+            }
+            _ => None,
+        };
+        // Parent section of the nodes at each depth.
+        let mut parents: Vec<Option<TreeID>> = vec![None];
+        let mut copied = 0;
+        for e in outline {
+            parents.truncate(e.depth + 1);
+            let parent = parents.last().copied().flatten();
+            match e.kind {
+                NodeKind::Section => {
+                    let id = st.nb.add_section(parent, &e.title);
+                    parents.push(Some(id));
+                }
+                NodeKind::Page => {
+                    let id = new_page_id();
+                    st.nb.add_page(parent, None, &id, &e.title);
+                    let src = src_dir.join(format!("{}.kpage", e.page_id.unwrap_or_default()));
+                    let dst = crate::PageDoc::open(st.dir.join(format!("{id}.kpage")).to_string_lossy().into())?;
+                    if src.exists() {
+                        let src = crate::PageDoc::open(src.to_string_lossy().into())?;
+                        dst.copy_content_from(src);
+                    }
+                    dst.save()?;
+                    copied += 1;
+                }
+            }
+        }
+        if let (Some((node, pid)), true) = (blank, copied > 0) {
+            st.nb.delete(node);
+            st.nb.purge(node);
+            for ext in ["kpage", "kpage-wal", "kpage-shm"] {
+                let _ = std::fs::remove_file(st.dir.join(format!("{pid}.{ext}")));
+            }
+        }
+        st.persist();
+        Ok(copied)
+    }
+
     pub fn undo(&self) -> bool {
         let mut st = self.state.lock().unwrap();
         let done = st.nb.undo();
@@ -333,6 +394,58 @@ mod tests {
         let d = std::env::temp_dir().join(format!("kahie-nb-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    #[test]
+    fn notebook_from_template_copies_sections_titles_and_pages() {
+        let (tdir, ndir) = (tmp("tpl-src"), tmp("tpl-dst"));
+        let tpl = NotebookDoc::open(tdir.to_string_lossy().into(), "Modèle".into()).unwrap();
+        let first = tpl.page_ids()[0].clone();
+        let p = crate::PageDoc::open(tpl.page_path(first.clone())).unwrap();
+        p.set_template("grid".into());
+        p.set_page_size("a5".into());
+        p.add_text(10.0, 10.0, 200.0, 30.0, "Objectifs".into(), 18.0, 0);
+        p.save().unwrap();
+        let sec = tpl.add_section("Séquence 1".into());
+        let inner = tpl.add_page(None);
+        let node = |nb: &NotebookDoc, pid: &str| {
+            nb.outline()
+                .into_iter()
+                .find(|e| e.page_id.as_deref() == Some(pid))
+                .unwrap()
+                .node
+        };
+        tpl.move_node(node(&tpl, &inner), Some(sec.clone()), 0);
+        tpl.rename(node(&tpl, &inner), "Exercices".into());
+
+        let nb = NotebookDoc::open(ndir.to_string_lossy().into(), "2nde B".into()).unwrap();
+        assert_eq!(nb.copy_from_template(tpl.clone()).unwrap(), 2);
+        let shape = |nb: &NotebookDoc| {
+            nb.outline()
+                .into_iter()
+                .map(|e| (e.kind, e.title, e.depth))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shape(&nb),
+            shape(&tpl),
+            "same structure; the initial blank page is gone"
+        );
+        let ids = nb.page_ids();
+        assert!(ids.iter().all(|id| !tpl.page_ids().contains(id)), "new page ids");
+        let copy = crate::PageDoc::open(nb.page_path(ids[0].clone())).unwrap();
+        assert_eq!(
+            (copy.template(), copy.page_size()),
+            ("grid".to_string(), "a5".to_string())
+        );
+        assert_eq!(copy.text_blocks()[0].text, "Objectifs");
+        assert_eq!(nb.title(), "2nde B");
+        // A notebook with content keeps it: the template is appended.
+        assert_eq!(nb.copy_from_template(tpl.clone()).unwrap(), 2);
+        assert_eq!(nb.page_ids().len(), 4);
+        assert_eq!(nb.copy_from_template(nb.clone()).unwrap(), 0);
+        std::fs::remove_dir_all(tdir).ok();
+        std::fs::remove_dir_all(ndir).ok();
     }
 
     #[test]

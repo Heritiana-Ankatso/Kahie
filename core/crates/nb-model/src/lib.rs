@@ -177,7 +177,8 @@ pub struct Page {
     pub id: Id,
     #[serde(default = "default_template")]
     pub template: String,
-    /// Paper size (P1-05): one of [`PAGE_SIZES`]; A4 portrait by default.
+    /// Paper size (P1-05): one of [`PAGE_SIZES`] or a custom `<w>x<h>mm` ([`custom_size`]);
+    /// A4 portrait by default.
     #[serde(default = "default_size", skip_serializing_if = "is_default_size")]
     pub size: String,
     pub items: Vec<Item>,
@@ -205,8 +206,48 @@ pub const PAGE_SIZES: &[(&str, f64, f64)] = &[
     ("letter-landscape", 1056.0, 816.0),
 ];
 
-/// Width and height of a paper size; unknown names are A4 portrait.
+/// Limits of a custom paper size, in millimetres (each side).
+pub const CUSTOM_SIZE_MM: (f64, f64) = (50.0, 1000.0);
+
+/// Page units per millimetre (96 per inch).
+const UNITS_PER_MM: f64 = 96.0 / 25.4;
+
+/// Canonical name of a custom paper size `<w>x<h>mm` (millimetres, at most one decimal),
+/// or `None` if a side is outside [`CUSTOM_SIZE_MM`] or not a number.
+pub fn custom_size(width_mm: f64, height_mm: f64) -> Option<String> {
+    let (lo, hi) = CUSTOM_SIZE_MM;
+    let ok = |v: f64| v.is_finite() && (lo..=hi).contains(&v);
+    if !(ok(width_mm) && ok(height_mm)) {
+        return None;
+    }
+    let fmt = |v: f64| {
+        let t = (v * 10.0).round() / 10.0;
+        if t.fract() == 0.0 {
+            format!("{t:.0}")
+        } else {
+            format!("{t:.1}")
+        }
+    };
+    Some(format!("{}x{}mm", fmt(width_mm), fmt(height_mm)))
+}
+
+/// Width and height in millimetres of a custom size name `<w>x<h>mm` (canonical form only).
+pub fn parse_custom_size(size: &str) -> Option<(f64, f64)> {
+    let (w, h) = size.strip_suffix("mm")?.split_once('x')?;
+    let (w, h) = (w.parse().ok()?, h.parse().ok()?);
+    (custom_size(w, h)? == size).then_some((w, h))
+}
+
+/// Whether `size` is a supported paper size (named or custom).
+pub fn valid_size(size: &str) -> bool {
+    PAGE_SIZES.iter().any(|(n, _, _)| *n == size) || parse_custom_size(size).is_some()
+}
+
+/// Width and height of a paper size in page units; unknown names are A4 portrait.
 pub fn page_dims(size: &str) -> (f64, f64) {
+    if let Some((w, h)) = parse_custom_size(size) {
+        return ((w * UNITS_PER_MM).round(), (h * UNITS_PER_MM).round());
+    }
     PAGE_SIZES
         .iter()
         .find(|(n, _, _)| *n == size)

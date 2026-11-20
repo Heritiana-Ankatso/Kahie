@@ -1,6 +1,8 @@
 package app.kahie
 
 import android.content.Context
+import uniffi.nb_ffi.NotebookDoc
+import uniffi.nb_ffi.OutlineKind
 import uniffi.nb_ffi.PageDoc
 import java.io.File
 
@@ -104,5 +106,77 @@ object Templates {
             }
         }
         return p
+    }
+
+    // ---------- notebook templates (P1-08) ----------
+
+    /** Built-in notebook template ids, in menu order. */
+    val builtInNotebooks = listOf("course", "planner", "exercises")
+
+    fun notebookTitle(ctx: Context, id: String): String = ctx.getString(
+        when (id) {
+            "course" -> R.string.nbtpl_course
+            "planner" -> R.string.nbtpl_planner
+            else -> R.string.nbtpl_exercises
+        },
+    )
+
+    fun notebookDir(ctx: Context) = File(ctx.filesDir, "notebook-templates").apply { mkdirs() }
+
+    /** Saved notebook templates: display name → notebook directory. */
+    fun savedNotebooks(ctx: Context): List<Pair<String, File>> =
+        notebookDir(ctx).listFiles { f -> f.isDirectory }?.sortedBy { it.name }?.map { it.name to it } ?: emptyList()
+
+    /** Save the structure and pages of `notebook` as a template named `name` (replacing one). */
+    fun saveNotebook(ctx: Context, notebook: NotebookDoc, name: String) {
+        val safe = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(60).ifBlank { "template" }
+        val dir = File(notebookDir(ctx), safe)
+        dir.deleteRecursively()
+        NotebookDoc.open(dir.path, safe).apply {
+            copyFromTemplate(notebook)
+            save()
+        }
+    }
+
+    /**
+     * A built-in notebook template, built in a scratch directory: sections of pages, each
+     * page made from a built-in page template (headings in the app's language).
+     */
+    fun buildNotebook(ctx: Context, id: String, measure: (String, Float, Float) -> Float): NotebookDoc {
+        fun s(res: Int) = ctx.getString(res)
+        // (section title or null for top level) to (page template, page title)
+        val plan: List<Pair<String?, List<Pair<String, String>>>> = when (id) {
+            "course" -> listOf(
+                s(R.string.nbtpl_sec_lessons) to (1..3).map { "lecture" to "" },
+                s(R.string.nbtpl_sec_exercises) to (1..3).map { "exercise" to "" },
+                s(R.string.nbtpl_sec_assessments) to listOf("exercise" to ""),
+            )
+            "planner" -> listOf(
+                null to (1..4).map { "planner" to s(R.string.nbtpl_week_n).format(it) } + listOf("journal" to ""),
+            )
+            else -> listOf(null to (1..5).map { "exercise" to "" })
+        }
+        val dir = File(ctx.cacheDir, "nbtpl-$id").apply { deleteRecursively() }
+        val nb = NotebookDoc.open(dir.path, notebookTitle(ctx, id))
+        val initial = nb.outline().first { it.kind == OutlineKind.PAGE }.node
+        val pages = HashMap<String, PageDoc>()
+        for ((section, entries) in plan) {
+            val parent = section?.let { nb.addSection(it) }
+            entries.forEachIndexed { i, (tpl, title) ->
+                val pid = nb.addPage(null)
+                val node = nb.outline().first { it.pageId == pid }.node
+                if (parent != null) nb.moveNode(node, parent, i.toUInt())
+                if (title.isNotEmpty()) nb.rename(node, title)
+                val src = pages.getOrPut(tpl) { build(ctx, tpl, measure) }
+                PageDoc.open(nb.pagePath(pid)).apply {
+                    copyContentFrom(src)
+                    save()
+                }
+            }
+        }
+        nb.deleteNode(initial)
+        nb.emptyTrash()
+        nb.save()
+        return nb
     }
 }

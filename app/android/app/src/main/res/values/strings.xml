@@ -170,4 +170,21 @@
     <string name="sync_encrypt_no">Do not encrypt</string>
     <string name="sync_encrypted_note">End-to-end encrypted: the relay cannot read this notebook.</string>
     <string name="sync_not_encrypted_note">Not encrypted: whoever runs the relay can read this notebook.</string>
+    <string name="paper_custom">Custom size…</string>
+    <string name="paper_custom_current">Custom — %1$s × %2$s mm</string>
+    <string name="paper_width_mm">Width (mm)</string>
+    <string name="paper_height_mm">Height (mm)</string>
+    <string name="paper_custom_bad">Each side must be between 50 and 1000 mm.</string>
+    <string name="page_scrolling">Page scrolling</string>
+    <string name="page_scrolling_vertical">Vertical: move freely on the page, arrows turn pages</string>
+    <string name="page_scrolling_horizontal">Horizontal: whole page on screen, swipe sideways to turn pages</string>
+    <string name="new_notebook_from_template">New notebook from a template</string>
+    <string name="save_notebook_as_template">Save this notebook as a template</string>
+    <string name="nbtpl_course">Course notebook (lessons, exercises, assessments)</string>
+    <string name="nbtpl_planner">Monthly planner (4 weeks + journal)</string>
+    <string name="nbtpl_exercises">Exercise book (5 pages)</string>
+    <string name="nbtpl_sec_lessons">Lessons</string>
+    <string name="nbtpl_sec_exercises">Exercises</string>
+    <string name="nbtpl_sec_assessments">Assessments</string>
+    <string name="nbtpl_week_n">Week %1$d</string>
 </resources>

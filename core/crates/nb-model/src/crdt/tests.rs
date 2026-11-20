@@ -419,3 +419,29 @@ fn page_size_is_stored_synced_and_defaults_to_a4() {
         .unwrap()
         .contains("\"size\":\"a5-landscape\""));
 }
+
+#[test]
+fn custom_page_sizes() {
+    use crate::{custom_size, page_dims, parse_custom_size, valid_size};
+    assert_eq!(custom_size(210.0, 99.0).as_deref(), Some("210x99mm"));
+    assert_eq!(custom_size(148.04, 105.25).as_deref(), Some("148x105.3mm"));
+    for (w, h) in [(49.0, 100.0), (100.0, 1001.0), (f64::NAN, 100.0), (-1.0, 100.0)] {
+        assert_eq!(custom_size(w, h), None, "{w}x{h}");
+    }
+    assert_eq!(parse_custom_size("210x99mm"), Some((210.0, 99.0)));
+    for bad in ["210x99", "210.0x99mm", "x99mm", "10x99mm", "210x99cm", "a4"] {
+        assert!(parse_custom_size(bad).is_none(), "{bad}");
+    }
+    // 210 × 297 mm is A4's size in page units (to the rounding of the named size).
+    let (w, h) = page_dims("210x297mm");
+    assert!((w - 794.0).abs() <= 1.0 && (h - 1123.0).abs() <= 1.0, "{w}x{h}");
+    assert!(valid_size("a4") && valid_size("100x100mm") && !valid_size("1x1mm"));
+
+    let mut p = CrdtPage::new("p", 1);
+    p.set_size("250x120mm");
+    assert_eq!(p.size(), "250x120mm");
+    p.set_size("20x20mm");
+    assert_eq!(p.size(), "250x120mm", "out of range is ignored");
+    let q = CrdtPage::load(&[&p.snapshot()], 2).unwrap();
+    assert_eq!((q.size(), page_dims(q.size())), ("250x120mm", (945.0, 454.0)));
+}

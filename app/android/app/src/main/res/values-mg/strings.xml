@@ -169,4 +169,21 @@
     <string name="sync_encrypt_no">Aza afenina</string>
     <string name="sync_encrypted_note">Voafina hatramin’ny farany: tsy afaka mamaky ity kahie ity ny relay.</string>
     <string name="sync_not_encrypted_note">Tsy voafina: afaka mamaky ity kahie ity ny mpitantana ny relay.</string>
+    <string name="paper_custom">Habe manokana…</string>
+    <string name="paper_custom_current">Manokana — %1$s × %2$s mm</string>
+    <string name="paper_width_mm">Sakany (mm)</string>
+    <string name="paper_height_mm">Halavany (mm)</string>
+    <string name="paper_custom_bad">Tsy maintsy eo anelanelan’ny 50 sy 1000 mm ny lafiny tsirairay.</string>
+    <string name="page_scrolling">Fihodinan’ny pejy</string>
+    <string name="page_scrolling_vertical">Mitsangana: mivezivezy malalaka amin’ny pejy, ny zana-tsipìka no manodina pejy</string>
+    <string name="page_scrolling_horizontal">Mitsivalana: hita manontolo ny pejy, asosay mankany amin’ny sisiny mba hanodinana pejy</string>
+    <string name="new_notebook_from_template">Kahie vaovao avy amin’ny modely</string>
+    <string name="save_notebook_as_template">Tehirizina ho modely ity kahie ity</string>
+    <string name="nbtpl_course">Kahie fampianarana (lesona, fanazaran-tena, fanombanana)</string>
+    <string name="nbtpl_planner">Fandaharana isam-bolana (herinandro 4 + diary)</string>
+    <string name="nbtpl_exercises">Kahie fanazaran-tena (pejy 5)</string>
+    <string name="nbtpl_sec_lessons">Lesona</string>
+    <string name="nbtpl_sec_exercises">Fanazaran-tena</string>
+    <string name="nbtpl_sec_assessments">Fanombanana</string>
+    <string name="nbtpl_week_n">Herinandro %1$d</string>
 </resources>

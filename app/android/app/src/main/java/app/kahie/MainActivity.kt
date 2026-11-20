@@ -29,6 +29,8 @@ import uniffi.nb_ffi.clipboardCount
 import uniffi.nb_ffi.exportKahie
 import uniffi.nb_ffi.syncPageOnce
 import uniffi.nb_ffi.newShareCode
+import uniffi.nb_ffi.customPageSize
+import uniffi.nb_ffi.customPageSizeMm
 import uniffi.nb_ffi.parseShareCode
 import uniffi.nb_ffi.ShareInfo
 import uniffi.nb_ffi.importKahie
@@ -118,6 +120,11 @@ class MainActivity : Activity() {
         ink.math = renderer
         ink.onMathTap = { x, y, blockId -> editMath(x, y, blockId) }
         ink.onPlotTap = { x, y, blockId -> editPlot(x, y, blockId) }
+        ink.horizontal = prefs.getBoolean("horizontalPages", false)
+        ink.onPageTurn = { dir ->
+            val next = pageIndex + dir
+            if (next in pageIds.indices) { goToPage(next); true } else false
+        }
         ink.onChanged = {
             updateHistoryButtons()
             main.removeCallbacks(saveRunnable)
@@ -318,7 +325,8 @@ class MainActivity : Activity() {
             getString(R.string.rename), getString(R.string.export_kahie), getString(R.string.import_kahie),
             getString(R.string.export_pdf), getString(R.string.import_pdf), getString(R.string.share_pdf),
             getString(R.string.sync_share), getString(R.string.sync_join), getString(R.string.sync_settings),
-            getString(R.string.language), getString(R.string.backup),
+            getString(R.string.language), getString(R.string.backup), getString(R.string.page_scrolling),
+            getString(R.string.new_notebook_from_template), getString(R.string.save_notebook_as_template),
         )
         AlertDialog.Builder(this)
             .setItems(actions) { _, which ->
@@ -334,6 +342,19 @@ class MainActivity : Activity() {
                     8 -> syncSettings()
                     9 -> chooseLanguage()
                     10 -> if (prefs.getString("backupTree", null) == null) chooseBackupFolder() else showBackup()
+                    11 -> choosePageScrolling()
+                    12 -> newNotebookFromTemplate()
+                    13 -> askText(R.string.template_name, notebook.title()) { name ->
+                        saveNow()
+                        val nb = notebook
+                        io.execute {
+                            val r = runCatching { nb.save(); Templates.saveNotebook(this, nb, name) }
+                            main.post {
+                                r.onSuccess { toast(getString(R.string.template_saved)) }
+                                r.onFailure { toast(getString(R.string.open_failed, it.message ?: "")) }
+                            }
+                        }
+                    }
                 }
             }
             .show()
@@ -1375,23 +1396,102 @@ class MainActivity : Activity() {
             .show()
     }
 
-    /** Paper size of the open page (P1-05). */
+    /** A new notebook made from a built-in or saved notebook template (P1-08). */
+    private fun newNotebookFromTemplate() {
+        val saved = Templates.savedNotebooks(this)
+        val labels = Templates.builtInNotebooks.map { Templates.notebookTitle(this, it) } + saved.map { it.first }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.new_notebook_from_template)
+            .setItems(labels.toTypedArray()) { _, which ->
+                askText(R.string.new_notebook, labels[which]) { title ->
+                    saveNow()
+                    val template = if (which < Templates.builtInNotebooks.size) {
+                        Templates.buildNotebook(this, Templates.builtInNotebooks[which]) { t, w, sz -> ink.measureText(t, w, sz) }
+                    } else {
+                        NotebookDoc.open(saved[which - Templates.builtInNotebooks.size].second.path, labels[which])
+                    }
+                    val next = (notebookDirs().mapNotNull { it.name.removePrefix("nb-").toIntOrNull() }.maxOrNull() ?: 0) + 1
+                    val dir = File(notebooksRoot, "nb-%04d".format(next))
+                    val r = runCatching {
+                        NotebookDoc.open(dir.path, title.ifBlank { labels[which] }).apply {
+                            copyFromTemplate(template)
+                            save()
+                        }
+                    }
+                    r.onSuccess { openNotebook(dir) }
+                    r.onFailure { toast(getString(R.string.open_failed, it.message ?: "")) }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Vertical (default: pan freely, arrows turn pages) or horizontal (swipe to turn) page scrolling. */
+    private fun choosePageScrolling() {
+        val names = arrayOf(getString(R.string.page_scrolling_vertical), getString(R.string.page_scrolling_horizontal))
+        AlertDialog.Builder(this)
+            .setTitle(R.string.page_scrolling)
+            .setSingleChoiceItems(names, if (ink.horizontal) 1 else 0) { dlg, which ->
+                dlg.dismiss()
+                prefs.edit().putBoolean("horizontalPages", which == 1).apply()
+                ink.horizontal = which == 1
+            }
+            .show()
+    }
+
+    /** Paper size of the open page (P1-05): a named size or a custom one in millimetres. */
     private fun choosePageSize() {
         val d = doc ?: return
         val sizes = listOf("a4", "a4-landscape", "a5", "a5-landscape", "letter", "letter-landscape")
         val portrait = getString(R.string.portrait)
         val landscape = getString(R.string.landscape)
+        val current = d.pageSize()
+        val customMm = customPageSizeMm(current)
         val names = sizes.map { sz ->
             val base = sz.substringBefore('-').let { if (it == "letter") "Letter" else it.uppercase() }
             "$base — " + if (sz.endsWith("landscape")) landscape else portrait
-        }.toTypedArray()
+        } + (customMm?.let { getString(R.string.paper_custom_current, mm(it[0]), mm(it[1])) } ?: getString(R.string.paper_custom))
+        val checked = if (customMm != null) sizes.size else sizes.indexOf(current).coerceAtLeast(0)
         AlertDialog.Builder(this)
             .setTitle(R.string.paper_size)
-            .setSingleChoiceItems(names, sizes.indexOf(d.pageSize()).coerceAtLeast(0)) { dlg, which ->
+            .setSingleChoiceItems(names.toTypedArray(), checked) { dlg, which ->
                 dlg.dismiss()
-                d.setPageSize(sizes[which])
-                ink.refresh()
-                ink.onChanged()
+                if (which == sizes.size) chooseCustomSize(d, customMm) else applyPageSize(d, sizes[which])
+            }
+            .show()
+    }
+
+    private fun mm(v: Double) = if (v % 1.0 == 0.0) v.toInt().toString() else v.toString()
+
+    private fun applyPageSize(d: PageDoc, size: String) {
+        d.setPageSize(size)
+        ink.refresh()
+        ink.onChanged()
+    }
+
+    /** Width and height in millimetres (50–1000 each). */
+    private fun chooseCustomSize(d: PageDoc, current: List<Double>?) {
+        val pad = (16 * dp).toInt()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad / 2, pad, 0) }
+        fun field(hint: Int, value: Double) = android.widget.EditText(this).apply {
+            this.hint = getString(hint)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setSingleLine()
+            setText(mm(value))
+        }
+        val width = field(R.string.paper_width_mm, current?.get(0) ?: 210.0)
+        val height = field(R.string.paper_height_mm, current?.get(1) ?: 297.0)
+        box.addView(width)
+        box.addView(height)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.paper_custom)
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val w = width.text.toString().replace(',', '.').toDoubleOrNull()
+                val h = height.text.toString().replace(',', '.').toDoubleOrNull()
+                val size = if (w != null && h != null) customPageSize(w, h) else null
+                if (size == null) toast(getString(R.string.paper_custom_bad)) else applyPageSize(d, size)
             }
             .show()
     }

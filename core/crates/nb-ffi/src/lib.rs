@@ -253,6 +253,19 @@ pub fn clipboard_count() -> u32 {
     CLIPBOARD.lock().unwrap().as_ref().map_or(0, |c| c.items.len() as u32)
 }
 
+/// Name of a custom paper size of `width_mm` × `height_mm` (each side 50–1000 mm, rounded
+/// to 0.1 mm), for `set_page_size`; `None` if out of range.
+#[uniffi::export]
+pub fn custom_page_size(width_mm: f64, height_mm: f64) -> Option<String> {
+    nb_model::custom_size(width_mm, height_mm)
+}
+
+/// Width and height in millimetres of a custom size name (`None` for named sizes).
+#[uniffi::export]
+pub fn custom_page_size_mm(size: String) -> Option<Vec<f64>> {
+    nb_model::parse_custom_size(&size).map(|(w, h)| vec![w, h])
+}
+
 #[derive(uniffi::Object)]
 pub struct PageDoc {
     pub(crate) state: Mutex<State>,
@@ -524,11 +537,13 @@ impl PageDoc {
         Ok(changed)
     }
 
-    /// Paper size name (`a4`, `a4-landscape`, `a5`, `a5-landscape`, `letter`, `letter-landscape`).
+    /// Paper size name (`a4`, `a4-landscape`, `a5`, `a5-landscape`, `letter`, `letter-landscape`,
+    /// or a custom `<w>x<h>mm` from [`custom_page_size`]).
     pub fn page_size(&self) -> String {
         self.state.lock().unwrap().doc.size().to_string()
     }
 
+    /// Unknown or invalid names are ignored.
     pub fn set_page_size(&self, size: String) {
         let mut st = self.state.lock().unwrap();
         st.doc.set_size(&size);

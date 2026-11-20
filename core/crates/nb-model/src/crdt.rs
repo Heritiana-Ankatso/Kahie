@@ -503,13 +503,13 @@ impl CrdtPage {
         self.rebuild();
     }
 
-    /// Paper size name (see `nb_model::PAGE_SIZES`).
+    /// Paper size name (see `nb_model::PAGE_SIZES` and `nb_model::custom_size`).
     pub fn size(&self) -> &str {
         &self.view.size
     }
 
     pub fn set_size(&mut self, size: &str) {
-        if size == self.view.size || !crate::PAGE_SIZES.iter().any(|(n, _, _)| *n == size) {
+        if size == self.view.size || !crate::valid_size(size) {
             return;
         }
         self.doc.get_map(META).insert("size", size).expect("insert");

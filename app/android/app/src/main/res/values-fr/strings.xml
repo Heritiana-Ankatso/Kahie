@@ -168,4 +168,21 @@
     <string name="sync_encrypt_no">Ne pas chiffrer</string>
     <string name="sync_encrypted_note">Chiffré de bout en bout : le relais ne peut pas lire ce cahier.</string>
     <string name="sync_not_encrypted_note">Non chiffré : l’administrateur du relais peut lire ce cahier.</string>
+    <string name="paper_custom">Format personnalisé…</string>
+    <string name="paper_custom_current">Personnalisé — %1$s × %2$s mm</string>
+    <string name="paper_width_mm">Largeur (mm)</string>
+    <string name="paper_height_mm">Hauteur (mm)</string>
+    <string name="paper_custom_bad">Chaque côté doit mesurer entre 50 et 1000 mm.</string>
+    <string name="page_scrolling">Défilement des pages</string>
+    <string name="page_scrolling_vertical">Vertical : déplacement libre sur la page, flèches pour tourner les pages</string>
+    <string name="page_scrolling_horizontal">Horizontal : page entière à l’écran, glisser sur le côté pour tourner les pages</string>
+    <string name="new_notebook_from_template">Nouveau cahier à partir d’un modèle</string>
+    <string name="save_notebook_as_template">Enregistrer ce cahier comme modèle</string>
+    <string name="nbtpl_course">Cahier de cours (leçons, exercices, évaluations)</string>
+    <string name="nbtpl_planner">Agenda mensuel (4 semaines + journal)</string>
+    <string name="nbtpl_exercises">Cahier d’exercices (5 pages)</string>
+    <string name="nbtpl_sec_lessons">Leçons</string>
+    <string name="nbtpl_sec_exercises">Exercices</string>
+    <string name="nbtpl_sec_assessments">Évaluations</string>
+    <string name="nbtpl_week_n">Semaine %1$d</string>
 </resources>
