@@ -18,8 +18,10 @@ uniffi::setup_scaffolding!();
 
 mod kahie_file;
 mod notebook;
+mod sync;
 pub use kahie_file::{export_kahie, import_kahie};
 pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
+pub use sync::{SyncListener, SyncSession, SyncStatus};
 
 #[derive(Debug, uniffi::Error)]
 pub enum CoreError {
@@ -75,7 +77,7 @@ struct Current {
 pub(crate) struct State {
     pub(crate) doc: CrdtPage,
     /// Durable storage; `None` for in-memory pages.
-    store: Option<Store>,
+    pub(crate) store: Option<Store>,
     /// First persistence error since the last successful `save`, reported by `save`.
     store_error: Option<String>,
     current: Option<Current>,
@@ -175,7 +177,7 @@ impl State {
     }
 
     /// Append unsaved CRDT changes to the store (durable on return).
-    fn persist(&mut self) {
+    pub(crate) fn persist(&mut self) {
         let Some(store) = self.store.as_mut() else {
             self.doc.take_unsaved();
             return;

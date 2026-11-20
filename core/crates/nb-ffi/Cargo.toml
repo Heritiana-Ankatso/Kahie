@@ -20,9 +20,18 @@ nb-model = { path = "../nb-model" }
 nb-store = { path = "../nb-store" }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 loro.workspace = true
+# Relay sync client: blocking WebSocket on a background thread, TLS via rustls + ring
+# (pure Rust/asm, cross-compiles with the NDK; no system OpenSSL on Android).
+tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde.workspace = true
 serde_json.workspace = true
 uniffi = { version = "0.32", features = ["cli"] }
+
+[dev-dependencies]
+nb-relay = { path = "../nb-relay" }
+tokio = { version = "1", features = ["rt-multi-thread", "net"] }
+axum = "0.8"
 
 [lints]
 workspace = true

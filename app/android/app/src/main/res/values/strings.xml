@@ -35,4 +35,10 @@
     <string name="exported">Notebook exported</string>
     <string name="imported">Notebook imported</string>
     <string name="transfer_failed">Failed: %1$s</string>
+    <string name="sync_share">Share with my devices (sync)</string>
+    <string name="sync_join">Join a shared notebook</string>
+    <string name="sync_settings">Sync settings</string>
+    <string name="sync_token">Access token</string>
+    <string name="sync_code_is">Sync is on. On another device, choose “Join a shared notebook” and enter this code:\n\n%1$s</string>
+    <string name="sync_bad_code">This code is not valid.</string>
 </resources>

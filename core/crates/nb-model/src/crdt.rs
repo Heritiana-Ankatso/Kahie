@@ -195,27 +195,12 @@ impl CrdtPage {
     /// [`CrdtPage::take_unsaved`], changes received from the relay are never sent back, while
     /// local changes from earlier sessions (other peer ids) are.
     pub fn sync_outgoing(&self, relay: &mut VersionVector) -> Option<Vec<u8>> {
-        let now = self.doc.oplog_vv();
-        if now.iter().all(|(peer, c)| relay.get(peer).is_some_and(|r| r >= c)) {
-            return None;
-        }
-        let bytes = self.doc.export(ExportMode::updates(relay)).expect("export updates");
-        for (peer, c) in now.iter() {
-            if relay.get(peer).is_none_or(|r| r < c) {
-                relay.insert(*peer, *c);
-            }
-        }
-        Some(bytes)
+        sync_outgoing(&self.doc, relay)
     }
 
     /// Sync download: import an update received from the relay and record it in `relay`.
     pub fn sync_incoming(&mut self, bytes: &[u8], relay: &mut VersionVector) -> Result<(), ModelError> {
-        let status = self.doc.import(bytes).map_err(err)?;
-        for (peer, (_, end)) in status.success.iter() {
-            if relay.get(peer).is_none_or(|r| r < end) {
-                relay.insert(*peer, *end);
-            }
-        }
+        sync_incoming(&self.doc, bytes, relay)?;
         self.rebuild();
         Ok(())
     }
@@ -608,6 +593,32 @@ impl CrdtPage {
             content,
         })
     }
+}
+
+/// Changes in `doc` that `relay` lacks; advances `relay` (shared by pages and notebooks).
+pub(crate) fn sync_outgoing(doc: &LoroDoc, relay: &mut VersionVector) -> Option<Vec<u8>> {
+    let now = doc.oplog_vv();
+    if now.iter().all(|(peer, c)| relay.get(peer).is_some_and(|r| r >= c)) {
+        return None;
+    }
+    let bytes = doc.export(ExportMode::updates(relay)).expect("export updates");
+    for (peer, c) in now.iter() {
+        if relay.get(peer).is_none_or(|r| r < c) {
+            relay.insert(*peer, *c);
+        }
+    }
+    Some(bytes)
+}
+
+/// Import a relay update into `doc` and record what was applied in `relay`.
+pub(crate) fn sync_incoming(doc: &LoroDoc, bytes: &[u8], relay: &mut VersionVector) -> Result<(), ModelError> {
+    let status = doc.import(bytes).map_err(err)?;
+    for (peer, (_, end)) in status.success.iter() {
+        if relay.get(peer).is_none_or(|r| r < end) {
+            relay.insert(*peer, *end);
+        }
+    }
+    Ok(())
 }
 
 fn tool_name(t: Tool) -> &'static str {

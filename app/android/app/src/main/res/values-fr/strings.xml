@@ -33,4 +33,10 @@
     <string name="exported">Cahier exporté</string>
     <string name="imported">Cahier importé</string>
     <string name="transfer_failed">Échec : %1$s</string>
+    <string name="sync_share">Partager avec mes appareils (synchro)</string>
+    <string name="sync_join">Rejoindre un cahier partagé</string>
+    <string name="sync_settings">Réglages de synchronisation</string>
+    <string name="sync_token">Jeton d’accès</string>
+    <string name="sync_code_is">La synchronisation est active. Sur un autre appareil, choisissez « Rejoindre un cahier partagé » et saisissez ce code :\n\n%1$s</string>
+    <string name="sync_bad_code">Ce code n’est pas valide.</string>
 </resources>

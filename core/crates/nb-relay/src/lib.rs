@@ -149,13 +149,21 @@ async fn client(mut socket: WebSocket, room: Arc<Room>, after: i64, conn: u64) {
                     _ => continue,
                 };
                 let store = room.store.clone();
+                let tx = room.tx.clone();
                 let payload = Arc::new(bytes);
-                let p = payload.clone();
-                let seq = match tokio::task::spawn_blocking(move || store.lock().unwrap().append_update(&p)).await {
+                // Append and broadcast under the store lock, so every receiver sees strictly
+                // increasing sequence numbers (a reconnect with `after=<seq>` then misses nothing).
+                let seq = match tokio::task::spawn_blocking(move || {
+                    let store = store.lock().unwrap();
+                    let seq = store.append_update(&payload)?;
+                    let _ = tx.send((seq, payload, conn));
+                    Ok::<_, nb_store::StoreError>(seq)
+                })
+                .await
+                {
                     Ok(Ok(seq)) => seq,
                     _ => return,
                 };
-                let _ = room.tx.send((seq, payload, conn));
                 if socket.send(Message::Binary(frame(seq, &[]).into())).await.is_err() {
                     return;
                 }

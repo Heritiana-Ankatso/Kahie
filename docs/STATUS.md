@@ -49,7 +49,7 @@ CI: `android.yml` builds the APK (artifact `kahie-debug-apk`) and runs an emulat
 ## Next steps for the agent (in order)
 
 1. Keep `android` (APK + smoke) green; fix `giac-android` until it reports the CAS size, then record it in p0-07-giac.md.
-2. Android sync client for the relay (UniFFI background session + refresh callback); settings for relay URL/token.
+2. Sync client done (SyncSession for pages + outline; Share/Join/Settings in the app). Next: sync status indicator, sync all pages in background (not only the open one), relay compaction.
 3. P0-05 Android side: tile cache executing nb-render display lists via FFI.
 4. Section UI in the Pages dialog; trash view with restore.
 5. `CasBackend` in nb-math on top of the Android Giac build; maths blocks in the app (Typst+MiTeX rendering after size reduction).

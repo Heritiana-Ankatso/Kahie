@@ -22,6 +22,8 @@ allow = [
     "GPL-3.0-or-later",
     "CC0-1.0",
     "BSL-1.0",
+    # Mozilla root-certificate data in webpki-roots (TLS to the sync relay); permissive data licence.
+    "CDLA-Permissive-2.0",
 ]
 
 [licenses.private]

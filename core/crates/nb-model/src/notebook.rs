@@ -48,6 +48,15 @@ impl CrdtNotebook {
         Self::wrap(doc)
     }
 
+    /// A replica with no content of its own, to be filled by sync. Writing nothing matters:
+    /// a local title or id would compete (last writer wins) with the real one.
+    pub fn empty(peer: u64) -> Self {
+        let doc = LoroDoc::new();
+        doc.set_peer_id(peer).expect("valid peer id");
+        doc.get_tree(TREE).enable_fractional_index(0);
+        Self::wrap(doc)
+    }
+
     pub fn load(chunks: &[&[u8]], peer: u64) -> Result<Self, ModelError> {
         let doc = LoroDoc::new();
         for c in chunks {
@@ -82,6 +91,16 @@ impl CrdtNotebook {
         let bytes = self.doc.export(ExportMode::updates(&self.saved)).expect("export");
         self.saved = now;
         Some(bytes)
+    }
+
+    /// Sync upload (see `CrdtPage::sync_outgoing`).
+    pub fn sync_outgoing(&self, relay: &mut VersionVector) -> Option<Vec<u8>> {
+        crate::crdt::sync_outgoing(&self.doc, relay)
+    }
+
+    /// Sync download (see `CrdtPage::sync_incoming`).
+    pub fn sync_incoming(&mut self, bytes: &[u8], relay: &mut VersionVector) -> Result<(), ModelError> {
+        crate::crdt::sync_incoming(&self.doc, bytes, relay)
     }
 
     /// Forget the undo history (e.g. after a migration that must not be undoable).

@@ -20,6 +20,9 @@ import android.widget.Toast
 import uniffi.nb_ffi.CoreException
 import uniffi.nb_ffi.NotebookDoc
 import uniffi.nb_ffi.OutlineKind
+import uniffi.nb_ffi.SyncListener
+import uniffi.nb_ffi.SyncSession
+import uniffi.nb_ffi.SyncStatus
 import uniffi.nb_ffi.exportKahie
 import uniffi.nb_ffi.importKahie
 import uniffi.nb_ffi.PageDoc
@@ -155,6 +158,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        stopSync()
         super.onDestroy()
         io.shutdown()
     }
@@ -181,6 +185,7 @@ class MainActivity : Activity() {
         }
         prefs.edit().putString("notebook", dir.name).apply()
         notebookDir = dir
+        restartNotebookSync()
         pageIds = notebook.pageIds()
         pageIndex = -1
         goToPage(pageIds.indexOf(pageId).takeIf { it >= 0 } ?: 0)
@@ -213,16 +218,134 @@ class MainActivity : Activity() {
     }
 
     private fun showNotebookActions() {
-        val actions = arrayOf(getString(R.string.rename), getString(R.string.export_kahie), getString(R.string.import_kahie))
+        val actions = arrayOf(
+            getString(R.string.rename), getString(R.string.export_kahie), getString(R.string.import_kahie),
+            getString(R.string.sync_share), getString(R.string.sync_join), getString(R.string.sync_settings),
+        )
         AlertDialog.Builder(this)
             .setItems(actions) { _, which ->
                 when (which) {
                     0 -> askText(R.string.rename, notebook.title()) { notebook.setTitle(it) }
                     1 -> startExport()
                     2 -> startImport()
+                    3 -> shareNotebook()
+                    4 -> joinNotebook()
+                    5 -> syncSettings()
                 }
             }
             .show()
+    }
+
+    // ---------- sync with a self-hosted relay (decision D9) ----------
+
+    private var notebookSync: SyncSession? = null
+    private var pageSync: SyncSession? = null
+
+    private fun relayUrl() = prefs.getString("relayUrl", "")!!.trim()
+    private fun relayToken() = prefs.getString("relayToken", "")!!
+    /** Share code of the current notebook, or null when it is not synced. */
+    private fun syncCode(): String? = notebookDir?.let { prefs.getString("sync_${it.name}", null) }
+
+    private fun syncSettings() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad / 2, pad, 0) }
+        val url = android.widget.EditText(this).apply { hint = "wss://relay.example.org"; setText(relayUrl()); setSingleLine() }
+        val token = android.widget.EditText(this).apply {
+            hint = getString(R.string.sync_token)
+            setText(relayToken())
+            setSingleLine()
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        box.addView(url)
+        box.addView(token)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.sync_settings)
+            .setView(box)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                prefs.edit().putString("relayUrl", url.text.toString().trim()).putString("relayToken", token.text.toString()).apply()
+                restartNotebookSync()
+                restartPageSync()
+            }
+            .show()
+    }
+
+    /** Turn sync on for this notebook and show the code other devices use to join it. */
+    private fun shareNotebook() {
+        val dir = notebookDir ?: return
+        if (relayUrl().isEmpty()) { syncSettings(); return }
+        val code = syncCode() ?: ("n" + java.util.UUID.randomUUID().toString().replace("-", "").take(15)).also {
+            prefs.edit().putString("sync_${dir.name}", it).apply()
+            restartNotebookSync()
+            restartPageSync()
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.sync_share)
+            .setMessage(getString(R.string.sync_code_is, code))
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun joinNotebook() {
+        if (relayUrl().isEmpty()) { syncSettings(); return }
+        askText(R.string.sync_join, "") { code ->
+            if (!code.matches(Regex("[A-Za-z0-9_-]{1,40}"))) { toast(getString(R.string.sync_bad_code)); return@askText }
+            val next = (notebookDirs().mapNotNull { it.name.removePrefix("nb-").toIntOrNull() }.maxOrNull() ?: 0) + 1
+            val dir = File(notebooksRoot, "nb-%04d".format(next))
+            NotebookDoc.join(dir.path).save()
+            prefs.edit().putString("sync_${dir.name}", code).apply()
+            openNotebook(dir)
+        }
+    }
+
+    private val syncListenerFor: (Boolean) -> SyncListener = { isNotebook ->
+        object : SyncListener {
+            override fun onRemoteChange() {
+                main.post {
+                    if (isNotebook) {
+                        val current = pageIds.getOrNull(pageIndex)
+                        pageIds = notebook.pageIds()
+                        when {
+                            pageIndex < 0 || current == null -> goToPage(0)
+                            current in pageIds -> pageIndex = pageIds.indexOf(current)
+                            else -> goToPage(pageIndex.coerceAtMost(pageIds.size - 1))
+                        }
+                        if (pageIndex >= 0) pageLabel.text = getString(R.string.page_count, pageIndex + 1, pageIds.size)
+                    } else {
+                        ink.refresh()
+                        updateHistoryButtons()
+                    }
+                }
+            }
+            override fun onStatus(status: SyncStatus) {
+                if (status is SyncStatus.Offline && !isNotebook) main.post { syncState = status.detail }
+                if (status is SyncStatus.Online && !isNotebook) main.post { syncState = null }
+            }
+        }
+    }
+
+    /** Last sync error, shown in the sync dialog; null when online. */
+    private var syncState: String? = null
+
+    private fun restartNotebookSync() {
+        notebookSync?.stop(); notebookSync = null
+        val code = syncCode() ?: return
+        if (relayUrl().isEmpty()) return
+        notebookSync = SyncSession.startNotebook(notebook, relayUrl(), relayToken(), code, syncListenerFor(true))
+    }
+
+    private fun restartPageSync() {
+        pageSync?.stop(); pageSync = null
+        val code = syncCode() ?: return
+        val d = doc ?: return
+        val pageId = pageIds.getOrNull(pageIndex) ?: return
+        if (relayUrl().isEmpty()) return
+        pageSync = SyncSession.start(d, relayUrl(), relayToken(), "$code-$pageId", syncListenerFor(false))
+    }
+
+    private fun stopSync() {
+        notebookSync?.stop(); notebookSync = null
+        pageSync?.stop(); pageSync = null
     }
 
     // ---------- .kahie export / import (system file picker) ----------
@@ -304,6 +427,7 @@ class MainActivity : Activity() {
             PageDoc.newInMemory()
         }
         ink.doc = doc
+        restartPageSync()
         pageLabel.text = getString(R.string.page_count, i + 1, pageIds.size)
         updateHistoryButtons()
     }

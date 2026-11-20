@@ -47,4 +47,4 @@ Upload ≈ 7 MB, download ≈ 215 MB **per class per lesson** on one shared page
 - Server-side compaction (import the log into Loro, store a snapshot) to bound storage and catch-up time.
 - Per-document access control (teacher/student roles) instead of one server token.
 - Optional end-to-end encryption of updates.
-- Android sync client using `sync_outgoing/sync_incoming`, persisting the relay version vector and seq cursor in the page store.
+- ~~Android sync client~~ — done: `nb-ffi` `SyncSession` (pages and notebook outlines), cursor stored in each database; app: Share / Join / Sync settings.

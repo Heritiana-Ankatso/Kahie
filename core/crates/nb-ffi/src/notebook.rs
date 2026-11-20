@@ -35,13 +35,13 @@ pub struct OutlineEntry {
 
 pub(crate) struct State {
     pub(crate) nb: CrdtNotebook,
-    store: Store,
+    pub(crate) store: Store,
     dir: PathBuf,
     error: Option<String>,
 }
 
 impl State {
-    fn persist(&mut self) {
+    pub(crate) fn persist(&mut self) {
         let Some(update) = self.nb.take_unsaved() else { return };
         let r = self.store.append_update(&update).and_then(|_| {
             if self.store.pending_updates()? >= 200 {
@@ -94,6 +94,19 @@ impl NotebookDoc {
     /// Open (or create) the notebook stored in directory `dir`.
     #[uniffi::constructor]
     pub fn open(dir: String, title: String) -> Result<std::sync::Arc<Self>, CoreError> {
+        Self::open_inner(dir, title, true)
+    }
+
+    /// Open a directory for a notebook that will arrive through sync: when it is new, it
+    /// starts with no page and no title (they come from the other devices).
+    #[uniffi::constructor]
+    pub fn join(dir: String) -> Result<std::sync::Arc<Self>, CoreError> {
+        Self::open_inner(dir, String::new(), false)
+    }
+}
+
+impl NotebookDoc {
+    fn open_inner(dir: String, title: String, default_page: bool) -> Result<std::sync::Arc<Self>, CoreError> {
         let dir = PathBuf::from(dir);
         std::fs::create_dir_all(&dir).map_err(|e| CoreError::Io { detail: e.to_string() })?;
         let store = Store::open(dir.join("notebook.db")).map_err(fmt_err)?;
@@ -101,7 +114,9 @@ impl NotebookDoc {
         let mut chunks: Vec<&[u8]> = loaded.snapshot.iter().map(Vec::as_slice).collect();
         chunks.extend(loaded.updates.iter().map(Vec::as_slice));
         let fresh = chunks.is_empty();
-        let nb = if fresh {
+        let nb = if fresh && !default_page {
+            CrdtNotebook::empty(peer_id())
+        } else if fresh {
             CrdtNotebook::new("notebook", &title, peer_id())
         } else {
             CrdtNotebook::load(&chunks, peer_id()).map_err(fmt_err)?
@@ -126,7 +141,7 @@ impl NotebookDoc {
                     .map_err(|e| CoreError::Io { detail: e.to_string() })?;
                 st.nb.add_page(None, None, &id, "");
             }
-            if legacy.is_empty() {
+            if legacy.is_empty() && default_page {
                 st.nb.add_page(None, None, &new_page_id(), "");
             }
             st.nb.clear_undo();
@@ -134,7 +149,10 @@ impl NotebookDoc {
         st.persist();
         Ok(std::sync::Arc::new(Self { state: Mutex::new(st) }))
     }
+}
 
+#[uniffi::export]
+impl NotebookDoc {
     pub fn title(&self) -> String {
         self.state.lock().unwrap().nb.title()
     }
