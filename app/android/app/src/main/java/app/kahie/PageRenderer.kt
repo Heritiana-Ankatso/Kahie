@@ -108,7 +108,7 @@ object PageRenderer {
         }
     }
 
-    private val curveColors = intArrayOf(0xFF2F5BD3.toInt(), 0xFFD0453A.toInt(), 0xFF2E9E5B.toInt(), 0xFF8E44AD.toInt(), 0xFFE67E22.toInt())
+    val curveColors = intArrayOf(0xFF2F5BD3.toInt(), 0xFFD0453A.toInt(), 0xFF2E9E5B.toInt(), 0xFF8E44AD.toInt(), 0xFFE67E22.toInt())
 
     /** Draw a function plot: frame, light grid, axes with tick labels, curves. `unit` = 1 screen px in page units. */
     fun drawPlot(canvas: Canvas, p: uniffi.nb_ffi.PlotBlock, unit: Float) {

@@ -16,7 +16,8 @@ import org.json.JSONObject
  * [Picture] that the page canvas draws at any zoom without blurring.
  */
 class MathRenderer(context: Context, private val onRendered: () -> Unit) {
-    class Result(val picture: Picture?, val width: Float, val height: Float, val error: Boolean)
+    /** `svg`: MathJax's SVG source, kept for SVG export. */
+    class Result(val picture: Picture?, val width: Float, val height: Float, val error: Boolean, val svg: String? = null)
 
     private val main = Handler(Looper.getMainLooper())
     private val cache = HashMap<String, Result>()
@@ -70,7 +71,7 @@ class MathRenderer(context: Context, private val onRendered: () -> Unit) {
         @JavascriptInterface
         fun onSvg(key: String, svg: String, w: Double, h: Double, error: Boolean) = main.post {
             val picture = runCatching { SVG.getFromString(svg).renderToPicture() }.getOrNull()
-            finish(key, Result(picture, w.toFloat(), h.toFloat(), error || picture == null))
+            finish(key, Result(picture, w.toFloat(), h.toFloat(), error || picture == null, svg))
         }.let { }
 
         @JavascriptInterface

@@ -30,6 +30,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 - **Image** inserts a photo (resized automatically); images sit under the ink so you can annotate them.
 - **Selection** (after *Select*): copy (paste on any page or notebook from *Selection → Paste*), duplicate, delete, bring to front, send to back.
 - **Plot** draws functions of x (one per line, e.g. `y = x^2 - 2`, `2sin(x)`) in a window you choose; tap a plot to edit it.
+- **Pages → More → Export this page (SVG)** writes the page as a vector SVG at its real paper size (for editing in Inkscape or printing at any scale).
 - **Pages → More → Export this page (PNG)** for sharing a single page; *Send this page (PNG)…* opens the share sheet (email, messaging, Drive…).
 - **Notebooks → More → Send as PDF…** shares the whole notebook as a PDF through the share sheet.
 - **Open with Kahie**: opening or sharing a PDF to Kahie creates a new notebook from it; opening a `.kahie` file imports it.

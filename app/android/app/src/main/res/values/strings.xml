@@ -129,4 +129,5 @@
     <string name="paper_size">Paper size</string>
     <string name="portrait">portrait</string>
     <string name="landscape">landscape</string>
+    <string name="export_svg">Export this page (SVG)</string>
 </resources>

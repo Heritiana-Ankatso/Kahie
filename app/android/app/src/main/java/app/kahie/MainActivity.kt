@@ -73,6 +73,7 @@ class MainActivity : Activity() {
         const val REQ_IMAGE = 45
         const val REQ_IMPORT_PDF = 46
         const val REQ_BACKUP_DIR = 47
+        const val REQ_EXPORT_SVG = 48
         const val BACKUP_EVERY_MS = 24 * 3600 * 1000L
     }
 
@@ -732,6 +733,34 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startSvgExport() {
+        val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            .setType("image/svg+xml")
+            .putExtra(android.content.Intent.EXTRA_TITLE, fileName("svg", "-${pageIndex + 1}"))
+        startActivityForResult(intent, REQ_EXPORT_SVG)
+    }
+
+    /** The current page as SVG (P1-34), after its formulas are rendered. */
+    private fun exportSvg(uri: android.net.Uri) {
+        val d = doc ?: return
+        val renderer = mathRenderer
+        val requests = PageRenderer.mathRequests(d).distinct()
+        var remaining = requests.size
+        fun write() {
+            val svg = SvgExport.page(d, renderer)
+            io.execute {
+                val result = runCatching { contentResolver.openOutputStream(uri)!!.use { it.write(svg.toByteArray()) } }
+                main.post {
+                    result.onSuccess { toast(getString(R.string.exported)) }
+                        .onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
+                }
+            }
+        }
+        if (renderer == null || remaining == 0) { write(); return }
+        for ((latex, size, color) in requests) renderer.request(latex, size, color) { if (--remaining == 0) write() }
+    }
+
     private fun startPngExport() {
         val name = notebook.title().ifBlank { getString(R.string.untitled) }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
         val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
@@ -876,6 +905,7 @@ class MainActivity : Activity() {
         if (resultCode != RESULT_OK) return
         if (requestCode == REQ_EXPORT_PDF) { exportPdf(uri); return }
         if (requestCode == REQ_EXPORT_PNG) { exportPng(uri); return }
+        if (requestCode == REQ_EXPORT_SVG) { exportSvg(uri); return }
         if (requestCode == REQ_IMAGE) { insertImage(uri); return }
         if (requestCode == REQ_IMPORT_PDF) { importPdf(uri); return }
         if (requestCode == REQ_BACKUP_DIR) {
@@ -1173,6 +1203,7 @@ class MainActivity : Activity() {
                     getString(R.string.share_png),
                     getString(R.string.page_versions),
                     getString(R.string.paper_size),
+                    getString(R.string.export_svg),
                 )
                 AlertDialog.Builder(this)
                     .setItems(actions) { _, which ->
@@ -1190,7 +1221,8 @@ class MainActivity : Activity() {
                             7 -> startPngExport()
                             8 -> sharePng()
                             9 -> showVersions()
-                            else -> choosePageSize()
+                            10 -> choosePageSize()
+                            else -> startSvgExport()
                         }
                     }
                     .show()
