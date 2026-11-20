@@ -400,3 +400,22 @@ fn revert_to_an_earlier_version_is_one_new_undoable_change() {
     let q = CrdtPage::load(&[&p.snapshot()], 2).unwrap();
     assert_eq!(q.page().items, before);
 }
+
+#[test]
+fn page_size_is_stored_synced_and_defaults_to_a4() {
+    let mut p = CrdtPage::new("p", 1);
+    assert_eq!(p.size(), "a4");
+    p.set_size("nonsense");
+    assert_eq!(p.size(), "a4", "unknown sizes are ignored");
+    p.set_size("a5-landscape");
+    assert_eq!(p.size(), "a5-landscape");
+    assert_eq!(crate::page_dims(p.size()), (794.0, 559.0));
+    let q = CrdtPage::load(&[&p.snapshot()], 2).unwrap();
+    assert_eq!(q.size(), "a5-landscape");
+    // JSON keeps old documents valid: no `size` field for A4.
+    let json = serde_json::to_string(CrdtPage::new("x", 3).page()).unwrap();
+    assert!(!json.contains("size"));
+    assert!(serde_json::to_string(q.page())
+        .unwrap()
+        .contains("\"size\":\"a5-landscape\""));
+}

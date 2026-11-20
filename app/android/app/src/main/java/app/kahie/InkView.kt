@@ -124,8 +124,9 @@ class InkView(context: Context) : View(context) {
     private var texts: List<CachedText> = emptyList()
     private val textLayouts = HashMap<String, CachedText>()
 
-    private val pageW = 794f
-    private val pageH = 1123f
+    /** Page size in page units, from the page (A4 portrait until a page is set). */
+    private var pageW = 794f
+    private var pageH = 1123f
     private val density = resources.displayMetrics.density
 
     // View transform: screen = page * s + (ox, oy)
@@ -189,6 +190,12 @@ class InkView(context: Context) : View(context) {
     /** Re-read the item list from the core and build paths for new keys. */
     fun refresh() {
         val d = doc ?: return
+        val dims = d.pageDims()
+        if (dims[0] != pageW || dims[1] != pageH) {
+            pageW = dims[0]
+            pageH = dims[1]
+            if (width > 0) fit()
+        }
         order = d.layout()
         val live = order.toHashSet()
         paths.keys.retainAll(live)

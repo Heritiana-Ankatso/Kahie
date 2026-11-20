@@ -524,6 +524,23 @@ impl PageDoc {
         Ok(changed)
     }
 
+    /// Paper size name (`a4`, `a4-landscape`, `a5`, `a5-landscape`, `letter`, `letter-landscape`).
+    pub fn page_size(&self) -> String {
+        self.state.lock().unwrap().doc.size().to_string()
+    }
+
+    pub fn set_page_size(&self, size: String) {
+        let mut st = self.state.lock().unwrap();
+        st.doc.set_size(&size);
+        st.persist();
+    }
+
+    /// Page width and height in page units (A4 portrait: 794 × 1123).
+    pub fn page_dims(&self) -> Vec<f32> {
+        let (w, h) = nb_model::page_dims(self.state.lock().unwrap().doc.size());
+        vec![w as f32, h as f32]
+    }
+
     pub fn template(&self) -> String {
         self.state.lock().unwrap().doc.template().to_string()
     }

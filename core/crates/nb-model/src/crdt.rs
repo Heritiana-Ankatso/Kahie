@@ -5,7 +5,7 @@
 //!
 //! | Root container | Type | Content |
 //! |---|---|---|
-//! | `meta` | map | `id`, `template` |
+//! | `meta` | map | `id`, `template`, `size` (absent: A4) |
 //! | `order` | movable list | object ids, bottom to top (z-order) |
 //! | `objects` | map | object id → map of fields (below) |
 //!
@@ -84,6 +84,9 @@ impl CrdtPage {
             .get_map(META)
             .insert("template", page.template.as_str())
             .expect("insert");
+        if page.size != "a4" {
+            p.doc.get_map(META).insert("size", page.size.as_str()).expect("insert");
+        }
         for (i, item) in page.items.iter().enumerate() {
             p.write_new(i, item);
         }
@@ -500,6 +503,20 @@ impl CrdtPage {
         self.rebuild();
     }
 
+    /// Paper size name (see `nb_model::PAGE_SIZES`).
+    pub fn size(&self) -> &str {
+        &self.view.size
+    }
+
+    pub fn set_size(&mut self, size: &str) {
+        if size == self.view.size || !crate::PAGE_SIZES.iter().any(|(n, _, _)| *n == size) {
+            return;
+        }
+        self.doc.get_map(META).insert("size", size).expect("insert");
+        self.doc.commit();
+        self.rebuild();
+    }
+
     // ---------- undo (local changes only; remote changes are never undone) ----------
 
     pub fn undo(&mut self) -> bool {
@@ -625,6 +642,7 @@ impl CrdtPage {
         let meta = self.doc.get_map(META).get_value();
         let id = str_field(&meta, "id").unwrap_or_default();
         let template = str_field(&meta, "template").unwrap_or_else(|| "lined".into());
+        let size = str_field(&meta, "size").unwrap_or_else(|| "a4".into());
         let LoroValue::List(order) = self.doc.get_movable_list(ORDER).get_value() else {
             unreachable!("root list")
         };
@@ -659,7 +677,12 @@ impl CrdtPage {
                 items.push(item.clone());
             }
         }
-        self.view = Page { id, template, items };
+        self.view = Page {
+            id,
+            template,
+            size,
+            items,
+        };
         #[cfg(debug_assertions)]
         {
             let full = self.rebuild_full();
@@ -715,6 +738,7 @@ impl CrdtPage {
         Page {
             id: str_field(&meta, "id").unwrap_or_default(),
             template: str_field(&meta, "template").unwrap_or_else(|| "lined".into()),
+            size: str_field(&meta, "size").unwrap_or_else(|| "a4".into()),
             items,
         }
     }

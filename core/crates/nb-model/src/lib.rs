@@ -177,6 +177,9 @@ pub struct Page {
     pub id: Id,
     #[serde(default = "default_template")]
     pub template: String,
+    /// Paper size (P1-05): one of [`PAGE_SIZES`]; A4 portrait by default.
+    #[serde(default = "default_size", skip_serializing_if = "is_default_size")]
+    pub size: String,
     pub items: Vec<Item>,
 }
 
@@ -184,11 +187,38 @@ fn default_template() -> String {
     "lined".into()
 }
 
+fn default_size() -> String {
+    "a4".into()
+}
+
+fn is_default_size(s: &String) -> bool {
+    s == "a4"
+}
+
+/// Supported paper sizes and their dimensions in page units (1 unit = 1 px at 96 dpi).
+pub const PAGE_SIZES: &[(&str, f64, f64)] = &[
+    ("a4", 794.0, 1123.0),
+    ("a4-landscape", 1123.0, 794.0),
+    ("a5", 559.0, 794.0),
+    ("a5-landscape", 794.0, 559.0),
+    ("letter", 816.0, 1056.0),
+    ("letter-landscape", 1056.0, 816.0),
+];
+
+/// Width and height of a paper size; unknown names are A4 portrait.
+pub fn page_dims(size: &str) -> (f64, f64) {
+    PAGE_SIZES
+        .iter()
+        .find(|(n, _, _)| *n == size)
+        .map_or((794.0, 1123.0), |&(_, w, h)| (w, h))
+}
+
 impl Page {
     pub fn new(id: impl Into<Id>) -> Self {
         Self {
             id: id.into(),
             template: default_template(),
+            size: default_size(),
             items: vec![],
         }
     }

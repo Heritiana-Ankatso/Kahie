@@ -13,7 +13,7 @@ import uniffi.nb_ffi.RenderItem
 
 /**
  * Draws a whole page (paper, ink, text, maths) onto any canvas in page units
- * (794 × 1123 for A4). Used for export; every element stays vector, so a PDF canvas
+ * (794 × 1123 for A4; see `PageDoc.pageDims`). Used for export; every element stays vector, so a PDF canvas
  * receives paths and text rather than pixels.
  */
 object PageRenderer {
@@ -48,60 +48,60 @@ object PageRenderer {
         return path
     }
 
-    fun drawPaper(canvas: Canvas, template: String, lineWidth: Float) {
+    fun drawPaper(canvas: Canvas, template: String, lineWidth: Float, w: Float = PAGE_W, h: Float = PAGE_H) {
         val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = lineWidth }
         when (template) {
             "lined" -> {
                 p.color = 0xFFC9D8F0.toInt()
                 var y = 96f
-                while (y < PAGE_H) { canvas.drawLine(0f, y, PAGE_W, y, p); y += 32f }
+                while (y < h) { canvas.drawLine(0f, y, w, y, p); y += 32f }
                 p.color = 0xFFF0B4B4.toInt()
-                canvas.drawLine(80f, 0f, 80f, PAGE_H, p)
+                canvas.drawLine(80f, 0f, 80f, h, p)
             }
             "grid" -> {
                 p.color = 0xFFDDE3EE.toInt()
                 var v = 24f
-                while (v < PAGE_W) { canvas.drawLine(v, 0f, v, PAGE_H, p); v += 24f }
+                while (v < w) { canvas.drawLine(v, 0f, v, h, p); v += 24f }
                 v = 24f
-                while (v < PAGE_H) { canvas.drawLine(0f, v, PAGE_W, v, p); v += 24f }
+                while (v < h) { canvas.drawLine(0f, v, w, v, p); v += 24f }
             }
             "graph" -> {
                 // Millimetre paper: 1 mm ≈ 3.78 page units; darker every 10 mm.
                 val mm = 794f / 210f
                 var i = 0
                 var v = 0f
-                while (v < PAGE_W) {
+                while (v < w) {
                     p.color = if (i % 10 == 0) 0xFFB9CBE4.toInt() else 0xFFE4ECF6.toInt()
-                    canvas.drawLine(v, 0f, v, PAGE_H, p); v += mm; i++
+                    canvas.drawLine(v, 0f, v, h, p); v += mm; i++
                 }
                 i = 0; v = 0f
-                while (v < PAGE_H) {
+                while (v < h) {
                     p.color = if (i % 10 == 0) 0xFFB9CBE4.toInt() else 0xFFE4ECF6.toInt()
-                    canvas.drawLine(0f, v, PAGE_W, v, p); v += mm; i++
+                    canvas.drawLine(0f, v, w, v, p); v += mm; i++
                 }
             }
             "music" -> {
                 p.color = 0xFF9AA3B2.toInt()
                 var top = 80f
-                while (top + 40f < PAGE_H - 40f) {
-                    for (k in 0 until 5) canvas.drawLine(40f, top + k * 10f, PAGE_W - 40f, top + k * 10f, p)
+                while (top + 40f < h - 40f) {
+                    for (k in 0 until 5) canvas.drawLine(40f, top + k * 10f, w - 40f, top + k * 10f, p)
                     top += 90f
                 }
             }
             "cornell" -> {
                 p.color = 0xFFC9D8F0.toInt()
                 var y = 120f
-                while (y < PAGE_H - 220f) { canvas.drawLine(0f, y, PAGE_W, y, p); y += 32f }
+                while (y < h - 220f) { canvas.drawLine(0f, y, w, y, p); y += 32f }
                 p.color = 0xFF9AA3B2.toInt()
-                canvas.drawLine(220f, 0f, 220f, PAGE_H - 220f, p)
-                canvas.drawLine(0f, PAGE_H - 220f, PAGE_W, PAGE_H - 220f, p)
+                canvas.drawLine(220f, 0f, 220f, h - 220f, p)
+                canvas.drawLine(0f, h - 220f, w, h - 220f, p)
             }
             "dots" -> {
                 p.color = 0xFFB8C0CC.toInt()
                 var x = 24f
-                while (x < PAGE_W) {
+                while (x < w) {
                     var y = 24f
-                    while (y < PAGE_H) { canvas.drawCircle(x, y, 1.3f, p); y += 24f }
+                    while (y < h) { canvas.drawCircle(x, y, 1.3f, p); y += 24f }
                     x += 24f
                 }
             }
@@ -185,11 +185,12 @@ object PageRenderer {
     fun drawBackground(canvas: Canvas, d: PageDoc) {
         val hash = d.backgroundHash() ?: return
         val bmp = bitmap(d, hash) ?: return
-        val scale = minOf(PAGE_W / bmp.width, PAGE_H / bmp.height)
+        val (pw, ph) = d.pageDims().let { it[0] to it[1] }
+        val scale = minOf(pw / bmp.width, ph / bmp.height)
         val w = bmp.width * scale
         val h = bmp.height * scale
-        val l = (PAGE_W - w) / 2
-        val t = (PAGE_H - h) / 2
+        val l = (pw - w) / 2
+        val t = (ph - h) / 2
         canvas.drawBitmap(bmp, null, android.graphics.RectF(l, t, l + w, t + h), imagePaint)
     }
 
@@ -200,7 +201,10 @@ object PageRenderer {
     /** Draw page `d` (white paper, background, items in order) in page units. */
     fun drawPage(canvas: Canvas, d: PageDoc, math: MathRenderer?, paper: Boolean = true) {
         canvas.drawColor(Color.WHITE)
-        if (paper) drawPaper(canvas, d.template(), 0.75f)
+        if (paper) {
+            val dims = d.pageDims()
+            drawPaper(canvas, d.template(), 0.75f, dims[0], dims[1])
+        }
         drawBackground(canvas, d)
         for (img in d.imageBlocks()) drawImage(canvas, d, img) // under the ink
         for (key in d.layout()) {

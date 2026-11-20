@@ -25,6 +25,7 @@
       "properties": {
         "id": { "type": "string" },
         "template": { "type": "string", "description": "Paper: lined, grid, dots, blank…", "default": "lined" },
+        "size": { "enum": ["a4", "a4-landscape", "a5", "a5-landscape", "letter", "letter-landscape"], "description": "Paper size; page units are 1/96 inch (A4 = 794 × 1123).", "default": "a4" },
         "items": { "type": "array", "description": "Bottom to top.", "items": { "$ref": "#/$defs/item" } }
       }
     },

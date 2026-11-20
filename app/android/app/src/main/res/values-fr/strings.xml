@@ -124,4 +124,7 @@
         <item quantity="one">%1$s — %2$d objet</item>
         <item quantity="other">%1$s — %2$d objets</item>
     </plurals>
+    <string name="paper_size">Format de la page</string>
+    <string name="portrait">portrait</string>
+    <string name="landscape">paysage</string>
 </resources>

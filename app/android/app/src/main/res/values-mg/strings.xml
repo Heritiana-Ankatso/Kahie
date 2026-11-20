@@ -125,4 +125,7 @@
         <item quantity="one">%1$s — zavatra %2$d</item>
         <item quantity="other">%1$s — zavatra %2$d</item>
     </plurals>
+    <string name="paper_size">Haben’ny taratasy</string>
+    <string name="portrait">mitsangana</string>
+    <string name="landscape">mandry</string>
 </resources>

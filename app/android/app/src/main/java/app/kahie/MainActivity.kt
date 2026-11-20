@@ -543,11 +543,13 @@ class MainActivity : Activity() {
         var remaining = requests.size
         fun write() {
             val pdf = android.graphics.pdf.PdfDocument()
-            val w = 595
-            val h = 842 // A4 in PostScript points
             pages.forEachIndexed { i, p ->
+                // Page units are 1/96 in; PDF points are 1/72 in.
+                val dims = p.pageDims()
+                val w = (dims[0] * 0.75f).toInt()
+                val h = (dims[1] * 0.75f).toInt()
                 val page = pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(w, h, i + 1).create())
-                page.canvas.scale(w / PageRenderer.PAGE_W, h / PageRenderer.PAGE_H)
+                page.canvas.scale(w / dims[0], h / dims[1])
                 PageRenderer.drawPage(page.canvas, p, renderer)
                 pdf.finishPage(page)
             }
@@ -751,7 +753,7 @@ class MainActivity : Activity() {
         fun write() {
             val scale = 2f
             val bmp = android.graphics.Bitmap.createBitmap(
-                (PageRenderer.PAGE_W * scale).toInt(), (PageRenderer.PAGE_H * scale).toInt(), android.graphics.Bitmap.Config.ARGB_8888,
+                (d.pageDims()[0] * scale).toInt(), (d.pageDims()[1] * scale).toInt(), android.graphics.Bitmap.Config.ARGB_8888,
             )
             val c = android.graphics.Canvas(bmp)
             c.scale(scale, scale)
@@ -792,7 +794,7 @@ class MainActivity : Activity() {
             }
             main.post {
                 result.onSuccess { (bytes, w, h) ->
-                    val boxW = minOf(420f, PageRenderer.PAGE_W - 40f)
+                    val boxW = minOf(420f, d.pageDims()[0] - 40f)
                     val boxH = boxW * h / w
                     d.addImage((centre[0] - boxW / 2).toDouble(), (centre[1] - boxH / 2).toDouble(), boxW.toDouble(), boxH.toDouble(), bytes)
                     ink.refresh()
@@ -822,9 +824,11 @@ class MainActivity : Activity() {
                         var anchor = after
                         var first: String? = null
                         for (i in 0 until pdf.pageCount) {
+                            var landscape = false
                             val bytes = pdf.openPage(i).use { page ->
-                                // 2× the page width in Kahie units, white under transparent PDFs.
-                                val w = (PageRenderer.PAGE_W * 2).toInt()
+                                landscape = page.width > page.height
+                                // 2× the longer page side in Kahie units, white under transparent PDFs.
+                                val w = (PageRenderer.PAGE_W * 2 * (if (landscape) 1123f / 794f else 1f)).toInt()
                                 val h = (w.toFloat() * page.height / page.width).toInt().coerceAtLeast(1)
                                 val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
                                 bmp.eraseColor(android.graphics.Color.WHITE)
@@ -837,6 +841,7 @@ class MainActivity : Activity() {
                             val id = notebook.addPage(anchor)
                             PageDoc.open(notebook.pagePath(id)).apply {
                                 setTemplate("blank")
+                                if (landscape) setPageSize("a4-landscape")
                                 setBackgroundImage(bytes)
                             }
                             anchor = id
@@ -1167,6 +1172,7 @@ class MainActivity : Activity() {
                     getString(R.string.export_png),
                     getString(R.string.share_png),
                     getString(R.string.page_versions),
+                    getString(R.string.paper_size),
                 )
                 AlertDialog.Builder(this)
                     .setItems(actions) { _, which ->
@@ -1183,7 +1189,8 @@ class MainActivity : Activity() {
                             6 -> showTrash()
                             7 -> startPngExport()
                             8 -> sharePng()
-                            else -> showVersions()
+                            9 -> showVersions()
+                            else -> choosePageSize()
                         }
                     }
                     .show()
@@ -1273,6 +1280,27 @@ class MainActivity : Activity() {
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Paper size of the open page (P1-05). */
+    private fun choosePageSize() {
+        val d = doc ?: return
+        val sizes = listOf("a4", "a4-landscape", "a5", "a5-landscape", "letter", "letter-landscape")
+        val portrait = getString(R.string.portrait)
+        val landscape = getString(R.string.landscape)
+        val names = sizes.map { sz ->
+            val base = sz.substringBefore('-').let { if (it == "letter") "Letter" else it.uppercase() }
+            "$base — " + if (sz.endsWith("landscape")) landscape else portrait
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.paper_size)
+            .setSingleChoiceItems(names, sizes.indexOf(d.pageSize()).coerceAtLeast(0)) { dlg, which ->
+                dlg.dismiss()
+                d.setPageSize(sizes[which])
+                ink.refresh()
+                ink.onChanged()
+            }
             .show()
     }
 

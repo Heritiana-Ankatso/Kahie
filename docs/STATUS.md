@@ -40,7 +40,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 - Languages: English, French, Malagasy (draft); in-app language choice (Notebooks → More → Language) plus Android 13 per-app language.
 - Blocks: Text (tap to add/edit), Maths (LaTeX → MathJax in hidden WebView → SVG → AndroidSVG Picture), Plot (functions of x, sampled in the core), Image (photos, stored in the page CRDT `assets` map), Select tool (rectangle select, move, copy/paste across pages and notebooks, duplicate, delete, bring to front / send to back).
 - Page history (P1-28): local checkpoints (on open, then every 10 min, 30 kept) in the page database; restoring is a new undoable, synced change (`CrdtPage::revert_to`).
-- Paper: lined, grid, dots, mm graph, Cornell, music, blank; PDF import as uneditable page background.
+- Paper: lined, grid, dots, mm graph, Cornell, music, blank; size per page (A4/A5/Letter, portrait/landscape; `Page.size`, `.kahie` field `size`); PDF import as uneditable page background (landscape pages kept landscape).
 - Export/import: `.kahie` (ZIP, schema-valid `document.json`, `assets/<sha256>`), vector PDF of the notebook, PNG of a page.
 - Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min (reloads the open page if it changed), status dot. Per-notebook access control: Share shows an editor code and a read-only code (students); read-only notebooks are view-only (`nb_store::access`, `docs/relay.md`).
 - CAS: `cas_eval` FFI + Compute button in the text dialog (only in builds with feature `giac`).
@@ -66,7 +66,7 @@ How to iterate without the Android SDK here: generate bindings and compile them 
 ## Next steps for the agent (in order)
 
 1. (Done: CAS 11.0 MB arm64.) Further CAS savings only if APK size becomes a problem: drop unused Giac modules in `prepare-giac.py`.
-2. Backlog P1 items that need no device: P1-05 page sizes (A5/Letter/landscape), P1-34 SVG export. (Done: P1-15 copy/paste, P1-16 z-order, P1-28 page versions, P1-27 backup, P1-36 share.)
+2. Backlog P1 items that need no device: P1-34 SVG export; P1-05 remainder (custom sizes, horizontal scroll mode); P1-08 templates gallery. (Done: P1-05 paper sizes, P1-15 copy/paste, P1-16 z-order, P1-28 page versions, P1-27 backup, P1-36 share.)
 3. Optional end-to-end encryption for the relay (keys already per notebook: derive an encryption key from the write/read key).
 4. P0-05 Android tile cache using `nb-render` display lists (needs device fps to justify).
 5. Handwriting recognition (D2 pending P0-06 corpus).
