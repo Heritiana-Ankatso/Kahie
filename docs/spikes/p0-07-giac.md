@@ -52,6 +52,19 @@ pub enum CasError { Syntax(String), Timeout, Unsupported(String), Internal(Strin
 
 LaTeX input from the user goes LaTeX → our expression tree (`nb-math`) → Giac syntax, so the CAS is swappable.
 
+## Minimal build (no PARI, NTL, GSL, GUI) — measured
+
+Built from the Debian source of Giac 2.0.0.21 with `spikes/p0-07/android/prepare-giac.py` (library-only tree, Bison 3 fixes) and the same `configure` flags as the Android workflow, linked **statically** with GMP and MPFR:
+
+| Measure | Value |
+|---|---|
+| Curriculum suite (88 tasks) | **88/88**, same results and speed as the full distribution build |
+| Stripped binary containing Giac (x86-64, `-O2`) | 21 MB, 9.0 MB gzipped (APKs store native libraries compressed) |
+
+So dropping PARI/NTL/GSL loses nothing on the curriculum set. Size is the remaining lever: `-Os`, `-ffunction-sections` + `--gc-sections`, and removing unused Giac modules (graphics, sound, Xcas UI code) should bring it down; the Android numbers come from the `giac-android` workflow (arm64 and x86_64).
+
+Build pitfalls found (all handled by the script/workflow): the dfsg tarball lacks `configure` and the generated parser; `AM_GNU_GETTEXT` needs `[external]` with current gettext; Bison 3 needs `%lex-param` and the `giac_yy` prefix; passing `CXXFLAGS` to `make` (instead of `configure`) silently drops `-DTIMEOUT` and breaks linking; the shim must be compiled with Giac's own defines (`HAVE_CONFIG_H`, `TIMEOUT`, `GIAC_GENERIC_CONSTANTS`, `USE_OBJET_BIDON`).
+
 ## Remaining work
 
 1. **Android arm64 build in CI:** cross-compile GMP, MPFR and Giac with the NDK, with PARI, NTL, GSL, FLTK and GLPK disabled; target ≤ 12 MB added to the APK (to be measured). A minimal Giac without PARI may fail some number-theory tasks: rerun this suite on the Android build.
