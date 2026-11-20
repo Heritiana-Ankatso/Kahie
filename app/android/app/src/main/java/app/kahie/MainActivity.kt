@@ -55,7 +55,7 @@ class MainActivity : Activity() {
 
     private val penColors = intArrayOf(0xFF1D1D1F.toInt(), 0xFF2B59C3.toInt(), 0xFFD1495B.toInt(), 0xFF2A9D8F.toInt(), 0xFFE09F3E.toInt())
     private val highlighterColors = intArrayOf(0xFFFFE066.toInt(), 0xFF9BE564.toInt(), 0xFF7CC6FE.toInt(), 0xFFFF99C8.toInt(), 0xFFFFB86B.toInt())
-    private val templates = listOf("lined", "grid", "dots", "blank")
+    private val templates = listOf("lined", "grid", "dots", "graph", "cornell", "music", "blank")
 
     private val dp get() = resources.displayMetrics.density
 

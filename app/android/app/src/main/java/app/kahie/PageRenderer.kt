@@ -65,6 +65,37 @@ object PageRenderer {
                 v = 24f
                 while (v < PAGE_H) { canvas.drawLine(0f, v, PAGE_W, v, p); v += 24f }
             }
+            "graph" -> {
+                // Millimetre paper: 1 mm ≈ 3.78 page units; darker every 10 mm.
+                val mm = 794f / 210f
+                var i = 0
+                var v = 0f
+                while (v < PAGE_W) {
+                    p.color = if (i % 10 == 0) 0xFFB9CBE4.toInt() else 0xFFE4ECF6.toInt()
+                    canvas.drawLine(v, 0f, v, PAGE_H, p); v += mm; i++
+                }
+                i = 0; v = 0f
+                while (v < PAGE_H) {
+                    p.color = if (i % 10 == 0) 0xFFB9CBE4.toInt() else 0xFFE4ECF6.toInt()
+                    canvas.drawLine(0f, v, PAGE_W, v, p); v += mm; i++
+                }
+            }
+            "music" -> {
+                p.color = 0xFF9AA3B2.toInt()
+                var top = 80f
+                while (top + 40f < PAGE_H - 40f) {
+                    for (k in 0 until 5) canvas.drawLine(40f, top + k * 10f, PAGE_W - 40f, top + k * 10f, p)
+                    top += 90f
+                }
+            }
+            "cornell" -> {
+                p.color = 0xFFC9D8F0.toInt()
+                var y = 120f
+                while (y < PAGE_H - 220f) { canvas.drawLine(0f, y, PAGE_W, y, p); y += 32f }
+                p.color = 0xFF9AA3B2.toInt()
+                canvas.drawLine(220f, 0f, 220f, PAGE_H - 220f, p)
+                canvas.drawLine(0f, PAGE_H - 220f, PAGE_W, PAGE_H - 220f, p)
+            }
             "dots" -> {
                 p.color = 0xFFB8C0CC.toInt()
                 var x = 24f

@@ -330,6 +330,37 @@ class InkView(context: Context) : View(context) {
                 v = 24f
                 while (v < pageH) { canvas.drawLine(0f, v, pageW, v, rulePaint); v += 24f }
             }
+            "graph" -> {
+                // Millimetre paper: 1 mm ≈ 3.78 page units; darker every 10 mm.
+                val mm = 794f / 210f
+                var i = 0
+                var v = 0f
+                while (v < pageW) {
+                    rulePaint.color = if (i % 10 == 0) 0xFFB9CBE4.toInt() else 0xFFE4ECF6.toInt()
+                    canvas.drawLine(v, 0f, v, pageH, rulePaint); v += mm; i++
+                }
+                i = 0; v = 0f
+                while (v < pageH) {
+                    rulePaint.color = if (i % 10 == 0) 0xFFB9CBE4.toInt() else 0xFFE4ECF6.toInt()
+                    canvas.drawLine(0f, v, pageW, v, rulePaint); v += mm; i++
+                }
+            }
+            "music" -> {
+                rulePaint.color = 0xFF9AA3B2.toInt()
+                var top = 80f
+                while (top + 40f < pageH - 40f) {
+                    for (k in 0 until 5) canvas.drawLine(40f, top + k * 10f, pageW - 40f, top + k * 10f, rulePaint)
+                    top += 90f
+                }
+            }
+            "cornell" -> {
+                rulePaint.color = 0xFFC9D8F0.toInt()
+                var y = 120f
+                while (y < pageH - 220f) { canvas.drawLine(0f, y, pageW, y, rulePaint); y += 32f }
+                rulePaint.color = 0xFF9AA3B2.toInt()
+                canvas.drawLine(220f, 0f, 220f, pageH - 220f, rulePaint)
+                canvas.drawLine(0f, pageH - 220f, pageW, pageH - 220f, rulePaint)
+            }
             "dots" -> {
                 rulePaint.color = 0xFFB8C0CC.toInt()
                 val r = 1.3f

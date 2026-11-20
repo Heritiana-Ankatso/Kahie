@@ -18,7 +18,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 
 - **Pages**: list of pages; tap to open, *Add a page* inserts after the current one, *More → Delete page* moves it to the trash, *More → Trash* restores it.
 - **Notebooks**: switch notebooks, create one, *More → Rename*.
-- **Paper**: cycles lined, squared and dotted paper.
+- **Paper**: cycles lined, squared, dotted, millimetre graph, Cornell notes, music staves and blank.
 
 ## Sharing and backup
 
