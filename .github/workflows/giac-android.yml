@@ -124,3 +124,7 @@ jobs:
             giac/config.log
             giac/configure.out
             giac/make.log
+      # Last step, so the size is in the tail of the job log (the log API returns only the end).
+      - name: Report size
+        if: success()
+        run: cat out/size.txt
