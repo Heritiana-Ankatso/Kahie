@@ -70,7 +70,7 @@ jobs:
             --disable-quickjs --disable-gettext --disable-gmpxx --disable-tommath --disable-bernmm \
             --disable-cocoa --disable-dl \
             CPPFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib" \
-            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1" CFLAGS="-O2 -fPIC" > configure.out 2>&1 \
+            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1 -fpermissive" CFLAGS="-O2 -fPIC" > configure.out 2>&1 \
             || { tail -60 configure.out; exit 1; }
           grep -E "^#define HAVE_LIB(GMP|MPFR|PTHREAD)" config.h || true
           make -C src -j4 libgiac.la > make.log 2>&1 || true

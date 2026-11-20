@@ -5,11 +5,15 @@ We only build src/libgiac (the CAS core), so:
   lists; micropython, docs, examples and po are not needed);
 - the top Makefile.am only descends into src;
 - gettext >= 0.20 removed the intl/ macros: use AM_GNU_GETTEXT([external]);
-- config/config.rpath, expected by gettext's macros, is created empty.
+- config/config.rpath, expected by gettext's macros, is created empty;
+- the parser and lexer (stripped from dfsg) are generated with bison/flex up front: the
+  Makefile's ylwrap rule mangles the output names and parallel make races on the header.
 Usage: python3 prepare-giac.py <giac-source-dir>
 """
 import pathlib
 import re
+import shutil
+import subprocess
 import sys
 
 root = pathlib.Path(sys.argv[1])
@@ -28,4 +32,18 @@ mam.write_text(t)
 
 (root / "config").mkdir(exist_ok=True)
 (root / "config" / "config.rpath").touch()
+src = root / "src"
+# Bison 3 dropped YYLEX_PARAM, which the grammar relies on: declare the scanner argument.
+yy = src / "input_parser.yy"
+g = yy.read_text()
+if "%lex-param" not in g:
+    g = g.replace("%parse-param {void * scanner}", "%parse-param {void * scanner}\n%lex-param {void * scanner}", 1)
+    assert "%lex-param" in g, "parse-param line not found"
+    yy.write_text(g)
+subprocess.run(["bison", "-p", "giac_yy", "-d", "-o", "input_parser.cc", "input_parser.yy"], cwd=src, check=True,
+               stderr=subprocess.DEVNULL)
+shutil.copy(src / "input_parser.hh", src / "input_parser.h")
+subprocess.run(["flex", "input_lexer.ll"], cwd=src, check=True)
+for f in ("input_parser.cc", "input_parser.h", "input_lexer.cc", "lexer.h"):
+    assert (src / f).exists(), f
 print("prepared", root)
