@@ -6,7 +6,7 @@ Kahie syncs notebooks between devices through a **relay** you host yourself (dec
 
 - A Linux server or VM reachable by the tablets (school network or internet). 1 vCPU and 1 GB RAM are plenty.
 - A domain name pointing to it, for HTTPS (`wss://`). On a closed school network, plain `ws://` on the local network also works.
-- About 15 MB of disk per shared page per hour of heavy class use, before compaction (measured in `docs/spikes/p0-10-relay.md`).
+- About 15 MB of disk per shared page per hour of heavy class use; the relay compacts each log automatically every 1 000 updates (`kahie-relay compact <doc-id>` does it on demand).
 
 ## 1. Build
 

@@ -3,12 +3,31 @@
 //! Environment: `KAHIE_RELAY_ADDR` (default `127.0.0.1:8787`), `KAHIE_RELAY_DATA`
 //! (default `./relay-data`), `KAHIE_RELAY_TOKEN` (shared secret; required unless the
 //! address is a loopback address). Put it behind a TLS reverse proxy for internet use.
+//!
+//! `kahie-relay compact <doc-id>` folds one document's log into a snapshot (also done
+//! automatically every `COMPACT_AFTER` updates).
 
 use nb_relay::{router, Config};
 use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("compact") {
+        let data = std::env::var("KAHIE_RELAY_DATA").unwrap_or_else(|_| "relay-data".into());
+        let Some(doc) = args.get(2) else {
+            eprintln!("usage: kahie-relay compact <doc-id>");
+            std::process::exit(2);
+        };
+        match nb_relay::compact_document(std::path::Path::new(&data), doc) {
+            Ok(()) => eprintln!("compacted {doc}"),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     let addr: SocketAddr = std::env::var("KAHIE_RELAY_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8787".into())
         .parse()

@@ -141,6 +141,16 @@ impl Store {
         Ok(())
     }
 
+    /// Latest snapshot and the sequence number it covers (every update ≤ that seq).
+    pub fn latest_snapshot(&self) -> Result<Option<(i64, Vec<u8>)>> {
+        Ok(self
+            .conn
+            .query_row("SELECT seq, bytes FROM snapshots ORDER BY seq DESC LIMIT 1", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()?)
+    }
+
     /// Updates with a sequence number greater than `after`, in order (relay catch-up).
     pub fn updates_after(&self, after: i64) -> Result<Vec<(i64, Vec<u8>)>> {
         let mut stmt = self

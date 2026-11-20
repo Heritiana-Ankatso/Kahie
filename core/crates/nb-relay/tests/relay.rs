@@ -126,3 +126,42 @@ async fn auth_catch_up_live_forwarding_and_convergence() {
     assert_eq!(next_frame(&mut again).await.0, 3);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[tokio::test]
+async fn compaction_keeps_old_and_new_clients_correct() {
+    let (base, dir) = start(None).await;
+    let mut a = CrdtPage::new("p", 1);
+    let mut wa = connect(&base, "doc2", 0, None).await.unwrap();
+    wa.send(Message::Binary(a.take_unsaved().unwrap().into()))
+        .await
+        .unwrap();
+    next_frame(&mut wa).await;
+    for i in 0..5 {
+        a.apply(&Op::add(a.page(), vec![stroke(&format!("s{i}"), i as f64 * 10.0)]));
+        wa.send(Message::Binary(a.take_unsaved().unwrap().into()))
+            .await
+            .unwrap();
+        next_frame(&mut wa).await; // ack
+    }
+    drop(wa);
+    // Compact while nobody is connected, then add one more update.
+    nb_relay::compact_document(&dir, "doc2").unwrap();
+    let mut wa = connect(&base, "doc2", 6, None).await.unwrap();
+    a.apply(&Op::add(a.page(), vec![stroke("late", 99.0)]));
+    wa.send(Message::Binary(a.take_unsaved().unwrap().into()))
+        .await
+        .unwrap();
+    assert_eq!(next_frame(&mut wa).await.0, 7);
+
+    // A brand-new client (cursor 0) gets the snapshot (seq 6) then update 7.
+    let mut fresh = connect(&base, "doc2", 0, None).await.unwrap();
+    let (s1, snap) = next_frame(&mut fresh).await;
+    let (s2, upd) = next_frame(&mut fresh).await;
+    assert_eq!((s1, s2), (6, 7));
+    let c = CrdtPage::load(&[&snap, &upd], 9).unwrap();
+    assert_eq!(c.page().items, a.page().items);
+    // A client already at seq 6 gets only update 7, not the snapshot.
+    let mut current = connect(&base, "doc2", 6, None).await.unwrap();
+    assert_eq!(next_frame(&mut current).await.0, 7);
+    std::fs::remove_dir_all(dir).ok();
+}

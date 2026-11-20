@@ -16,6 +16,13 @@
 //!   `seq ‖` (empty payload) so the sender can advance its cursor.
 //!
 //! A client keeps the highest `seq` it has seen and reconnects with `after=<seq>`.
+//!
+//! ## Compaction
+//!
+//! After [`COMPACT_AFTER`] updates, the relay folds its log into one Loro snapshot (the relay
+//! links Loro only for this; it still never interprets content). A client whose cursor is
+//! older than the snapshot first receives the snapshot as one frame (`seq` = the last update
+//! it covers), then the newer updates.
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -37,6 +44,9 @@ pub struct Config {
     /// Shared secret clients must present; `None` disables authentication (local use only).
     pub token: Option<String>,
 }
+
+/// Compact a document's log after this many updates.
+pub const COMPACT_AFTER: i64 = 1000;
 
 struct Room {
     store: Arc<Mutex<Store>>,
@@ -85,6 +95,38 @@ pub fn router(cfg: Config) -> Router {
         .with_state(relay)
 }
 
+/// Fold the snapshot and all updates into one snapshot. Updates Loro cannot apply (missing
+/// dependencies) are kept as updates, so nothing is lost.
+fn compact(store: &mut Store) -> nb_store::Result<()> {
+    let loaded = store.load()?;
+    let doc = loro::LoroDoc::new();
+    if let Some(s) = &loaded.snapshot {
+        if doc.import(s).is_err() {
+            return Ok(());
+        }
+    }
+    for u in &loaded.updates {
+        match doc.import(u) {
+            Ok(status) if status.pending.is_none() => {}
+            // Something is still pending: compacting now could hide it. Try later.
+            _ => return Ok(()),
+        }
+    }
+    match doc.export(loro::ExportMode::Snapshot) {
+        Ok(snapshot) => store.compact(&snapshot),
+        Err(_) => Ok(()),
+    }
+}
+
+/// Compact one document's log now (also used by tests and an admin command).
+pub fn compact_document(data_dir: &std::path::Path, doc: &str) -> Result<(), String> {
+    if !valid_doc_id(doc) {
+        return Err("invalid document id".into());
+    }
+    let mut store = Store::open(data_dir.join(format!("{doc}.db"))).map_err(|e| e.to_string())?;
+    compact(&mut store).map_err(|e| e.to_string())
+}
+
 fn frame(seq: i64, payload: &[u8]) -> Vec<u8> {
     let mut f = Vec::with_capacity(8 + payload.len());
     f.extend_from_slice(&(seq as u64).to_be_bytes());
@@ -126,7 +168,21 @@ async fn client(mut socket: WebSocket, room: Arc<Room>, after: i64, conn: u64) {
     // Subscribe before reading the backlog so nothing falls between the two.
     let mut rx = room.tx.subscribe();
     let store = room.store.clone();
-    let backlog = tokio::task::spawn_blocking(move || store.lock().unwrap().updates_after(after)).await;
+    let backlog = tokio::task::spawn_blocking(move || {
+        let store = store.lock().unwrap();
+        // Behind the last compaction: start from the snapshot.
+        let mut rows = vec![];
+        let mut from = after;
+        if let Some((snap_seq, snap)) = store.latest_snapshot()? {
+            if after < snap_seq {
+                rows.push((snap_seq, snap));
+                from = snap_seq;
+            }
+        }
+        rows.extend(store.updates_after(from)?);
+        Ok::<_, nb_store::StoreError>(rows)
+    })
+    .await;
     let mut sent_up_to = after;
     match backlog {
         Ok(Ok(rows)) => {
@@ -154,9 +210,12 @@ async fn client(mut socket: WebSocket, room: Arc<Room>, after: i64, conn: u64) {
                 // Append and broadcast under the store lock, so every receiver sees strictly
                 // increasing sequence numbers (a reconnect with `after=<seq>` then misses nothing).
                 let seq = match tokio::task::spawn_blocking(move || {
-                    let store = store.lock().unwrap();
+                    let mut store = store.lock().unwrap();
                     let seq = store.append_update(&payload)?;
                     let _ = tx.send((seq, payload, conn));
+                    if store.pending_updates()? >= COMPACT_AFTER {
+                        compact(&mut store)?;
+                    }
                     Ok::<_, nb_store::StoreError>(seq)
                 })
                 .await
