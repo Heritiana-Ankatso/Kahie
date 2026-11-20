@@ -67,4 +67,6 @@
     <string name="add_math">Maths (LaTeX)</string>
     <string name="edit_math">Edit maths (empty to delete)</string>
     <string name="math_error">The LaTeX has an error; check the formula</string>
+    <string name="export_pdf">Export PDF</string>
+    <string name="preparing_export">Preparing the export…</string>
 </resources>

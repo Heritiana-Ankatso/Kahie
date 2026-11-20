@@ -65,4 +65,6 @@
     <string name="add_math">Maths (LaTeX)</string>
     <string name="edit_math">Modifier la formule (vide pour supprimer)</string>
     <string name="math_error">Le LaTeX contient une erreur ; vérifiez la formule</string>
+    <string name="export_pdf">Exporter en PDF</string>
+    <string name="preparing_export">Préparation de l’export…</string>
 </resources>

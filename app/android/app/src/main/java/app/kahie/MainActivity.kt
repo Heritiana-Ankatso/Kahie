@@ -62,6 +62,7 @@ class MainActivity : Activity() {
     private companion object {
         const val REQ_EXPORT = 41
         const val REQ_IMPORT = 42
+        const val REQ_EXPORT_PDF = 43
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -246,6 +247,7 @@ class MainActivity : Activity() {
     private fun showNotebookActions() {
         val actions = arrayOf(
             getString(R.string.rename), getString(R.string.export_kahie), getString(R.string.import_kahie),
+            getString(R.string.export_pdf),
             getString(R.string.sync_share), getString(R.string.sync_join), getString(R.string.sync_settings),
         )
         AlertDialog.Builder(this)
@@ -254,9 +256,10 @@ class MainActivity : Activity() {
                     0 -> askText(R.string.rename, notebook.title()) { notebook.setTitle(it) }
                     1 -> startExport()
                     2 -> startImport()
-                    3 -> shareNotebook()
-                    4 -> joinNotebook()
-                    5 -> syncSettings()
+                    3 -> startPdfExport()
+                    4 -> shareNotebook()
+                    5 -> joinNotebook()
+                    6 -> syncSettings()
                 }
             }
             .show()
@@ -386,6 +389,49 @@ class MainActivity : Activity() {
         startActivityForResult(intent, REQ_EXPORT)
     }
 
+    private fun startPdfExport() {
+        saveNow()
+        val name = notebook.title().ifBlank { getString(R.string.untitled) }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            .setType("application/pdf")
+            .putExtra(android.content.Intent.EXTRA_TITLE, "$name.pdf")
+        startActivityForResult(intent, REQ_EXPORT_PDF)
+    }
+
+    /** Vector PDF of every page (A4), after all formulas are rendered. */
+    private fun exportPdf(uri: android.net.Uri) {
+        val renderer = mathRenderer
+        val currentId = pageIds.getOrNull(pageIndex)
+        val pages = pageIds.map { id -> if (id == currentId && doc != null) doc!! else PageDoc.open(notebook.pagePath(id)) }
+        val requests = pages.flatMap { PageRenderer.mathRequests(it) }.distinct()
+        var remaining = requests.size
+        fun write() {
+            val pdf = android.graphics.pdf.PdfDocument()
+            val w = 595
+            val h = 842 // A4 in PostScript points
+            pages.forEachIndexed { i, p ->
+                val page = pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(w, h, i + 1).create())
+                page.canvas.scale(w / PageRenderer.PAGE_W, h / PageRenderer.PAGE_H)
+                PageRenderer.drawPage(page.canvas, p, renderer)
+                pdf.finishPage(page)
+            }
+            io.execute {
+                val result = runCatching { contentResolver.openOutputStream(uri)!!.use { pdf.writeTo(it) } }
+                pdf.close()
+                main.post {
+                    result.onSuccess { toast(getString(R.string.exported)) }
+                        .onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
+                }
+            }
+        }
+        if (renderer == null || remaining == 0) { write(); return }
+        toast(getString(R.string.preparing_export))
+        for ((latex, size, color) in requests) {
+            renderer.request(latex, size, color) { if (--remaining == 0) write() }
+        }
+    }
+
     private fun startImport() {
         val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(android.content.Intent.CATEGORY_OPENABLE)
@@ -398,6 +444,7 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         val uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
+        if (requestCode == REQ_EXPORT_PDF) { exportPdf(uri); return }
         val dir = notebookDir ?: return
         io.execute {
             val tmp = File(cacheDir, "transfer.kahie")
