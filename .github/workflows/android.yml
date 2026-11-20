@@ -44,6 +44,31 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo test --workspace --locked
 
+      # The CAS (Giac) is built by giac-android.yml; include it when its libraries exist.
+      - name: Giac libraries (optional)
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
+        with:
+          workflow: giac-android.yml
+          workflow_conclusion: success
+          branch: ${{ github.head_ref || github.ref_name }}
+          name: giac-libs-.*
+          name_is_regexp: true
+          path: giac-libs
+          if_no_artifact_found: warn
+      - name: Enable the CAS if both ABIs are available
+        run: |
+          A=$(find giac-libs -type d -name aarch64-linux-android | head -1)
+          X=$(find giac-libs -type d -name x86_64-linux-android | head -1)
+          if [[ -n "$A" && -n "$X" ]]; then
+            echo "GIAC_LIB_DIR_aarch64_linux_android=$PWD/$A" >> "$GITHUB_ENV"
+            echo "GIAC_LIB_DIR_x86_64_linux_android=$PWD/$X" >> "$GITHUB_ENV"
+            echo "KAHIE_FEATURES=giac" >> "$GITHUB_ENV"
+            echo "CAS: included" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Giac libraries not found; building without the CAS"
+          fi
+
       - name: Build debug APK
         working-directory: app/android
         env:
