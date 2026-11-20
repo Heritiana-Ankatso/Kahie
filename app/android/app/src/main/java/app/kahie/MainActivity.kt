@@ -462,7 +462,34 @@ class MainActivity : Activity() {
                 entries[which].pageId?.let { id -> goToPage(pageIds.indexOf(id)) }
             }
             .setPositiveButton(R.string.add_page) { _, _ -> addPage() }
-            .setNeutralButton(R.string.delete_page) { _, _ -> confirmDeletePage() }
+            .setNeutralButton(R.string.more) { _, _ ->
+                AlertDialog.Builder(this)
+                    .setItems(arrayOf(getString(R.string.delete_page), getString(R.string.trash))) { _, which ->
+                        if (which == 0) confirmDeletePage() else showTrash()
+                    }
+                    .show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Deleted pages and sections; tap one to restore it. */
+    private fun showTrash() {
+        val entries = notebook.trash()
+        if (entries.isEmpty()) {
+            toast(getString(R.string.trash_empty))
+            return
+        }
+        val labels = entries.map { e -> e.title.ifEmpty { getString(R.string.untitled_page) } }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.trash)
+            .setItems(labels) { _, which ->
+                val e = entries[which]
+                notebook.restoreNode(e.node)
+                pageIds = notebook.pageIds()
+                e.pageId?.let { id -> goToPage(pageIds.indexOf(id)) }
+                toast(getString(R.string.restored))
+            }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }

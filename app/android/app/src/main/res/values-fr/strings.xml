@@ -39,4 +39,8 @@
     <string name="sync_token">Jeton d’accès</string>
     <string name="sync_code_is">La synchronisation est active. Sur un autre appareil, choisissez « Rejoindre un cahier partagé » et saisissez ce code :\n\n%1$s</string>
     <string name="sync_bad_code">Ce code n’est pas valide.</string>
+    <string name="trash">Corbeille</string>
+    <string name="trash_empty">La corbeille est vide.</string>
+    <string name="untitled_page">Page sans titre</string>
+    <string name="restored">Restauré</string>
 </resources>

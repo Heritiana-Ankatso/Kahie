@@ -41,4 +41,8 @@
     <string name="sync_token">Access token</string>
     <string name="sync_code_is">Sync is on. On another device, choose “Join a shared notebook” and enter this code:\n\n%1$s</string>
     <string name="sync_bad_code">This code is not valid.</string>
+    <string name="trash">Trash</string>
+    <string name="trash_empty">The trash is empty.</string>
+    <string name="untitled_page">Untitled page</string>
+    <string name="restored">Restored</string>
 </resources>
