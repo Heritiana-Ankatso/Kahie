@@ -39,10 +39,12 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 - Notebooks (switch/create/rename), Pages dialog (open, add, rename, delete to trash, Trash restore, export page PNG; sections: create, rename, delete, move the open page into one).
 - Languages: English, French, Malagasy (draft); in-app language choice (Notebooks → More → Language) plus Android 13 per-app language.
 - Blocks: Text (tap to add/edit), Maths (LaTeX → MathJax in hidden WebView → SVG → AndroidSVG Picture), Plot (functions of x, sampled in the core), Image (photos, stored in the page CRDT `assets` map), Select tool (rectangle select, move, copy/paste across pages and notebooks, duplicate, delete, bring to front / send to back).
+- Templates (P1-08): page templates (`Templates.kt`, six built-in + saved) and **notebook templates** (`NotebookDoc::copy_from_template`: sections, page titles, pages with new ids and no sync state; three built-in: course, monthly planner, exercise book; save the current notebook as one).
+- Page scrolling: vertical (default) or horizontal (whole page fits; a sideways pan past the page edge turns the page; `InkView.horizontal`, pref `horizontalPages`).
 - Page history (P1-28): local checkpoints (on open, then every 10 min, 30 kept) in the page database; restoring is a new undoable, synced change (`CrdtPage::revert_to`).
-- Paper: lined, grid, dots, mm graph, Cornell, music, blank; size per page (A4/A5/Letter, portrait/landscape; `Page.size`, `.kahie` field `size`); PDF import as uneditable page background (landscape pages kept landscape).
+- Paper: lined, grid, dots, mm graph, Cornell, music, blank; size per page (A4/A5/Letter, portrait/landscape, or custom `<w>x<h>mm`, 50–1000 mm; `Page.size`, `nb_model::custom_size`, `.kahie` field `size`); PDF import as uneditable page background (landscape pages kept landscape).
 - Export/import: `.kahie` (ZIP, schema-valid `document.json`, `assets/<sha256>`), vector PDF of the notebook (each page at its size), PNG and SVG of a page (`SvgExport.kt`: paper, ink, plots, text, maths as embedded MathJax SVG, images as data URIs).
-- Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min (reloads the open page if it changed), status dot. Per-notebook access control: Share shows an editor code and a read-only code (students); read-only notebooks are view-only (`nb_store::access`, `docs/relay.md`).
+- Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min (reloads the open page if it changed), status dot. Per-notebook access control: Share shows an editor code and a read-only code (students); read-only notebooks are view-only (`nb_store::access`, `docs/relay.md`). **Optional end-to-end encryption** (asked at first Share, default on): codes `n….e…` / `n….v…`; updates sealed with ChaCha20-Poly1305 (`ring`) in `nb-ffi/src/sync.rs`, document id as AAD; the relay sees only derived credentials and ciphertext and never compacts sealed logs. Plain `w…`/`r…` codes and codes without keys stay unencrypted.
 - CAS: `cas_eval` FFI + Compute button in the text dialog (only in builds with feature `giac`).
 
 ## CI state (21:22 UTC 2026-11-20)
@@ -66,8 +68,8 @@ How to iterate without the Android SDK here: generate bindings and compile them 
 ## Next steps for the agent (in order)
 
 1. (Done: CAS 11.0 MB arm64.) Further CAS savings only if APK size becomes a problem: drop unused Giac modules in `prepare-giac.py`.
-2. Backlog P1 items that need no device: P1-05 remainder (custom sizes, horizontal scroll mode); notebook templates (P1-08 has page templates). (Done: P1-08 page templates, P1-34 SVG export, P1-05 paper sizes, P1-15 copy/paste, P1-16 z-order, P1-28 page versions, P1-27 backup, P1-36 share.)
-3. Optional end-to-end encryption for the relay (keys already per notebook: derive an encryption key from the write/read key).
+2. Backlog P1 items that need no device. (Done: P1-05 incl. custom sizes, horizontal scrolling, P1-08 page + notebook templates, P1-34 SVG export, P1-15 copy/paste, P1-16 z-order, P1-28 page versions, P1-27 backup, P1-36 share, E2E encryption of sync.)
+3. E2E follow-ups: encrypted logs are never compacted (they grow); a client-side compaction (an editor uploads a sealed snapshot that replaces the log) would bound them. Horizontal scrolling shows one page at a time (no neighbour preview); refine after device testing.
 4. P0-05 Android tile cache using `nb-render` display lists (needs device fps to justify).
 5. Handwriting recognition (D2 pending P0-06 corpus).
 
