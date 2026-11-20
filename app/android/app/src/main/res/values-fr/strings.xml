@@ -162,4 +162,10 @@
     <string name="template_name">Nom du modèle</string>
     <string name="template_saved">Modèle enregistré</string>
     <string name="my_templates">Mes modèles</string>
+    <string name="sync_encrypt_title">Chiffrer ce cahier ?</string>
+    <string name="sync_encrypt_message">Avec le chiffrement de bout en bout, seuls les appareils qui ont un code peuvent lire le cahier ; l’administrateur du relais ne le peut pas. Un code perdu ne peut pas être retrouvé par le relais.</string>
+    <string name="sync_encrypt_yes">Chiffrer (recommandé)</string>
+    <string name="sync_encrypt_no">Ne pas chiffrer</string>
+    <string name="sync_encrypted_note">Chiffré de bout en bout : le relais ne peut pas lire ce cahier.</string>
+    <string name="sync_not_encrypted_note">Non chiffré : l’administrateur du relais peut lire ce cahier.</string>
 </resources>

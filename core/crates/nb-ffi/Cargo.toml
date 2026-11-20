@@ -30,6 +30,8 @@ loro.workspace = true
 # (pure Rust/asm, cross-compiles with the NDK; no system OpenSSL on Android).
 tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# End-to-end encryption of relay updates (ChaCha20-Poly1305); already linked by rustls.
+ring = "0.17"
 serde.workspace = true
 serde_json.workspace = true
 uniffi = { version = "0.32", features = ["cli"] }

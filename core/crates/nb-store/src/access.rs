@@ -11,10 +11,34 @@
 //! The relay stores only hashes of the two keys ([`key_hash`]). A share code is
 //! `<group>.<key>`; codes without a key (older versions) still work on groups that never
 //! had keys.
+//!
+//! ## End-to-end encrypted codes
+//!
+//! Codes whose key starts with `e` (editor) or `v` (viewer, derived from the editor key by
+//! [`viewer_key`]) turn on end-to-end encryption. These secret keys **never reach the
+//! relay**:
+//!
+//! - the relay sees only credentials derived from them ([`ShareCode::relay_key`]): `w…` for an
+//!   editor, `r…` for a viewer, plus, when an editor claims the group, the hash of the viewer
+//!   credential ([`ShareCode::relay_read_hash`]), which the relay cannot compute itself;
+//! - both editors and viewers derive the same 256-bit content key from the viewer key
+//!   ([`ShareCode::content_key`]); `nb-ffi` encrypts every update with it before upload.
+//!
+//! All derivations are SHA-256 with a distinct domain-separation prefix; the keys carry
+//! 128 bits of randomness.
 
 use sha2::{Digest, Sha256};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// First bytes of an end-to-end encrypted update (`KHE1 ‖ nonce ‖ ciphertext ‖ tag`, see
+/// `nb-ffi`). Loro updates start with `loro`, so the two never collide.
+pub const SEALED_MAGIC: &[u8; 4] = b"KHE1";
+
+/// Whether a relay payload is an end-to-end encrypted update.
+pub fn is_sealed(update: &[u8]) -> bool {
+    update.starts_with(SEALED_MAGIC)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Role {
     Read,
     Write,
@@ -30,6 +54,29 @@ pub fn key_role(key: &str) -> Option<Role> {
     let hex = &key[1..];
     let ok = (16..=64).contains(&hex.len()) && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
     ok.then_some(role)
+}
+
+/// Role of a key in a share code: relay keys `w`/`r` and end-to-end keys `e`/`v`.
+/// Returns the role and whether the key is an end-to-end key.
+pub fn code_key_role(key: &str) -> Option<(Role, bool)> {
+    let (rest, enc) = match key.as_bytes().first()? {
+        b'e' => (format!("w{}", &key[1..]), true),
+        b'v' => (format!("r{}", &key[1..]), true),
+        _ => (key.to_string(), false),
+    };
+    Some((key_role(&rest)?, enc))
+}
+
+fn derive(domain: &str, key: &str) -> [u8; 32] {
+    Sha256::digest(format!("{domain}:{key}").as_bytes()).into()
+}
+
+/// The viewer key that goes with an end-to-end editor key `e…` (`None` otherwise).
+pub fn viewer_key(editor_key: &str) -> Option<String> {
+    if code_key_role(editor_key)? != (Role::Write, true) {
+        return None;
+    }
+    Some(format!("v{}", &hex(&derive("kahie-viewer-key", editor_key))[..32]))
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -76,7 +123,7 @@ impl ShareCode {
             None => (code, None),
         };
         let group_ok = valid_doc_id(group) && !group.contains('-') && group.len() <= 40;
-        if !group_ok || key.is_some_and(|k| key_role(k).is_none()) {
+        if !group_ok || key.is_some_and(|k| code_key_role(k).is_none()) {
             return None;
         }
         Some(Self {
@@ -87,15 +134,59 @@ impl ShareCode {
 
     /// Role this code gives (codes without a key: write, on groups that have no keys).
     pub fn role(&self) -> Role {
-        key_role(&self.key).unwrap_or(Role::Write)
+        code_key_role(&self.key).map_or(Role::Write, |(r, _)| r)
+    }
+
+    /// Whether updates are end-to-end encrypted (keys `e…`/`v…`).
+    pub fn encrypted(&self) -> bool {
+        code_key_role(&self.key).is_some_and(|(_, e)| e)
     }
 
     /// The read-only code for the same notebook (`None` unless this is a write code).
     pub fn read_only(&self) -> Option<Self> {
+        let key = if self.encrypted() {
+            viewer_key(&self.key)?
+        } else {
+            read_key(&self.key)?
+        };
         Some(Self {
             group: self.group.clone(),
-            key: read_key(&self.key)?,
+            key,
         })
+    }
+
+    /// The key to present to the relay (`X-Kahie-Key`): the key itself for plain codes, a
+    /// credential derived from it for end-to-end codes (empty for codes without a key).
+    pub fn relay_key(&self) -> String {
+        match code_key_role(&self.key) {
+            Some((role, true)) => {
+                let prefix = if role == Role::Write { 'w' } else { 'r' };
+                format!("{prefix}{}", &hex(&derive("kahie-relay-auth", &self.key))[..32])
+            }
+            _ => self.key.clone(),
+        }
+    }
+
+    /// For end-to-end editor codes: hash of the viewers' relay credential, sent when
+    /// claiming the group (`X-Kahie-Read-Hash`), since the relay cannot derive it.
+    pub fn relay_read_hash(&self) -> Option<String> {
+        if !(self.encrypted() && self.role() == Role::Write) {
+            return None;
+        }
+        Some(key_hash(&self.read_only()?.relay_key()))
+    }
+
+    /// The 256-bit content-encryption key of an end-to-end code (same for editors and
+    /// viewers); `None` for plain codes.
+    pub fn content_key(&self) -> Option<[u8; 32]> {
+        if !self.encrypted() {
+            return None;
+        }
+        let viewer = match self.role() {
+            Role::Write => viewer_key(&self.key)?,
+            Role::Read => self.key.clone(),
+        };
+        Some(derive("kahie-content-key", &viewer))
     }
 
     pub fn to_code(&self) -> String {
@@ -146,6 +237,33 @@ mod tests {
             assert!(ShareCode::parse(bad).is_none(), "{bad}");
         }
         assert_eq!(doc_group("nabc-p123"), "nabc");
+        assert_eq!(c.relay_key(), w, "plain codes present their key");
+        assert!(!c.encrypted() && c.content_key().is_none() && c.relay_read_hash().is_none());
+    }
+
+    #[test]
+    fn end_to_end_codes() {
+        let e = "e0123456789abcdef0123456789abcdef";
+        let c = ShareCode::parse(&format!("nabc.{e}")).unwrap();
+        assert!(c.encrypted() && c.role() == Role::Write);
+        let v = c.read_only().unwrap();
+        assert!(v.encrypted() && v.role() == Role::Read && v.key.starts_with('v'));
+        assert!(v.read_only().is_none());
+        assert_eq!(ShareCode::parse(&v.to_code()), Some(v.clone()));
+        // Same content key for editors and viewers; different from anything the relay sees.
+        let k = c.content_key().unwrap();
+        assert_eq!(v.content_key(), Some(k));
+        let (wa, ra) = (c.relay_key(), v.relay_key());
+        assert_eq!(key_role(&wa), Some(Role::Write));
+        assert_eq!(key_role(&ra), Some(Role::Read));
+        for seen in [&wa, &ra] {
+            assert!(!seen.contains(&e[1..]) && !seen.contains(&v.key[1..]));
+        }
+        assert_eq!(c.relay_read_hash(), Some(key_hash(&ra)));
+        assert_eq!(v.relay_read_hash(), None);
+        // Another editor key gives another content key.
+        let c2 = ShareCode::parse("nabc.e1123456789abcdef0123456789abcdef").unwrap();
+        assert_ne!(c2.content_key(), Some(k));
         assert_eq!(doc_group("nabc"), "nabc");
     }
 }

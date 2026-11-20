@@ -379,18 +379,38 @@ class MainActivity : Activity() {
     private fun shareNotebook() {
         val dir = notebookDir ?: return
         if (relayUrl().isEmpty()) { syncSettings(); return }
-        val code = syncCode() ?: newShareCode().also {
-            prefs.edit().putString("sync_${dir.name}", it).apply()
-            restartNotebookSync()
-            restartPageSync()
+        val existing = syncCode()
+        if (existing == null) {
+            // First share: let the teacher choose end-to-end encryption (default).
+            AlertDialog.Builder(this)
+                .setTitle(R.string.sync_encrypt_title)
+                .setMessage(R.string.sync_encrypt_message)
+                .setPositiveButton(R.string.sync_encrypt_yes) { _, _ -> startSharing(dir, true) }
+                .setNegativeButton(R.string.sync_encrypt_no) { _, _ -> startSharing(dir, false) }
+                .show()
+            return
         }
+        showShareCodes(existing)
+    }
+
+    private fun startSharing(dir: File, encrypted: Boolean) {
+        val code = newShareCode(encrypted)
+        prefs.edit().putString("sync_${dir.name}", code).apply()
+        restartNotebookSync()
+        restartPageSync()
+        showShareCodes(code)
+    }
+
+    private fun showShareCodes(code: String) {
         val info = parseShareCode(code)
-        val message = when {
+        val codes = when {
             info == null -> getString(R.string.sync_code_is, code)
             info.readOnly -> getString(R.string.sync_read_only_notebook)
             info.readOnlyCode != null -> getString(R.string.sync_codes_are, code, info.readOnlyCode)
             else -> getString(R.string.sync_code_is, code)
         }
+        val note = getString(if (info?.encrypted == true) R.string.sync_encrypted_note else R.string.sync_not_encrypted_note)
+        val message = "$codes\n\n$note"
         val box = TextView(this).apply {
             text = message
             setTextIsSelectable(true)

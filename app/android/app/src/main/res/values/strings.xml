@@ -164,4 +164,10 @@
     <string name="template_name">Template name</string>
     <string name="template_saved">Template saved</string>
     <string name="my_templates">My templates</string>
+    <string name="sync_encrypt_title">Encrypt this notebook?</string>
+    <string name="sync_encrypt_message">With end-to-end encryption, only devices that have a code can read the notebook; whoever runs the relay cannot. A lost code cannot be recovered by the relay.</string>
+    <string name="sync_encrypt_yes">Encrypt (recommended)</string>
+    <string name="sync_encrypt_no">Do not encrypt</string>
+    <string name="sync_encrypted_note">End-to-end encrypted: the relay cannot read this notebook.</string>
+    <string name="sync_not_encrypted_note">Not encrypted: whoever runs the relay can read this notebook.</string>
 </resources>

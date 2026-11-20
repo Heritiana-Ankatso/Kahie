@@ -1322,6 +1322,7 @@ dependencies = [
  "nb-recog",
  "nb-relay",
  "nb-store",
+ "ring",
  "rustls",
  "serde",
  "serde_json",

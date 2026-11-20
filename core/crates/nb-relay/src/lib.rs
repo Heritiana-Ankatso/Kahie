@@ -30,6 +30,11 @@
 //! - group with keys: the write key gives write access, the read key read access, anything
 //!   else is refused (403).
 //!
+//! An editor of an end-to-end encrypted notebook claims with a credential derived from its
+//! secret key and adds `X-Kahie-Read-Hash: <hex sha-256>`, the hash of the viewers'
+//! credential (which the relay cannot derive); without that header the relay stores the hash
+//! of `read_key(<write key>)` as before.
+//!
 //! The upgrade response carries `X-Kahie-Role: read|write`. A read-only client that sends
 //! an update is disconnected (close code 1008). The server token, when set, is required
 //! in every case.
@@ -40,6 +45,12 @@
 //! links Loro only for this; it still never interprets content). A client whose cursor is
 //! older than the snapshot first receives the snapshot as one frame (`seq` = the last update
 //! it covers), then the newer updates.
+//!
+//! ## End-to-end encryption
+//!
+//! Updates of end-to-end encrypted notebooks start with `KHE1`
+//! ([`nb_store::access::is_sealed`]). The relay stores and forwards them like any other
+//! update but never compacts a log that contains one (it cannot read them).
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -48,7 +59,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 pub use nb_store::access::valid_doc_id;
-use nb_store::access::{doc_group, key_hash, key_role, read_key, Role};
+use nb_store::access::{doc_group, is_sealed, key_hash, key_role, read_key, Role};
 use nb_store::Store;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -83,11 +94,18 @@ struct Relay {
 /// Header carrying a notebook key, and the response header with the granted role.
 pub const KEY_HEADER: &str = "x-kahie-key";
 pub const ROLE_HEADER: &str = "x-kahie-role";
+/// Header with the hash of the read credential, sent when claiming an end-to-end group.
+pub const READ_HASH_HEADER: &str = "x-kahie-read-hash";
+
+/// A hex SHA-256 as stored in `.acl` files.
+fn valid_hash(h: &str) -> bool {
+    h.len() == 64 && h.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
 
 impl Relay {
     /// Role granted to `key` on document `doc` (claiming the group for a write key if it
     /// has no keys yet), or `None` when refused.
-    fn role(&self, doc: &str, key: Option<&str>) -> Result<Option<Role>, String> {
+    fn role(&self, doc: &str, key: Option<&str>, read_hash: Option<&str>) -> Result<Option<Role>, String> {
         let path = self.cfg.data_dir.join(format!("{}.acl", doc_group(doc)));
         let _guard = self.acl.lock().unwrap();
         let stored = match std::fs::read_to_string(&path) {
@@ -101,9 +119,12 @@ impl Relay {
                 Some((_, None)) => None,
                 Some((_, Some(Role::Read))) => Some(Role::Read),
                 Some((k, Some(Role::Write))) => {
-                    let r = read_key(k).expect("write key");
+                    let r = match read_hash {
+                        Some(h) => h.to_string(),
+                        None => key_hash(&read_key(k).expect("write key")),
+                    };
                     let tmp = path.with_extension("acl.tmp");
-                    std::fs::write(&tmp, format!("{}\n{}\n", key_hash(k), key_hash(&r)))
+                    std::fs::write(&tmp, format!("{}\n{}\n", key_hash(k), r))
                         .and_then(|_| std::fs::rename(&tmp, &path))
                         .map_err(|e| e.to_string())?;
                     Some(Role::Write)
@@ -155,6 +176,10 @@ pub fn router(cfg: Config) -> Router {
 /// dependencies) are kept as updates, so nothing is lost.
 fn compact(store: &mut Store) -> nb_store::Result<()> {
     let loaded = store.load()?;
+    // End-to-end encrypted: the relay cannot (and must not) read these updates.
+    if loaded.updates.iter().any(|u| is_sealed(u)) {
+        return Ok(());
+    }
     let doc = loro::LoroDoc::new();
     if let Some(s) = &loaded.snapshot {
         if doc.import(s).is_err() {
@@ -214,7 +239,12 @@ async fn sync(
         .get(KEY_HEADER)
         .and_then(|v| v.to_str().ok())
         .or(q.get("key").map(String::as_str));
-    let role = match relay.role(&doc, key) {
+    let read_hash = match headers.get(READ_HASH_HEADER).map(|v| v.to_str()) {
+        None => None,
+        Some(Ok(h)) if valid_hash(h) => Some(h),
+        Some(_) => return (StatusCode::BAD_REQUEST, "invalid read hash").into_response(),
+    };
+    let role = match relay.role(&doc, key, read_hash) {
         Ok(Some(r)) => r,
         Ok(None) => return StatusCode::FORBIDDEN.into_response(),
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
@@ -287,8 +317,9 @@ async fn client(mut socket: WebSocket, room: Arc<Room>, after: i64, conn: u64, r
                 let seq = match tokio::task::spawn_blocking(move || {
                     let mut store = store.lock().unwrap();
                     let seq = store.append_update(&payload)?;
+                    let sealed = is_sealed(&payload);
                     let _ = tx.send((seq, payload, conn));
-                    if store.pending_updates()? >= COMPACT_AFTER {
+                    if !sealed && store.pending_updates()? >= COMPACT_AFTER {
                         compact(&mut store)?;
                     }
                     Ok::<_, nb_store::StoreError>(seq)

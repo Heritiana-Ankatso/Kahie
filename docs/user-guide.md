@@ -39,7 +39,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 - **Notebooks → More → Export (.kahie)** saves the notebook as a `.kahie` file (open format: a ZIP with a readable `document.json`, see `docs/format/kahie-v0.md`). **Import** opens such a file as a new notebook.
 - **Sync between your devices** needs a relay server (see `docs/relay.md`):
   1. *Notebooks → More → Sync settings*: server address (`wss://…`) and access token.
-  2. *Share with my devices* shows two codes for the current notebook: an **editor code** (your other devices, co-teachers) and a **read-only code** (students: they see the notebook and every update, but cannot change it).
+  2. *Share with my devices* first asks whether to **encrypt** the notebook (recommended: then only devices with a code can read it, not whoever runs the relay; a lost code cannot be recovered from the relay). It then shows two codes for the current notebook: an **editor code** (your other devices, co-teachers) and a **read-only code** (students: they see the notebook and every update, but cannot change it).
   3. On the other tablet: *Join a shared notebook*, enter a code.
   The open page and the page list sync live; other pages sync in the background every few minutes.
 - **Automatic backup**: *Notebooks → More → Automatic backup* asks for a folder (on the tablet, an SD card or a synced cloud folder). Every day Kahie copies each notebook there as a `.kahie` file, checking each copy before it replaces the previous one.

@@ -163,4 +163,10 @@
     <string name="template_name">Anaran’ny modely</string>
     <string name="template_saved">Voatahiry ny modely</string>
     <string name="my_templates">Ny modeliko</string>
+    <string name="sync_encrypt_title">Hanafina ity kahie ity?</string>
+    <string name="sync_encrypt_message">Raha afenina hatramin’ny farany, ny fitaovana manana kaody ihany no afaka mamaky ny kahie; tsy afaka mamaky azy ny mpitantana ny relay. Tsy hitan’ny relay intsony ny kaody very.</string>
+    <string name="sync_encrypt_yes">Afeno (tolo-kevitra)</string>
+    <string name="sync_encrypt_no">Aza afenina</string>
+    <string name="sync_encrypted_note">Voafina hatramin’ny farany: tsy afaka mamaky ity kahie ity ny relay.</string>
+    <string name="sync_not_encrypted_note">Tsy voafina: afaka mamaky ity kahie ity ny mpitantana ny relay.</string>
 </resources>

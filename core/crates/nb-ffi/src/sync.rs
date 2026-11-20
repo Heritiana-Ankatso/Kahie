@@ -6,6 +6,14 @@
 //! It reconnects with exponential backoff. The relay cursor (version vector and highest
 //! sequence number received) is stored in the page database, so it survives restarts and
 //! offline edits are uploaded on the next connection.
+//!
+//! ## End-to-end encryption
+//!
+//! With an end-to-end code (`e…`/`v…` keys, `nb_store::access`), every update is sealed
+//! before upload as `KHE1 ‖ nonce (12) ‖ ChaCha20-Poly1305(update) ‖ tag (16)`, with the
+//! relay document id as associated data (an update cannot be replayed into another page).
+//! The relay only sees credentials derived from the keys. Incoming payloads that are not
+//! sealed, or fail authentication, are ignored in that mode.
 
 use crate::notebook::NotebookDoc;
 use crate::PageDoc;
@@ -19,6 +27,60 @@ use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
 const META_VV: &str = "relay_vv";
+const NONCE_LEN: usize = 12;
+
+/// Content key and associated data of an end-to-end encrypted document.
+struct Sealer {
+    key: ring::aead::LessSafeKey,
+    aad: Vec<u8>,
+}
+
+impl Sealer {
+    fn new(content_key: &[u8; 32], doc_id: &str) -> Self {
+        let unbound = ring::aead::UnboundKey::new(&ring::aead::CHACHA20_POLY1305, content_key).expect("32-byte key");
+        Self {
+            key: ring::aead::LessSafeKey::new(unbound),
+            aad: doc_id.as_bytes().to_vec(),
+        }
+    }
+
+    fn seal(&self, plain: &[u8]) -> Result<Vec<u8>, String> {
+        use ring::rand::SecureRandom;
+        let mut nonce = [0u8; NONCE_LEN];
+        ring::rand::SystemRandom::new()
+            .fill(&mut nonce)
+            .map_err(|_| "no random source")?;
+        let mut out = Vec::with_capacity(4 + NONCE_LEN + plain.len() + 16);
+        out.extend_from_slice(nb_store::access::SEALED_MAGIC);
+        out.extend_from_slice(&nonce);
+        let mut body = plain.to_vec();
+        self.key
+            .seal_in_place_append_tag(
+                ring::aead::Nonce::assume_unique_for_key(nonce),
+                ring::aead::Aad::from(&self.aad),
+                &mut body,
+            )
+            .map_err(|_| "encryption failed")?;
+        out.extend_from_slice(&body);
+        Ok(out)
+    }
+
+    /// The plaintext, or `None` if `sealed` is not a valid update for this document.
+    fn open(&self, sealed: &[u8]) -> Option<Vec<u8>> {
+        let rest = sealed.strip_prefix(nb_store::access::SEALED_MAGIC.as_slice())?;
+        if rest.len() < NONCE_LEN + 16 {
+            return None;
+        }
+        let (nonce, body) = rest.split_at(NONCE_LEN);
+        let nonce = ring::aead::Nonce::try_assume_unique_for_key(nonce).ok()?;
+        let mut body = body.to_vec();
+        let plain = self
+            .key
+            .open_in_place(nonce, ring::aead::Aad::from(&self.aad), &mut body)
+            .ok()?;
+        Some(plain.to_vec())
+    }
+}
 const META_SEQ: &str = "relay_seq";
 
 #[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
@@ -52,6 +114,8 @@ pub struct ShareInfo {
     pub read_only: bool,
     /// Code to give viewers who may only read (`None` unless this is an editor code).
     pub read_only_code: Option<String>,
+    /// Updates are end-to-end encrypted: the relay cannot read the notebook.
+    pub encrypted: bool,
 }
 
 /// Parse a share code typed or stored by the app; `None` if it is malformed.
@@ -62,19 +126,22 @@ pub fn parse_share_code(code: String) -> Option<ShareInfo> {
     Some(ShareInfo {
         read_only: c.role() == Role::Read,
         read_only_code: c.read_only().map(|r| r.to_code()),
+        encrypted: c.encrypted(),
         group: c.group,
         key: c.key,
     })
 }
 
-/// A new editor share code: random group and write key (the first device to sync with it
-/// claims the notebook on the relay).
+/// A new editor share code: random group and editor key (the first device to sync with it
+/// claims the notebook on the relay). `encrypted`: end-to-end encryption (key `e…`), so the
+/// relay cannot read the notebook; otherwise a plain write key (`w…`).
 #[uniffi::export]
-pub fn new_share_code() -> String {
+pub fn new_share_code(encrypted: bool) -> String {
     let mut b = [0u8; 24];
     let _ = rustls::crypto::ring::default_provider().secure_random.fill(&mut b);
     let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    format!("n{}.w{}", &hex[..15], &hex[16..48])
+    let role = if encrypted { 'e' } else { 'w' };
+    format!("n{}.{role}{}", &hex[..15], &hex[16..48])
 }
 
 /// One-shot sync of a page that is not open: upload what the relay lacks, import what it
@@ -216,6 +283,11 @@ fn run_connection(
         doc_id,
         key,
     } = *ep;
+    let code = nb_store::access::ShareCode {
+        group: nb_store::access::doc_group(doc_id).to_string(),
+        key: key.to_string(),
+    };
+    let sealer = code.content_key().map(|k| Sealer::new(&k, doc_id));
     let mut req = format!("{}/sync/{doc_id}?after={}", url.trim_end_matches('/'), cursor.seq)
         .into_client_request()
         .map_err(|e| e.to_string())?;
@@ -226,8 +298,13 @@ fn run_connection(
         );
     }
     if !key.is_empty() {
+        // End-to-end codes present a derived credential; the key itself never leaves.
         req.headers_mut()
-            .insert("x-kahie-key", key.parse().map_err(|_| "bad key")?);
+            .insert("x-kahie-key", code.relay_key().parse().map_err(|_| "bad key")?);
+        if let Some(h) = code.relay_read_hash() {
+            req.headers_mut()
+                .insert("x-kahie-read-hash", h.parse().map_err(|_| "bad key")?);
+        }
     }
     let (mut ws, resp) = tungstenite::connect(req).map_err(|e| e.to_string())?;
     // Read-only access (a viewer's code): never upload; local edits stay local.
@@ -256,7 +333,10 @@ fn run_connection(
         if can_write && in_flight.is_none() {
             let mut candidate = cursor.vv.clone();
             let update = page.outgoing(&mut candidate);
-            if let Some(bytes) = update {
+            if let Some(mut bytes) = update {
+                if let Some(s) = &sealer {
+                    bytes = s.seal(&bytes)?;
+                }
                 ws.send(Message::Binary(bytes.into())).map_err(|e| e.to_string())?;
                 in_flight = Some(candidate);
                 last_activity = std::time::Instant::now();
@@ -276,9 +356,18 @@ fn run_connection(
                     }
                     continue;
                 }
-                page.incoming(payload, &mut cursor.vv)?;
-                imported += 1;
+                let opened = match &sealer {
+                    None => Some(payload.to_vec()),
+                    // Not sealed with this notebook's key (or tampered with): ignore it.
+                    Some(s) => s.open(payload),
+                };
                 cursor.seq = cursor.seq.max(seq);
+                let Some(plain) = opened else {
+                    save_cursor(page, &cursor);
+                    continue;
+                };
+                page.incoming(&plain, &mut cursor.vv)?;
+                imported += 1;
                 save_cursor(page, &cursor);
                 listener.on_remote_change();
             }
@@ -561,12 +650,13 @@ mod tests {
 
     #[test]
     fn share_codes_and_read_only_viewers() {
-        let code = new_share_code();
+        let code = new_share_code(false);
         let info = parse_share_code(code.clone()).unwrap();
         assert!(!info.read_only && info.key.starts_with('w') && code.starts_with(&info.group));
         let ro = parse_share_code(info.read_only_code.clone().unwrap()).unwrap();
         assert!(ro.read_only && ro.read_only_code.is_none() && ro.group == info.group);
-        assert_ne!(new_share_code(), code, "random");
+        assert_ne!(new_share_code(false), code, "random");
+        assert!(!info.encrypted);
         assert!(parse_share_code("bad code".into()).is_none());
         assert_eq!(parse_share_code("nlegacy1".into()).unwrap().key, "");
 
@@ -619,5 +709,153 @@ mod tests {
         // Without a key, the claimed notebook is refused.
         assert!(sync_page_once(student.clone(), url, String::new(), doc, String::new(), 300).is_err());
         std::fs::remove_dir_all(base).ok();
+    }
+
+    /// Every relay file of notebook `group` (databases, journals, `.acl`), concatenated.
+    fn all_bytes(dir: &std::path::Path, group: &str) -> Vec<u8> {
+        let mut out = vec![];
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            if e.file_name().to_string_lossy().starts_with(group) {
+                out.extend(std::fs::read(e.path()).unwrap_or_default());
+            }
+        }
+        out
+    }
+
+    fn contains(hay: &[u8], needle: &str) -> bool {
+        hay.windows(needle.len()).any(|w| w == needle.as_bytes())
+    }
+
+    #[test]
+    fn sealer_rejects_tampering_and_other_documents() {
+        let k = [7u8; 32];
+        let a = Sealer::new(&k, "n1-p1");
+        let sealed = a.seal(b"loro update").unwrap();
+        assert!(nb_store::access::is_sealed(&sealed));
+        assert_eq!(a.open(&sealed).as_deref(), Some(b"loro update".as_slice()));
+        assert_ne!(a.seal(b"loro update").unwrap(), sealed, "fresh nonce each time");
+        assert!(
+            Sealer::new(&k, "n1-p2").open(&sealed).is_none(),
+            "bound to its document"
+        );
+        assert!(Sealer::new(&[8u8; 32], "n1-p1").open(&sealed).is_none(), "other key");
+        let mut bad = sealed.clone();
+        *bad.last_mut().unwrap() ^= 1;
+        assert!(a.open(&bad).is_none() && a.open(b"KHE1").is_none() && a.open(b"loro").is_none());
+    }
+
+    #[test]
+    fn end_to_end_encryption_editor_and_viewer() {
+        let base = std::env::temp_dir().join(format!("kahie-sync-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let listener = rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let relay_dir = base.join("relay");
+        let cfg = nb_relay::Config {
+            data_dir: relay_dir.clone(),
+            token: None,
+        };
+        rt.spawn(async move { axum::serve(listener, nb_relay::router(cfg)).await.unwrap() });
+
+        const SECRET: &str = "Interrogation surprise mardi 8h";
+        const TITLE: &str = "Physique-chimie 2nde B";
+        let once = |p: &Arc<PageDoc>, doc: &str, key: &str| {
+            sync_page_once(p.clone(), url.clone(), String::new(), doc.into(), key.into(), 300).unwrap()
+        };
+
+        // Control: a plain code leaves the text readable on the relay.
+        let plain = parse_share_code(new_share_code(false)).unwrap();
+        let p0 = PageDoc::open(base.join("plain.kpage").to_string_lossy().into()).unwrap();
+        p0.add_text(10.0, 10.0, 200.0, 40.0, SECRET.into(), 16.0, 0);
+        once(&p0, &format!("{}-p1", plain.group), &plain.key);
+        assert!(
+            contains(&all_bytes(&relay_dir, &plain.group), SECRET),
+            "the check can see plaintext"
+        );
+
+        let editor = parse_share_code(new_share_code(true)).unwrap();
+        assert!(editor.encrypted && !editor.read_only && editor.key.starts_with('e'));
+        let viewer = parse_share_code(editor.read_only_code.clone().unwrap()).unwrap();
+        assert!(viewer.encrypted && viewer.read_only && viewer.key.starts_with('v'));
+        let doc = format!("{}-p1", editor.group);
+
+        // Teacher writes a page and the outline; a second editor device and a student sync.
+        let teacher = PageDoc::open(base.join("t.kpage").to_string_lossy().into()).unwrap();
+        teacher.add_text(10.0, 10.0, 200.0, 40.0, SECRET.into(), 16.0, 0);
+        draw(&teacher, 0.0);
+        once(&teacher, &doc, &editor.key);
+        let colleague = PageDoc::open(base.join("c.kpage").to_string_lossy().into()).unwrap();
+        assert_eq!(once(&colleague, &doc, &editor.key), 1);
+        draw(&colleague, 100.0);
+        once(&colleague, &doc, &editor.key);
+        let student = PageDoc::open(base.join("s.kpage").to_string_lossy().into()).unwrap();
+        once(&student, &doc, &viewer.key);
+        once(&teacher, &doc, &editor.key);
+        assert_eq!(teacher.item_count(), 3);
+        assert_eq!(student.layout(), teacher.layout(), "the viewer decrypts everything");
+        assert_eq!(student.text_blocks()[0].text, SECRET);
+
+        let na = NotebookDoc::open(base.join("nb-a").to_string_lossy().into(), TITLE.into()).unwrap();
+        na.add_page(None);
+        let nb_s = NotebookDoc::join(base.join("nb-s").to_string_lossy().into()).unwrap();
+        let s1 = SyncSession::start_notebook(
+            na.clone(),
+            url.clone(),
+            String::new(),
+            editor.group.clone(),
+            editor.key.clone(),
+            Box::new(Silent),
+        );
+        let s2 = SyncSession::start_notebook(
+            nb_s.clone(),
+            url.clone(),
+            String::new(),
+            viewer.group.clone(),
+            viewer.key.clone(),
+            Box::new(Silent),
+        );
+        assert!(wait_for(|| nb_s.title() == TITLE), "the outline reaches the viewer");
+        s1.stop();
+        s2.stop();
+
+        // The relay holds no plaintext and no secret key, and its log is only sealed updates.
+        let stored = all_bytes(&relay_dir, &editor.group);
+        assert!(!stored.is_empty());
+        for leak in [SECRET, TITLE, &editor.key[1..], &viewer.key[1..]] {
+            assert!(!contains(&stored, leak), "relay data contains {leak:?}");
+        }
+        let store = nb_store::Store::open(relay_dir.join(format!("{doc}.db"))).unwrap();
+        let log = store.load().unwrap();
+        assert!(log.snapshot.is_none() && !log.updates.is_empty());
+        assert!(log.updates.iter().all(|u| nb_store::access::is_sealed(u)));
+        // Compaction leaves encrypted logs alone.
+        nb_relay::compact_document(&relay_dir, &doc).unwrap();
+        assert!(store.load().unwrap().snapshot.is_none());
+
+        // The plain key of another notebook, or no key, is refused; a plaintext update
+        // injected by the relay is ignored by end-to-end clients.
+        let fresh = PageDoc::open(base.join("f.kpage").to_string_lossy().into()).unwrap();
+        assert!(sync_page_once(
+            fresh.clone(),
+            url.clone(),
+            String::new(),
+            doc.clone(),
+            String::new(),
+            300
+        )
+        .is_err());
+        store.append_update(&p0_update(&p0)).unwrap();
+        drop(store);
+        assert_eq!(once(&fresh, &doc, &viewer.key), log.updates.len() as u32);
+        assert_eq!(fresh.layout(), teacher.layout(), "injected plaintext ignored");
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    /// The whole content of a page as one Loro update (a forged, unsealed relay payload).
+    fn p0_update(p: &PageDoc) -> Vec<u8> {
+        let mut vv = VersionVector::default();
+        p.outgoing(&mut vv).unwrap()
     }
 }

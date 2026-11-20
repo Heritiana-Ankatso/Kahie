@@ -241,3 +241,52 @@ async fn notebook_keys_claim_read_only_and_refusal() {
     );
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[tokio::test]
+async fn end_to_end_claim_and_sealed_updates_are_never_compacted() {
+    use nb_store::access::ShareCode;
+    let (base, dir) = start(None).await;
+    let editor = ShareCode::parse("ne2e.e00112233445566778899aabbccddeeff").unwrap();
+    let viewer = editor.read_only().unwrap();
+    let (wa, ra) = (editor.relay_key(), viewer.relay_key());
+
+    // Claim with the derived credential and the viewers' credential hash.
+    let mut req = format!("{base}/sync/ne2e-p1?after=0").into_client_request().unwrap();
+    req.headers_mut().insert(nb_relay::KEY_HEADER, wa.parse().unwrap());
+    req.headers_mut().insert(
+        nb_relay::READ_HASH_HEADER,
+        editor.relay_read_hash().unwrap().parse().unwrap(),
+    );
+    let (mut writer, resp) = tokio_tungstenite::connect_async(req).await.unwrap();
+    assert_eq!(resp.headers().get(nb_relay::ROLE_HEADER).unwrap(), "write");
+    let acl = std::fs::read_to_string(dir.join("ne2e.acl")).unwrap();
+    assert!(!acl.contains(&editor.key[1..]) && !acl.contains(&viewer.key[1..]));
+    assert_eq!(connect_key(&base, "ne2e", Some(&ra)).await.unwrap().1, "read");
+    assert!(
+        connect_key(&base, "ne2e", Some(&viewer.key)).await.is_err(),
+        "secret keys are not credentials"
+    );
+    let bad = format!("{base}/sync/nzz?after=0").into_client_request().map(|mut r| {
+        r.headers_mut()
+            .insert(nb_relay::READ_HASH_HEADER, "xyz".parse().unwrap());
+        r
+    });
+    assert!(tokio_tungstenite::connect_async(bad.unwrap()).await.is_err());
+
+    // Sealed updates are stored and forwarded byte for byte, and never compacted.
+    let sealed: Vec<Vec<u8>> = (0..3u8).map(|i| [b"KHE1".as_slice(), &[i; 40]].concat()).collect();
+    for s in &sealed {
+        writer.send(Message::Binary(s.clone().into())).await.unwrap();
+        next_frame(&mut writer).await;
+    }
+    nb_relay::compact_document(&dir, "ne2e-p1").unwrap();
+    let (mut reader, _) = connect_key(&base, "ne2e-p1", Some(&ra)).await.unwrap();
+    for (i, s) in sealed.iter().enumerate() {
+        assert_eq!(
+            next_frame(&mut reader).await,
+            (i as i64 + 1, s.clone()),
+            "not compacted"
+        );
+    }
+    std::fs::remove_dir_all(dir).ok();
+}
