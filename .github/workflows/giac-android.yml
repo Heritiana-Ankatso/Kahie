@@ -55,18 +55,24 @@ jobs:
           make -j4 && make install
       - name: Giac (minimal)
         run: |
+          sudo apt-get install -y -qq autopoint gettext autoconf automake libtool flex bison >/dev/null
           curl -fsSL -o giac.tar.xz "$GIAC_URL"
           mkdir giac && tar xJf giac.tar.xz -C giac --strip-components=1
-          # Bionic has pthreads in libc: no libpthread to detect, so declare it and give the
-          # linker an empty archive for -lpthread.
+          # Library-only build of the Debian source tree (see the script for why).
+          python3 spikes/p0-07/android/prepare-giac.py giac
+          (cd giac && autoreconf -fi >/dev/null 2>&1)
+          # Bionic has pthreads in libc: declare them and give the linker an empty -lpthread.
           $AR rcs $PREFIX/lib/libpthread.a
           cd giac
           ./configure --host=$TARGET --prefix=$PREFIX --disable-shared --enable-static --with-pic \
-            --disable-gui --disable-fltk --disable-ntl --disable-pari --disable-gsl --disable-lapack \
-            --disable-glpk --disable-png --disable-curl --disable-ao --disable-ecm --disable-samplerate \
-            --disable-micropy --disable-quickjs --disable-nls --disable-gmpxx --disable-tommath \
+            --disable-fltk --disable-ntl --disable-pari --disable-gsl --disable-lapack --disable-glpk \
+            --disable-png --disable-curl --disable-ao --disable-ecm --disable-samplerate --disable-micropy \
+            --disable-quickjs --disable-gettext --disable-gmpxx --disable-tommath --disable-bernmm \
+            --disable-cocoa --disable-dl \
             CPPFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib" \
-            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1" CFLAGS="-O2 -fPIC" 2>&1 | tail -40
+            CXXFLAGS="-O2 -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1" CFLAGS="-O2 -fPIC" > configure.out 2>&1 \
+            || { tail -60 configure.out; exit 1; }
+          grep -E "^#define HAVE_LIB(GMP|MPFR|PTHREAD)" config.h || true
           make -C src -j4 libgiac.la > make.log 2>&1 || true
           grep -E "error:" -A3 make.log | head -120 || true
           test -f src/.libs/libgiac.a
@@ -91,4 +97,5 @@ jobs:
           path: |
             out
             giac/config.log
+            giac/configure.out
             giac/make.log
