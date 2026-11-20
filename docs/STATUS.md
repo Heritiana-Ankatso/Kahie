@@ -21,7 +21,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-06 HWR benchmark | Blocked on corpus | Protocol + tool ready (P0-16) |
 | P0-07 CAS (Giac) | Not started | Needs Giac Android build |
 | P0-08 On-device LLM | Not started | Needs devices |
-| P0-09 Typesetting | Not started | |
+| P0-09 Typesetting | Done on desktop | `docs/spikes/p0-09-typesetting.md`: Typst + MiTeX, 99/99 formulas; APK size reduction pending |
 | P0-10 Relay cost/latency | Not started | D9 now self-hostable relay |
 | P0-11 Document model v0 | Done (page level) | `nb_model::crdt`, 15 tests incl. 3-replica convergence |
 | P0-12 Storage v0 | Done | `nb-store`, 1 000-kill test, 2 000-stroke load 14 ms |
