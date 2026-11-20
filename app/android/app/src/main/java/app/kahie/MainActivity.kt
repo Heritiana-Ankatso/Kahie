@@ -63,6 +63,7 @@ class MainActivity : Activity() {
         const val REQ_EXPORT = 41
         const val REQ_IMPORT = 42
         const val REQ_EXPORT_PDF = 43
+        const val REQ_EXPORT_PNG = 44
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -434,6 +435,44 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun startPngExport() {
+        val name = notebook.title().ifBlank { getString(R.string.untitled) }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            .setType("image/png")
+            .putExtra(android.content.Intent.EXTRA_TITLE, "$name-${pageIndex + 1}.png")
+        startActivityForResult(intent, REQ_EXPORT_PNG)
+    }
+
+    /** The current page as a PNG at 2× (1588 × 2246 px for A4), after its formulas are rendered. */
+    private fun exportPng(uri: android.net.Uri) {
+        val d = doc ?: return
+        val renderer = mathRenderer
+        val requests = PageRenderer.mathRequests(d).distinct()
+        var remaining = requests.size
+        fun write() {
+            val scale = 2f
+            val bmp = android.graphics.Bitmap.createBitmap(
+                (PageRenderer.PAGE_W * scale).toInt(), (PageRenderer.PAGE_H * scale).toInt(), android.graphics.Bitmap.Config.ARGB_8888,
+            )
+            val c = android.graphics.Canvas(bmp)
+            c.scale(scale, scale)
+            PageRenderer.drawPage(c, d, renderer)
+            io.execute {
+                val result = runCatching {
+                    contentResolver.openOutputStream(uri)!!.use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                }
+                bmp.recycle()
+                main.post {
+                    result.onSuccess { toast(getString(R.string.exported)) }
+                        .onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
+                }
+            }
+        }
+        if (renderer == null || remaining == 0) { write(); return }
+        for ((latex, size, color) in requests) renderer.request(latex, size, color) { if (--remaining == 0) write() }
+    }
+
     private fun startImport() {
         val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
             .addCategory(android.content.Intent.CATEGORY_OPENABLE)
@@ -447,6 +486,7 @@ class MainActivity : Activity() {
         val uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
         if (requestCode == REQ_EXPORT_PDF) { exportPdf(uri); return }
+        if (requestCode == REQ_EXPORT_PNG) { exportPng(uri); return }
         val dir = notebookDir ?: return
         io.execute {
             val tmp = File(cacheDir, "transfer.kahie")
@@ -647,8 +687,12 @@ class MainActivity : Activity() {
             .setPositiveButton(R.string.add_page) { _, _ -> addPage() }
             .setNeutralButton(R.string.more) { _, _ ->
                 AlertDialog.Builder(this)
-                    .setItems(arrayOf(getString(R.string.delete_page), getString(R.string.trash))) { _, which ->
-                        if (which == 0) confirmDeletePage() else showTrash()
+                    .setItems(arrayOf(getString(R.string.delete_page), getString(R.string.trash), getString(R.string.export_png))) { _, which ->
+                        when (which) {
+                            0 -> confirmDeletePage()
+                            1 -> showTrash()
+                            else -> startPngExport()
+                        }
                     }
                     .show()
             }

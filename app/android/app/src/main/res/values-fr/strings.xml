@@ -67,4 +67,5 @@
     <string name="math_error">Le LaTeX contient une erreur ; vérifiez la formule</string>
     <string name="export_pdf">Exporter en PDF</string>
     <string name="preparing_export">Préparation de l’export…</string>
+    <string name="export_png">Exporter cette page (PNG)</string>
 </resources>
