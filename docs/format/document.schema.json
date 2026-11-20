@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Heritiana-Ankatso/Kahie/docs/format/document.schema.json",
+  "title": "Kahie document.json (format 0.1.0)",
+  "description": "Human-readable current state of a notebook inside a .kahie file. See kahie-v0.md.",
+  "type": "object",
+  "required": ["format", "version", "notebook", "pages"],
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "kahie-document" },
+    "version": { "type": "string", "pattern": "^0\\.[0-9]+\\.[0-9]+$" },
+    "notebook": {
+      "type": "object",
+      "required": ["id", "title"],
+      "additionalProperties": false,
+      "properties": { "id": { "type": "string" }, "title": { "type": "string" } }
+    },
+    "pages": { "type": "array", "items": { "$ref": "#/$defs/page" } }
+  },
+  "$defs": {
+    "page": {
+      "type": "object",
+      "required": ["id", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "template": { "type": "string", "description": "Paper: lined, grid, dots, blank…", "default": "lined" },
+        "items": { "type": "array", "description": "Bottom to top.", "items": { "$ref": "#/$defs/item" } }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "content": {
+          "oneOf": [
+            { "$ref": "#/$defs/stroke" },
+            { "$ref": "#/$defs/text" },
+            { "$ref": "#/$defs/math" },
+            { "$ref": "#/$defs/plot" },
+            { "$ref": "#/$defs/image" }
+          ]
+        }
+      }
+    },
+    "color": { "type": "integer", "minimum": 0, "maximum": 16777215, "description": "0xRRGGBB" },
+    "point": {
+      "type": "object",
+      "required": ["x", "y", "p"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "p": { "type": "number", "minimum": 0, "maximum": 1, "description": "Pressure; 0.5 when unknown" }
+      }
+    },
+    "rect": {
+      "type": "object",
+      "required": ["x", "y", "w", "h"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number" }, "y": { "type": "number" },
+        "w": { "type": "number", "minimum": 0 }, "h": { "type": "number", "minimum": 0 }
+      }
+    },
+    "label": { "enum": ["Circle", "Rectangle", "Triangle", null] },
+    "shape": {
+      "oneOf": [
+        {
+          "type": "object", "required": ["kind", "a", "b"], "additionalProperties": false,
+          "properties": { "kind": { "const": "line" }, "a": { "$ref": "#/$defs/point" }, "b": { "$ref": "#/$defs/point" } }
+        },
+        {
+          "type": "object", "required": ["kind", "points", "closed"], "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "polygon" },
+            "points": { "type": "array", "items": { "$ref": "#/$defs/point" } },
+            "closed": { "type": "boolean" },
+            "label": { "$ref": "#/$defs/label" }
+          }
+        },
+        {
+          "type": "object", "required": ["kind", "cx", "cy", "rx", "ry", "angle"], "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "ellipse" },
+            "cx": { "type": "number" }, "cy": { "type": "number" },
+            "rx": { "type": "number" }, "ry": { "type": "number" }, "angle": { "type": "number" },
+            "label": { "$ref": "#/$defs/label" }
+          }
+        }
+      ]
+    },
+    "stroke": {
+      "type": "object",
+      "required": ["type", "tool", "color", "width", "points"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "stroke" },
+        "tool": { "enum": ["pen", "highlighter"] },
+        "color": { "$ref": "#/$defs/color" },
+        "width": { "type": "number", "minimum": 0 },
+        "points": { "type": "array", "description": "Raw ink, never modified (ADR-0003).", "items": { "$ref": "#/$defs/point" } },
+        "interp": {
+          "description": "Recognised shape; when show is true it is displayed instead of the raw ink.",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object", "required": ["shape", "show"], "additionalProperties": false,
+              "properties": { "shape": { "$ref": "#/$defs/shape" }, "show": { "type": "boolean" } }
+            }
+          ]
+        }
+      }
+    },
+    "text": {
+      "type": "object",
+      "required": ["type", "rect", "text", "size", "color"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "text" }, "rect": { "$ref": "#/$defs/rect" }, "text": { "type": "string" },
+        "size": { "type": "number", "exclusiveMinimum": 0 }, "color": { "$ref": "#/$defs/color" }
+      }
+    },
+    "math": {
+      "type": "object",
+      "required": ["type", "rect", "latex", "size", "color"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "math" }, "rect": { "$ref": "#/$defs/rect" }, "latex": { "type": "string" },
+        "size": { "type": "number", "exclusiveMinimum": 0 }, "color": { "$ref": "#/$defs/color" }
+      }
+    },
+    "plot": {
+      "type": "object",
+      "required": ["type", "rect", "exprs", "x0", "x1", "y0", "y1"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "plot" }, "rect": { "$ref": "#/$defs/rect" },
+        "exprs": { "type": "array", "items": { "type": "string" }, "description": "Functions of x, e.g. \"2sin(x)\"" },
+        "x0": { "type": "number" }, "x1": { "type": "number" }, "y0": { "type": "number" }, "y1": { "type": "number" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": ["type", "rect", "asset"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "image" }, "rect": { "$ref": "#/$defs/rect" },
+        "asset": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of assets/<hash>" }
+      }
+    }
+  }
+}

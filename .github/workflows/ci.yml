@@ -61,3 +61,18 @@ jobs:
             (cd core && cargo test --locked --offline)
             (cd app/web && node --test tests/*.test.mjs)
           '
+
+  format-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the .kahie document.json example against its JSON Schema
+        run: |
+          pip install --quiet jsonschema==4.26.0
+          python3 - <<'PY'
+          import json, jsonschema
+          schema = json.load(open("docs/format/document.schema.json"))
+          jsonschema.Draft202012Validator.check_schema(schema)
+          jsonschema.Draft202012Validator(schema).validate(json.load(open("docs/format/examples/document.json")))
+          print("document.json example is valid")
+          PY

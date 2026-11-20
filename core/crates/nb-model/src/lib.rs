@@ -5,6 +5,26 @@
 pub mod crdt;
 pub mod inkcodec;
 
+/// `document.json` of a `.kahie` file (docs/format/kahie-v0.md): readable without the app.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DocumentJson {
+    /// Always `"kahie-document"`.
+    pub format: String,
+    /// Semantic version of the format, e.g. `"0.1.0"`.
+    pub version: String,
+    pub notebook: NotebookInfo,
+    pub pages: Vec<Page>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NotebookInfo {
+    pub id: Id,
+    pub title: String,
+}
+
+pub const DOCUMENT_FORMAT: &str = "kahie-document";
+pub const DOCUMENT_VERSION: &str = "0.1.0";
+
 use nb_ink::Point;
 use nb_recog::Shape;
 use serde::{Deserialize, Serialize};
@@ -390,5 +410,94 @@ mod tests {
             unreachable!()
         };
         assert_eq!(orig.points[1].x, 100.0, "original untouched");
+    }
+
+    /// The committed example in docs/format/examples must match what the code writes.
+    /// Regenerate with `UPDATE_GOLDEN=1 cargo test -p nb-model`.
+    #[test]
+    fn document_json_example_is_current() {
+        let mut page = Page::new("page-1");
+        page.template = "grid".into();
+        let mut s = stroke("s1", &[(10.0, 10.0), (110.0, 10.5)]);
+        if let Content::Stroke(st) = &mut s.content {
+            st.interp = nb_recog::recognize(&st.points).map(|shape| Interp { shape, show: true });
+        }
+        page.items.push(s);
+        page.items.push(Item {
+            id: "t1".into(),
+            content: Content::Text {
+                rect: Rect {
+                    x: 10.0,
+                    y: 40.0,
+                    w: 200.0,
+                    h: 24.0,
+                },
+                text: "Théorème de Pythagore".into(),
+                size: 16.0,
+                color: 0x1d1d1f,
+            },
+        });
+        page.items.push(Item {
+            id: "m1".into(),
+            content: Content::Math {
+                rect: Rect {
+                    x: 10.0,
+                    y: 80.0,
+                    w: 120.0,
+                    h: 30.0,
+                },
+                latex: "a^2 + b^2 = c^2".into(),
+                size: 18.0,
+                color: 0x1d1d1f,
+            },
+        });
+        page.items.push(Item {
+            id: "g1".into(),
+            content: Content::Plot {
+                rect: Rect {
+                    x: 10.0,
+                    y: 120.0,
+                    w: 300.0,
+                    h: 200.0,
+                },
+                exprs: vec!["x^2 - 2".into()],
+                x0: -5.0,
+                x1: 5.0,
+                y0: -3.0,
+                y1: 10.0,
+            },
+        });
+        page.items.push(Item {
+            id: "i1".into(),
+            content: Content::Image {
+                rect: Rect {
+                    x: 320.0,
+                    y: 120.0,
+                    w: 100.0,
+                    h: 80.0,
+                },
+                asset: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08".into(),
+            },
+        });
+        let doc = DocumentJson {
+            format: DOCUMENT_FORMAT.into(),
+            version: DOCUMENT_VERSION.into(),
+            notebook: NotebookInfo {
+                id: "nb-1".into(),
+                title: "Géométrie".into(),
+            },
+            pages: vec![page, Page::new("page-2")],
+        };
+        let json = serde_json::to_string_pretty(&doc).unwrap() + "\n";
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../docs/format/examples/document.json"
+        );
+        if std::env::var_os("UPDATE_GOLDEN").is_some() {
+            std::fs::write(path, &json).unwrap();
+        }
+        let committed = std::fs::read_to_string(path).expect("run with UPDATE_GOLDEN=1 once");
+        assert_eq!(committed, json, "docs/format/examples/document.json is stale");
+        assert_eq!(serde_json::from_str::<DocumentJson>(&committed).unwrap(), doc);
     }
 }
