@@ -507,6 +507,88 @@ impl PageDoc {
             .collect()
     }
 
+    // ----- selection -----
+
+    /// Ids of items whose bounds intersect the rectangle (x0, y0)–(x1, y1), in drawing order.
+    pub fn select_rect(&self, x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<String> {
+        let r = nb_model::Rect {
+            x: x0.min(x1),
+            y: y0.min(y1),
+            w: (x1 - x0).abs(),
+            h: (y1 - y0).abs(),
+        };
+        let st = self.state.lock().unwrap();
+        st.doc
+            .page()
+            .items
+            .iter()
+            .filter(|it| it.bounds().intersects(&r))
+            .map(|it| it.id.clone())
+            .collect()
+    }
+
+    /// Bounding box of the given items as [x, y, w, h], or empty if none exist.
+    pub fn bounds_of(&self, ids: Vec<String>) -> Vec<f32> {
+        let st = self.state.lock().unwrap();
+        let mut b: Option<(f64, f64, f64, f64)> = None;
+        for it in st.doc.page().items.iter().filter(|it| ids.contains(&it.id)) {
+            let r = it.bounds();
+            b = Some(match b {
+                None => (r.x, r.y, r.x + r.w, r.y + r.h),
+                Some((a, c, d, e)) => (a.min(r.x), c.min(r.y), d.max(r.x + r.w), e.max(r.y + r.h)),
+            });
+        }
+        b.map(|(x0, y0, x1, y1)| vec![x0 as f32, y0 as f32, (x1 - x0) as f32, (y1 - y0) as f32])
+            .unwrap_or_default()
+    }
+
+    /// Move items by (dx, dy) as one undoable step. Raw ink is translated, never rewritten.
+    pub fn move_items(&self, ids: Vec<String>, dx: f64, dy: f64) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let moved: Vec<Item> = st
+            .doc
+            .page()
+            .items
+            .iter()
+            .filter(|it| ids.contains(&it.id))
+            .map(|it| it.translated(dx, dy))
+            .collect();
+        let op = Op::update(st.doc.page(), moved);
+        st.commit(op)
+    }
+
+    /// Delete items as one undoable step (they go to the page's trash).
+    pub fn delete_items(&self, ids: Vec<String>) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let op = Op::remove(st.doc.page(), &refs);
+        st.commit(op)
+    }
+
+    /// Copy items, offset by (dx, dy), on top of the page. Returns the new ids.
+    pub fn duplicate_items(&self, ids: Vec<String>, dx: f64, dy: f64) -> Vec<String> {
+        let mut st = self.state.lock().unwrap();
+        let originals: Vec<Item> = st
+            .doc
+            .page()
+            .items
+            .iter()
+            .filter(|it| ids.contains(&it.id))
+            .cloned()
+            .collect();
+        let mut copies = Vec::with_capacity(originals.len());
+        for it in originals {
+            st.seq += 1;
+            let mut c = it.translated(dx, dy);
+            c.id = new_id(st.seq);
+            copies.push(c);
+        }
+        let new_ids = copies.iter().map(|c| c.id.clone()).collect();
+        let op = Op::add(st.doc.page(), copies);
+        st.commit(op);
+        new_ids
+    }
+
     // ----- text blocks -----
 
     /// Text blocks in drawing order.
@@ -724,6 +806,27 @@ mod tests {
         );
         assert!(doc.end_erase());
         assert!(doc.text_blocks().is_empty());
+    }
+
+    #[test]
+    fn select_move_duplicate_delete_undo() {
+        let doc = PageDoc::new_in_memory();
+        draw(&doc, &[(10.0, 10.0), (60.0, 12.0)], false);
+        draw(&doc, &[(500.0, 500.0), (560.0, 520.0)], false);
+        doc.add_text(20.0, 40.0, 100.0, 20.0, "Note".into(), 16.0, 0);
+        let sel = doc.select_rect(0.0, 0.0, 200.0, 100.0);
+        assert_eq!(sel.len(), 2, "the far stroke is not selected");
+        let b0 = doc.bounds_of(sel.clone());
+        assert!(doc.move_items(sel.clone(), 100.0, 50.0));
+        let b1 = doc.bounds_of(sel.clone());
+        assert!((b1[0] - b0[0] - 100.0).abs() < 0.01 && (b1[1] - b0[1] - 50.0).abs() < 0.01);
+        assert!(doc.undo(), "a move is one undo step");
+        assert_eq!(doc.bounds_of(sel.clone()), b0);
+        let copies = doc.duplicate_items(sel.clone(), 20.0, 20.0);
+        assert_eq!((copies.len(), doc.item_count()), (2, 5));
+        assert!(doc.delete_items(copies));
+        assert_eq!(doc.item_count(), 3);
+        assert!(doc.bounds_of(vec!["missing".into()]).is_empty());
     }
 
     #[test]

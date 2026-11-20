@@ -23,7 +23,7 @@ import kotlin.math.min
 
 /** Page canvas: stylus/touch/mouse input, pan and zoom, and drawing of the core's geometry. */
 class InkView(context: Context) : View(context) {
-    enum class Tool { PEN, HIGHLIGHTER, ERASER, TEXT }
+    enum class Tool { PEN, HIGHLIGHTER, ERASER, TEXT, SELECT }
 
     /** Optional low-latency renderer for the stroke in progress (see [JetpackWetInk]). */
     interface WetInk {
@@ -40,6 +40,9 @@ class InkView(context: Context) : View(context) {
     var doc: PageDoc? = null
         set(value) {
             field = value
+            selection = emptyList()
+            selBounds = null
+            band = null
             paths.clear()
             fitted = false
             refresh()
@@ -55,6 +58,44 @@ class InkView(context: Context) : View(context) {
 
     /** Called after every committed change (stroke, erase, undo…). */
     var onChanged: () -> Unit = {}
+
+    /** Selected item ids (Select tool); empty when nothing is selected. */
+    var selection: List<String> = emptyList()
+        private set
+    /** Called when the selection changes (size of the new selection). */
+    var onSelectionChanged: (Int) -> Unit = {}
+    private var selBounds: RectF? = null
+    private var band: RectF? = null          // rubber band in page coordinates
+    private var dragFrom: FloatArray? = null // page point where a move started
+    private var dragDx = 0f
+    private var dragDy = 0f
+    private val bandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFF2F5BD3.toInt()
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(8f, 6f), 0f)
+    }
+
+    fun clearSelection() {
+        if (selection.isEmpty() && band == null) return
+        selection = emptyList()
+        selBounds = null
+        band = null
+        onSelectionChanged(0)
+        invalidate()
+    }
+
+    private fun updateSelBounds() {
+        val b = doc?.boundsOf(selection)
+        selBounds = if (b == null || b.size < 4) null else RectF(b[0], b[1], b[0] + b[2], b[1] + b[3])
+    }
+
+    /** After duplicate/delete from the UI: select `ids` (may be empty). */
+    fun select(ids: List<String>) {
+        selection = ids
+        updateSelBounds()
+        onSelectionChanged(ids.size)
+        invalidate()
+    }
 
     /** Text tool tap at page coordinates, with the id of the text block there (if any). */
     var onTextTap: (x: Float, y: Float, blockId: String?) -> Unit = { _, _, _ -> }
@@ -211,19 +252,34 @@ class InkView(context: Context) : View(context) {
         canvas.drawRect(RectF(2f, 4f, pageW + 2f, pageH + 4f), shadowPaint)
         canvas.drawRect(0f, 0f, pageW, pageH, pagePaint)
         drawTemplate(canvas, doc?.template() ?: "lined")
+        val moving = dragFrom != null && selection.isNotEmpty()
         for (key in order) {
             if (key in hidden) continue
             val p = paths[key] ?: continue
-            canvas.drawPath(p.path, p.paint)
+            if (moving && key.substringBefore(':') in selection) {
+                canvas.save()
+                canvas.translate(dragDx, dragDy)
+                canvas.drawPath(p.path, p.paint)
+                canvas.restore()
+            } else {
+                canvas.drawPath(p.path, p.paint)
+            }
         }
         for (t in texts) {
             if (t.block.key in hidden) continue
             canvas.save()
+            if (moving && t.block.id in selection) canvas.translate(dragDx, dragDy)
             canvas.translate(t.block.x, t.block.y)
             t.layout.draw(canvas)
             canvas.restore()
         }
         drawWet(canvas)
+        bandPaint.strokeWidth = 1.5f * density / s
+        band?.let { canvas.drawRect(it, bandPaint) }
+        selBounds?.let {
+            val pad = 6f / s * density
+            canvas.drawRect(it.left - pad + dragDx, it.top - pad + dragDy, it.right + pad + dragDx, it.bottom + pad + dragDy, bandPaint)
+        }
         canvas.restore()
         eraserCursor?.let { canvas.drawCircle(it[0], it[1], eraserRadius.toFloat() * density, eraserPaint) }
     }
@@ -304,6 +360,10 @@ class InkView(context: Context) : View(context) {
         }
         if (panning) return handleGesture(e)
 
+        if (tool == Tool.SELECT && !drawing && !erasing && e.pointerCount == 1) {
+            handleSelect(e)
+            return true
+        }
         if (tool == Tool.TEXT && !drawing && !erasing) {
             if (e.actionMasked == MotionEvent.ACTION_UP) {
                 val x = toPageX(e.x)
@@ -329,6 +389,58 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_CANCEL -> cancelInk(e)
         }
         return true
+    }
+
+    private fun handleSelect(e: MotionEvent) {
+        val d = doc ?: return
+        val x = toPageX(e.x)
+        val y = toPageY(e.y)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val b = selBounds
+                val pad = 12f / s * density
+                if (b != null && x >= b.left - pad && x <= b.right + pad && y >= b.top - pad && y <= b.bottom + pad) {
+                    dragFrom = floatArrayOf(x, y)
+                    dragDx = 0f
+                    dragDy = 0f
+                } else {
+                    band = RectF(x, y, x, y)
+                    selection = emptyList()
+                    selBounds = null
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                dragFrom?.let { dragDx = x - it[0]; dragDy = y - it[1] }
+                band?.let { it.right = x; it.bottom = y }
+            }
+            MotionEvent.ACTION_UP -> {
+                if (dragFrom != null) {
+                    if (dragDx != 0f || dragDy != 0f) {
+                        d.moveItems(selection, dragDx.toDouble(), dragDy.toDouble())
+                        refresh()
+                        onChanged()
+                    }
+                    dragFrom = null
+                    dragDx = 0f
+                    dragDy = 0f
+                    updateSelBounds()
+                } else {
+                    band?.let { r ->
+                        selection = d.selectRect(r.left.toDouble(), r.top.toDouble(), r.right.toDouble(), r.bottom.toDouble())
+                        updateSelBounds()
+                        onSelectionChanged(selection.size)
+                    }
+                    band = null
+                }
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                dragFrom = null
+                dragDx = 0f
+                dragDy = 0f
+                band = null
+            }
+        }
+        invalidate()
     }
 
     private fun handleGesture(e: MotionEvent): Boolean {

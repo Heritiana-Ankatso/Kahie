@@ -51,4 +51,15 @@
     <string name="edit_text">Edit text (empty to delete)</string>
     <string name="compute">Compute</string>
     <string name="compute_failed">Cannot compute: %1$s</string>
+    <string name="select_tool">Select</string>
+    <string name="select_hint">Drag to select; drag the selection to move it</string>
+    <string name="selection">Selection</string>
+    <string name="nothing_selected">Nothing is selected</string>
+    <string name="duplicate">Duplicate</string>
+    <string name="delete">Delete</string>
+    <string name="deselect">Deselect</string>
+    <plurals name="selected_items">
+        <item quantity="one">%d item selected</item>
+        <item quantity="other">%d items selected</item>
+    </plurals>
 </resources>

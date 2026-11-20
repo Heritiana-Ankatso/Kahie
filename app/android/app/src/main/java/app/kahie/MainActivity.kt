@@ -102,6 +102,13 @@ class MainActivity : Activity() {
             toast(getString(if (ink.autoShapes) R.string.shapes_on else R.string.shapes_off))
         }
         bar.addView(shapesBtn)
+        bar.addView(textButton(R.string.select_tool) {
+            ink.tool = if (ink.tool == InkView.Tool.SELECT) InkView.Tool.PEN else InkView.Tool.SELECT
+            if (ink.tool != InkView.Tool.SELECT) ink.clearSelection()
+            updateToolbar()
+            if (ink.tool == InkView.Tool.SELECT) toast(getString(R.string.select_hint))
+        })
+        bar.addView(textButton(R.string.selection) { showSelectionActions() })
         bar.addView(textButton(R.string.text_tool) {
             ink.tool = if (ink.tool == InkView.Tool.TEXT) InkView.Tool.PEN else InkView.Tool.TEXT
             updateToolbar()
@@ -407,6 +414,28 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Duplicate / delete / deselect the current selection. */
+    private fun showSelectionActions() {
+        val sel = ink.selection
+        val d = doc ?: return
+        if (sel.isEmpty()) {
+            toast(getString(R.string.nothing_selected))
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(resources.getQuantityString(R.plurals.selected_items, sel.size, sel.size))
+            .setItems(arrayOf(getString(R.string.duplicate), getString(R.string.delete), getString(R.string.deselect))) { _, which ->
+                when (which) {
+                    0 -> ink.select(d.duplicateItems(sel, 24.0, 24.0))
+                    1 -> { d.deleteItems(sel); ink.select(emptyList()) }
+                    else -> ink.clearSelection()
+                }
+                ink.refresh()
+                ink.onChanged()
+            }
+            .show()
+    }
+
     /** Create a text block at (x, y) or edit the one tapped. */
     private fun editText(x: Float, y: Float, blockId: String?) {
         val d = doc ?: return
@@ -651,6 +680,7 @@ class MainActivity : Activity() {
     }
 
     private fun tool(t: InkView.Tool, icon: Int, label: Int) = iconButton(icon, label) {
+        ink.clearSelection()
         ink.tool = t
         updateToolbar()
     }.also { toolButtons[t] = it }
