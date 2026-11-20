@@ -1166,6 +1166,7 @@ class MainActivity : Activity() {
                     getString(R.string.trash),
                     getString(R.string.export_png),
                     getString(R.string.share_png),
+                    getString(R.string.page_versions),
                 )
                 AlertDialog.Builder(this)
                     .setItems(actions) { _, which ->
@@ -1181,7 +1182,8 @@ class MainActivity : Activity() {
                             5 -> confirmDeletePage()
                             6 -> showTrash()
                             7 -> startPngExport()
-                            else -> sharePng()
+                            8 -> sharePng()
+                            else -> showVersions()
                         }
                     }
                     .show()
@@ -1269,6 +1271,34 @@ class MainActivity : Activity() {
                         }
                         .show()
                 }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Earlier versions of the open page recorded on this device (P1-28); tap one to restore it. */
+    private fun showVersions() {
+        val d = doc ?: return
+        saveNow()
+        val versions = d.versions()
+        if (versions.isEmpty()) {
+            toast(getString(R.string.no_versions))
+            return
+        }
+        val labels = versions.map { v ->
+            val time = android.text.format.DateUtils.formatDateTime(
+                this, v.timeSecs * 1000,
+                android.text.format.DateUtils.FORMAT_SHOW_DATE or android.text.format.DateUtils.FORMAT_SHOW_TIME,
+            )
+            resources.getQuantityString(R.plurals.version_label, v.items.toInt(), time, v.items.toInt())
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.page_versions)
+            .setItems(labels) { _, which ->
+                val ok = runCatching { d.restoreVersion(versions[which].index) }.getOrDefault(false)
+                ink.refresh()
+                ink.onChanged()
+                if (ok) toast(getString(R.string.version_restored))
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

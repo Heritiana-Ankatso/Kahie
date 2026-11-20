@@ -18,7 +18,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 
 ## Pages and notebooks
 
-- **Pages**: list of pages and sections; tap a page to open it, *Add a page* inserts after the current one. *More* has: rename the page, move it up or down, move it into a section, *New section*, *Delete page* (to the trash), *Trash* (restore). Tap a section to rename or delete it.
+- **Pages**: list of pages and sections; tap a page to open it, *Add a page* inserts after the current one. *More* has: rename the page, move it up or down, move it into a section, *New section*, *Delete page* (to the trash), *Trash* (restore). Tap a section to rename or delete it. *More → Earlier versions of this page* restores the page as it was (Kahie keeps a version each time you open a page and every 10 minutes of work; Undo reverses a restore).
 - **Notebooks**: switch notebooks, create one, *More → Rename*.
 - **Paper**: cycles lined, squared, dotted, millimetre graph, Cornell notes, music staves and blank.
 - **Language**: *Notebooks → More → Language* (English, Français, Malagasy, or the system's language).
@@ -27,6 +27,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 
 - **Notebooks → More → Import a PDF** adds one page per PDF page, with the PDF as the page background: write on worksheets and exam papers, then *Export PDF* to hand them back.
 - **Image** inserts a photo (resized automatically); images sit under the ink so you can annotate them.
+- **Selection** (after *Select*): copy (paste on any page or notebook from *Selection → Paste*), duplicate, delete, bring to front, send to back.
 - **Plot** draws functions of x (one per line, e.g. `y = x^2 - 2`, `2sin(x)`) in a window you choose; tap a plot to edit it.
 - **Pages → More → Export this page (PNG)** for sharing a single page; *Send this page (PNG)…* opens the share sheet (email, messaging, Drive…).
 - **Notebooks → More → Send as PDF…** shares the whole notebook as a PDF through the share sheet.

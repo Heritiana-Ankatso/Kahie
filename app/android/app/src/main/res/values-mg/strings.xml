@@ -118,4 +118,11 @@
         <item quantity="one">Apetaho ny zavatra %d</item>
         <item quantity="other">Apetaho ny zavatra %d</item>
     </plurals>
+    <string name="page_versions">Endrika teo aloha amin’ity pejy ity</string>
+    <string name="no_versions">Mbola tsy misy endrika teo aloha: mitahiry iray i Kahie rehefa manokatra pejy ianao ary isaky ny 10 minitra fiasana.</string>
+    <string name="version_restored">Naverina (Foano no mamerina ny teo)</string>
+    <plurals name="version_label">
+        <item quantity="one">%1$s — zavatra %2$d</item>
+        <item quantity="other">%1$s — zavatra %2$d</item>
+    </plurals>
 </resources>

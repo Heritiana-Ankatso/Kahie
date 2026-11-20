@@ -119,4 +119,11 @@
         <item quantity="one">Paste %d item</item>
         <item quantity="other">Paste %d items</item>
     </plurals>
+    <string name="page_versions">Earlier versions of this page</string>
+    <string name="no_versions">No earlier version yet: Kahie records one when you open a page and every 10 minutes of work.</string>
+    <string name="version_restored">Restored (Undo brings back what was there)</string>
+    <plurals name="version_label">
+        <item quantity="one">%1$s — %2$d object</item>
+        <item quantity="other">%1$s — %2$d objects</item>
+    </plurals>
 </resources>

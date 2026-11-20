@@ -207,6 +207,37 @@ pub(crate) struct State {
     seq: u64,
 }
 
+/// Minimum time between two local history checkpoints of a page, and how many are kept.
+const CHECKPOINT_EVERY_S: i64 = 10 * 60;
+const CHECKPOINTS_KEPT: usize = 30;
+
+/// One local history checkpoint: Unix time and encoded Loro frontiers (hex).
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub(crate) struct Checkpoint {
+    t: i64,
+    f: String,
+}
+
+impl Checkpoint {
+    fn frontiers(&self) -> Option<Vec<u8>> {
+        (0..self.f.len())
+            .step_by(2)
+            .map(|i| self.f.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+            .collect()
+    }
+}
+
+/// An earlier version of a page, for "Restore this page as it was".
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct PageVersion {
+    /// Pass to `restore_version`.
+    pub index: u32,
+    /// Unix time (seconds) when this device recorded it.
+    pub time_secs: i64,
+    /// Number of objects on the page then.
+    pub items: u32,
+}
+
 /// The app clipboard: items and the image bytes they need (process-wide).
 #[derive(Clone)]
 struct Clip {
@@ -327,6 +358,43 @@ impl State {
         changed
     }
 
+    /// Record the current version in the page's local history (P1-28): at most one
+    /// checkpoint per [`CHECKPOINT_EVERY_S`], the newest [`CHECKPOINTS_KEPT`] kept. Local
+    /// only (not synced): the history of what this device saw.
+    pub(crate) fn checkpoint(&mut self, force: bool) {
+        let Some(store) = self.store.as_ref() else { return };
+        let mut list: Vec<Checkpoint> = store
+            .meta("versions")
+            .ok()
+            .flatten()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        let f: String = self.doc.frontiers().iter().map(|b| format!("{b:02x}")).collect();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if let Some(last) = list.last() {
+            if last.f == f || (!force && now - last.t < CHECKPOINT_EVERY_S) {
+                return;
+            }
+        }
+        list.push(Checkpoint { t: now, f });
+        let excess = list.len().saturating_sub(CHECKPOINTS_KEPT);
+        list.drain(..excess);
+        if let Ok(json) = serde_json::to_vec(&list) {
+            let _ = store.set_meta("versions", &json);
+        }
+    }
+
+    pub(crate) fn checkpoints(&self) -> Vec<Checkpoint> {
+        self.store
+            .as_ref()
+            .and_then(|s| s.meta("versions").ok().flatten())
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
     /// Append unsaved CRDT changes to the store (durable on return).
     pub(crate) fn persist(&mut self) {
         let Some(store) = self.store.as_mut() else {
@@ -384,7 +452,12 @@ impl PageDoc {
             CrdtPage::load(&chunks, peer_id()).map_err(|e| fmt(&e))?
         };
         let d = Self::with_doc(doc, Some(store));
-        d.state.lock().unwrap().persist();
+        {
+            let mut st = d.state.lock().unwrap();
+            st.persist();
+            // The page as it was when opened, before this session's edits.
+            st.checkpoint(true);
+        }
         Ok(std::sync::Arc::new(d))
     }
 
@@ -402,11 +475,53 @@ impl PageDoc {
         if let Some(e) = st.store_error.take() {
             return Err(CoreError::Io { detail: e });
         }
+        st.checkpoint(false);
         let snapshot = st.doc.snapshot();
         let Some(store) = st.store.as_mut() else { return Ok(()) };
         store
             .compact(&snapshot)
             .map_err(|e| CoreError::Io { detail: e.to_string() })
+    }
+
+    /// Earlier versions recorded on this device, newest first (excluding the current state).
+    pub fn versions(&self) -> Vec<PageVersion> {
+        let st = self.state.lock().unwrap();
+        let now = st.doc.frontiers();
+        st.checkpoints()
+            .iter()
+            .enumerate()
+            .rev()
+            .filter_map(|(i, c)| {
+                let f = c.frontiers()?;
+                if f == now {
+                    return None;
+                }
+                let page = st.doc.page_at(&f).ok()?;
+                Some(PageVersion {
+                    index: i as u32,
+                    time_secs: c.t,
+                    items: page.items.len() as u32,
+                })
+            })
+            .collect()
+    }
+
+    /// Make the page look as it did in version `index` (one undoable change, synced).
+    pub fn restore_version(&self, index: u32) -> Result<bool, CoreError> {
+        let mut st = self.state.lock().unwrap();
+        let fmt = |e: &dyn std::fmt::Display| CoreError::Format { detail: e.to_string() };
+        let f = st
+            .checkpoints()
+            .get(index as usize)
+            .and_then(Checkpoint::frontiers)
+            .ok_or_else(|| CoreError::Format {
+                detail: "no such version".into(),
+            })?;
+        // Keep the state being replaced, so the restore itself can be undone later too.
+        st.checkpoint(true);
+        let changed = st.doc.revert_to(&f).map_err(|e| fmt(&e))?;
+        st.persist();
+        Ok(changed)
     }
 
     pub fn template(&self) -> String {
@@ -1353,6 +1468,39 @@ mod tests {
             "no expression deletes"
         );
         assert!(doc.plot_blocks().is_empty());
+    }
+
+    #[test]
+    fn earlier_versions_are_recorded_on_open_and_restorable() {
+        let dir = std::env::temp_dir().join(format!("kahie-ffi-ver-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.kpage").to_string_lossy().to_string();
+        {
+            let d = PageDoc::open(path.clone()).unwrap();
+            assert!(d.versions().is_empty(), "nothing earlier than now");
+            d.add_text(10.0, 10.0, 100.0, 20.0, "first".into(), 20.0, 0);
+            d.save().unwrap();
+        }
+        {
+            // Session 2 starts from "first"; edit it away.
+            let d = PageDoc::open(path.clone()).unwrap();
+            let id = d.text_blocks()[0].id.clone();
+            d.delete_items(vec![id]);
+            d.add_text(10.0, 50.0, 100.0, 20.0, "second".into(), 20.0, 0);
+        }
+        let d = PageDoc::open(path).unwrap();
+        let v = d.versions();
+        // Newest first: the start of session 2 ("first"), then the empty new page.
+        assert_eq!(v.iter().map(|v| v.items).collect::<Vec<_>>(), [1, 0]);
+        assert!(d.restore_version(v[0].index).unwrap());
+        let texts: Vec<String> = d.text_blocks().into_iter().map(|t| t.text).collect();
+        assert_eq!(texts, ["first"]);
+        assert!(d.undo(), "restoring is undoable");
+        assert_eq!(d.text_blocks()[0].text, "second");
+        // The state that was replaced is now in the history too.
+        assert!(d.versions().iter().any(|x| x.items == 1));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

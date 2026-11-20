@@ -371,3 +371,32 @@ fn reorder_brings_to_front_and_sends_to_back_in_one_undo_step() {
     p.import(&q.updates_since(&p.version())).unwrap();
     assert_eq!(ids(&p), ["d", "a", "c", "b"]);
 }
+
+#[test]
+fn revert_to_an_earlier_version_is_one_new_undoable_change() {
+    let mut p = CrdtPage::new("p", 1);
+    p.apply(&Op::add(
+        p.page(),
+        vec![stroke("a", &[(0.0, 0.0), (5.0, 5.0)]), text("t", "hello")],
+    ));
+    let then = p.frontiers();
+    let before = p.page().items.clone();
+    // Later: move the stroke, edit the text, delete... then add something.
+    let moved = p.page().items[0].translated(10.0, 0.0);
+    p.apply(&Op::update(p.page(), vec![moved]));
+    p.apply(&Op::remove(p.page(), &["t"]));
+    p.apply(&Op::add(p.page(), vec![stroke("b", &[(1.0, 1.0), (2.0, 2.0)])]));
+    assert_eq!(p.page_at(&then).unwrap().items, before, "preview of the old version");
+    let after = p.page().items.clone();
+
+    assert!(p.revert_to(&then).unwrap());
+    assert_eq!(p.page().items, before);
+    assert!(!p.revert_to(&then).unwrap(), "already like that");
+    assert!(p.undo(), "one undo step");
+    assert_eq!(p.page().items, after);
+    assert!(p.redo());
+    assert_eq!(p.page().items, before);
+    // It is an ordinary change: another replica converges to it.
+    let q = CrdtPage::load(&[&p.snapshot()], 2).unwrap();
+    assert_eq!(q.page().items, before);
+}

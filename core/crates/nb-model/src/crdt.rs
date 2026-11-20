@@ -20,7 +20,7 @@
 use crate::{inkcodec, Content, Interp, Item, Op, Page, Stroke, Tool};
 use loro::event::{Diff, DiffEvent};
 use loro::{
-    Container, ContainerTrait, ExportMode, Index, LoroDoc, LoroMap, LoroValue, Subscription, UndoManager,
+    Container, ContainerTrait, ExportMode, Frontiers, Index, LoroDoc, LoroMap, LoroValue, Subscription, UndoManager,
     ValueOrContainer, VersionVector,
 };
 use nb_ink::Point;
@@ -377,6 +377,74 @@ impl CrdtPage {
             self.rebuild();
         }
         changed
+    }
+
+    // ---------- history (P1-28) ----------
+
+    /// The current version, encoded, to keep as a local checkpoint.
+    pub fn frontiers(&self) -> Vec<u8> {
+        self.doc.oplog_frontiers().encode()
+    }
+
+    /// The page as it was at an encoded version from [`CrdtPage::frontiers`].
+    pub fn page_at(&self, frontiers: &[u8]) -> Result<Page, ModelError> {
+        let f = Frontiers::decode(frontiers).map_err(err)?;
+        let fork = self.doc.fork_at(&f).map_err(err)?;
+        Ok(Self::wrap(fork).view)
+    }
+
+    /// Make the page's objects look as they did at `frontiers` again. This is a new change
+    /// (one undo step, synced like any edit), not a rewind of history. Returns false if the
+    /// page already looks like that.
+    pub fn revert_to(&mut self, frontiers: &[u8]) -> Result<bool, ModelError> {
+        let old = self.page_at(frontiers)?;
+        if old.items == self.view.items {
+            return Ok(false);
+        }
+        let current: HashMap<String, Item> = self.view.items.iter().map(|it| (it.id.clone(), it.clone())).collect();
+        let wanted: HashSet<&str> = old.items.iter().map(|it| it.id.as_str()).collect();
+        let gone: Vec<&str> = current
+            .keys()
+            .map(String::as_str)
+            .filter(|id| !wanted.contains(id))
+            .collect();
+        self.remove_ids(&gone);
+        let objects = self.doc.get_map(OBJECTS);
+        let order = self.doc.get_movable_list(ORDER);
+        for it in &old.items {
+            if let Some(cur) = current.get(&it.id) {
+                if cur != it {
+                    self.write_update(cur, it);
+                }
+                continue;
+            }
+            // Deleted since: bring the object back, then put it as it was.
+            match child_map(&objects, &it.id) {
+                Some(m) => {
+                    m.insert("deleted", false).expect("insert");
+                    order.push(it.id.as_str()).expect("push");
+                    let stored = self.decode_item(&it.id, &m.get_deep_value());
+                    if let Some(stored) = stored.filter(|s| s != it) {
+                        self.write_update(&stored, it);
+                    }
+                }
+                None => self.write_new(order.len(), it),
+            }
+        }
+        // Same stacking order as then.
+        for (j, it) in old.items.iter().enumerate() {
+            let at = (0..order.len()).find(
+                |&i| matches!(order.get(i), Some(ValueOrContainer::Value(LoroValue::String(s))) if s.as_str() == it.id),
+            );
+            if let Some(i) = at {
+                if i != j {
+                    order.mov(i, j).expect("mov");
+                }
+            }
+        }
+        self.doc.commit();
+        self.rebuild();
+        Ok(true)
     }
 
     /// Z-order (P1-16): move `ids` to the top of the page (`front`) or to the bottom,

@@ -117,4 +117,11 @@
         <item quantity="one">Coller %d élément</item>
         <item quantity="other">Coller %d éléments</item>
     </plurals>
+    <string name="page_versions">Versions précédentes de cette page</string>
+    <string name="no_versions">Pas encore de version précédente : Kahie en garde une à l’ouverture de la page et toutes les 10 minutes de travail.</string>
+    <string name="version_restored">Restaurée (Annuler ramène ce qu’il y avait)</string>
+    <plurals name="version_label">
+        <item quantity="one">%1$s — %2$d objet</item>
+        <item quantity="other">%1$s — %2$d objets</item>
+    </plurals>
 </resources>
