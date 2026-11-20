@@ -32,7 +32,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 
 ## Android app (what exists)
 
-Built and smoke-tested on CI up to commit `85b5e83` (APK built, app ran on the emulator without crashing, ink appeared). Everything after that is **compiled only by CI, not yet confirmed** — see "CI state" below.
+**Built and smoke-tested on CI at commit `f0f3beb` (run 44788232609, all features below):** APK builds; on the emulator the app starts, ink appears (245 dark px), and the text, maths, plot and pages tools open without a crash. **The CAS was not in that APK** (no Compute button): the Giac libraries were apparently not found; `android.yml` now fails with a listing when that happens (commit `929e041`).
 
 - Ink: pen/highlighter/eraser on the Rust core, Jetpack Ink wet layer, shape snapping, batched input (`add_points`), undo/redo + two-/three-finger tap.
 - Storage: every edit saved immediately (SQLite per page, `.kpage`); legacy JSON pages migrate.
