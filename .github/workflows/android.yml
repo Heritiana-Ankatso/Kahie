@@ -15,6 +15,9 @@ concurrency:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
@@ -44,18 +47,24 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo test --workspace --locked
 
-      # The CAS (Giac) is built by giac-android.yml; include it when its libraries exist.
-      - name: Giac libraries (optional)
-        uses: dawidd6/action-download-artifact@v6
-        continue-on-error: true
+      # The CAS (Giac) is built by giac-android.yml: take the libraries of its latest
+      # successful run on this branch.
+      - name: Find the latest Giac build
+        id: giac
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh run list -R "$GITHUB_REPOSITORY" -w giac-android.yml -b "${{ github.head_ref || github.ref_name }}" \
+            -s success -L 1 --json databaseId -q '.[0].databaseId')
+          echo "giac-android run: ${id:-none}"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        if: steps.giac.outputs.id != ''
         with:
-          workflow: giac-android.yml
-          workflow_conclusion: success
-          branch: ${{ github.head_ref || github.ref_name }}
-          name: giac-libs-.*
-          name_is_regexp: true
+          run-id: ${{ steps.giac.outputs.id }}
+          github-token: ${{ github.token }}
+          pattern: giac-libs-*
           path: giac-libs
-          if_no_artifact_found: warn
       - name: Enable the CAS if both ABIs are available
         run: |
           A=$(find giac-libs -type d -name aarch64-linux-android | head -1)
