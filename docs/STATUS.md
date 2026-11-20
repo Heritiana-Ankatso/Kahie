@@ -19,10 +19,10 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-04 FFI spike | Done on desktop | `docs/spikes/p0-04-ffi.md`; JNA overhead on device pending |
 | P0-05 Rendering pipeline | Core done on desktop | `docs/spikes/p0-05-render.md`; Android tile cache + device fps pending |
 | P0-06 HWR benchmark | Blocked on corpus | Protocol + tool ready (P0-16) |
-| P0-07 CAS (Giac) | Builds for Android (arm64 23.7 MB, 10 MB gzipped); 88/88 on desktop | `docs/spikes/p0-07-giac.md`: 88/88 tasks, < 1 ms; Android build + size pending |
+| P0-07 CAS (Giac) | Builds for Android (arm64 + x86_64), 88/88 on desktop | `docs/spikes/p0-07-giac.md`; `nb_math::cas` (feature `giac`); arm64 lib 23.7 MB / 10 MB gzipped; size reduction pending |
 | P0-08 On-device LLM | Not started | Needs devices |
 | P0-09 Typesetting | Done on desktop | `docs/spikes/p0-09-typesetting.md`: Typst + MiTeX, 99/99 formulas; APK size reduction pending |
-| P0-10 Relay | Done on desktop | `docs/spikes/p0-10-relay.md`, `core/crates/nb-relay` |
+| P0-10 Relay | Done (with compaction) | `docs/spikes/p0-10-relay.md`, `core/crates/nb-relay`, `docs/relay.md` |
 | P0-11 Document model v0 | Done (page level) | `nb_model::crdt`, 15 tests incl. 3-replica convergence |
 | P0-12 Storage v0 | Done | `nb-store`, 1 000-kill test, 2 000-stroke load 14 ms |
 | P0-13 `.kahie` spec | Draft done | `docs/format/` |
@@ -30,16 +30,26 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-15 Device lab | Not started | Needs hardware purchase (owner) |
 | P0-16 Corpus protocol | Draft done | `docs/spikes/p0-16-corpus-protocol.md`, `app/web/collect.html` |
 
-## Android app (what works)
+## Android app (what exists)
 
-- Pen/highlighter/eraser on the Rust core, Jetpack Ink wet layer, shape snapping, undo/redo, paper templates.
-- Every edit saved immediately (SQLite per page); legacy JSON pages migrate automatically.
-- Several notebooks (Notebooks dialog: switch, create, rename), pages outline (Pages dialog: open, add, delete to trash).
-- `.kahie` export/import through the system file picker.
-- Text blocks (Text tool: tap to add, tap a block to edit; erasable, undoable).
-- Sync with a self-hosted relay: Sync settings, Share (join code), Join; open page and outline sync live. Trash view restores deleted pages.
+Built and smoke-tested on CI up to commit `85b5e83` (APK built, app ran on the emulator without crashing, ink appeared). Everything after that is **compiled only by CI, not yet confirmed** — see "CI state" below.
 
-CI: `android.yml` builds the APK (artifact `kahie-debug-apk`) and runs an emulator smoke test (draws strokes, checks ink pixels and crashes; screenshots in artifact `smoke-screenshots`). `giac-android.yml` cross-compiles the CAS for arm64 and reports its size. Lessons: UniFFI bindings must be Kotlin source dirs (AGP 9); error fields must not be named `message`; Rust is pinned in `core/rust-toolchain.toml`; check bindings locally with kotlinc (conventions §6).
+- Ink: pen/highlighter/eraser on the Rust core, Jetpack Ink wet layer, shape snapping, batched input (`add_points`), undo/redo + two-/three-finger tap.
+- Storage: every edit saved immediately (SQLite per page, `.kpage`); legacy JSON pages migrate.
+- Notebooks (switch/create/rename), Pages dialog (open, add, delete to trash, Trash restore, export page PNG).
+- Blocks: Text (tap to add/edit), Maths (LaTeX → MathJax in hidden WebView → SVG → AndroidSVG Picture), Plot (functions of x, sampled in the core), Image (photos, stored in the page CRDT `assets` map), Select tool (rectangle select, move, duplicate, delete).
+- Paper: lined, grid, dots, mm graph, Cornell, music, blank; PDF import as uneditable page background.
+- Export/import: `.kahie` (ZIP, schema-valid `document.json`, `assets/<sha256>`), vector PDF of the notebook, PNG of a page.
+- Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min, status dot.
+- CAS: `cas_eval` FFI + Compute button in the text dialog (only in builds with feature `giac`).
+
+## CI state (at handoff, 17:40 UTC 2026-11-20)
+
+- `ci` (web, core tests, cargo-deny, offline tests with loopback only, schema): green.
+- `giac-android` (arm64 + x86_64 matrix): **green**; publishes `giac-libs-<target>` artifacts.
+- `android` (APK + emulator smoke): last finished run (85b5e83) built the APK; smoke failed only on a too-strict pixel threshold (142 dark px; threshold now 100, fixed in `ac15472`). **Run for `3a26664` is the first that builds all features above and links the CAS** (android.yml downloads giac-libs, `KAHIE_FEATURES=giac`, step summary "CAS: included"). Expect Kotlin compile errors and possibly link errors (static libc++/c++abi, `GIAC_LIB_DIR_<target>` in `nb-math/build.rs`) — fix them first.
+
+How to iterate without the Android SDK here: generate bindings and compile them with kotlinc (`docs/engineering/conventions.md` §6; kotlinc 2.2.21 zip from GitHub releases, JNA jar from Maven Central). Push in batches: every push to `core/**` or `app/android/**` cancels the running `android` job (~35 min). To push only workflow/doc commits without cancelling it, reorder them first and push that commit (`git push origin <sha>:ccr-121ac074-e1jgb6`).
 
 ## Needs the owner (cannot be done by the agent)
 
@@ -50,9 +60,12 @@ CI: `android.yml` builds the APK (artifact `kahie-debug-apk`) and runs an emulat
 
 ## Next steps for the agent (in order)
 
-1. Keep `android` (APK + smoke) green; fix `giac-android` until it reports the CAS size, then record it in p0-07-giac.md.
-2. Sync client done (SyncSession for pages + outline; Share/Join/Settings in the app). Next: sync status indicator, sync all pages in background (not only the open one), relay compaction.
-3. P0-05 Android side: tile cache executing nb-render display lists via FFI.
-4. Section UI in the Pages dialog; trash view with restore.
-5. `CasBackend` in nb-math on top of the Android Giac build; maths blocks in the app (Typst+MiTeX rendering after size reduction).
-6. Relay compaction and per-document access control.
+1. Get the `android` run for `3a26664` (or later) green: fix Kotlin compile errors in the new features, CAS link errors, smoke test. Then mark the APK + CAS as working here.
+2. Extend the smoke test: open each tool (text, maths, plot) via adb taps and check no crash; screenshot artifacts.
+3. CAS size reduction (`-Os`, `-ffunction-sections`/`--gc-sections`, drop unused Giac modules); target ≤ 12 MB arm64 uncompressed.
+4. Section UI in the Pages dialog (core supports sections); rename pages.
+5. P0-05 Android tile cache using `nb-render` display lists (needs device fps to justify).
+6. Relay per-document access control (roles) and optional end-to-end encryption.
+7. Handwriting recognition (D2 pending P0-06 corpus).
+
+Known limitations: images/backgrounds live in the page CRDT (fine for photos/worksheets; large PDFs will need a side asset store); the open page does not see edits made by the background sync pass until reopened; text blocks are plain text (no rich text yet).
