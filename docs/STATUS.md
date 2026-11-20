@@ -19,7 +19,7 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 | P0-04 FFI spike | Done on desktop | `docs/spikes/p0-04-ffi.md`; JNA overhead on device pending |
 | P0-05 Rendering pipeline | Core done on desktop | `docs/spikes/p0-05-render.md`; Android tile cache + device fps pending |
 | P0-06 HWR benchmark | Blocked on corpus | Protocol + tool ready (P0-16) |
-| P0-07 CAS (Giac) | Builds for Android (arm64 + x86_64), 88/88 on desktop | `docs/spikes/p0-07-giac.md`; `nb_math::cas` (feature `giac`); arm64 lib 23.7 → 14.6 MB (`-Os`, gc-sections); `-Oz` + no built-in help built (size: see the run's annotation); target ≤ 12 MB |
+| P0-07 CAS (Giac) | Done on Android (arm64 + x86_64), 88/88 on desktop, runs in the APK | `docs/spikes/p0-07-giac.md`; `nb_math::cas` (feature `giac`); arm64 lib **11.0 MB** (5.6 MB gzipped), was 23.7 MB |
 | P0-08 On-device LLM | Not started | Needs devices |
 | P0-09 Typesetting | Done on desktop | `docs/spikes/p0-09-typesetting.md`: Typst + MiTeX, 99/99 formulas; APK size reduction pending |
 | P0-10 Relay | Done (with compaction) | `docs/spikes/p0-10-relay.md`, `core/crates/nb-relay`, `docs/relay.md` |
@@ -64,7 +64,7 @@ How to iterate without the Android SDK here: generate bindings and compile them 
 
 ## Next steps for the agent (in order)
 
-1. CAS size: read the `CAS size` annotation of the latest `giac-android` run (`-Oz`, no built-in help); if still > 12 MB arm64, drop unused Giac modules in `prepare-giac.py` (largest objects: help, optimization, markup, graphe/graphtheory, signalprocessing) and check `nb-math` CAS tests still pass.
+1. (Done: CAS 11.0 MB arm64.) Further CAS savings only if APK size becomes a problem: drop unused Giac modules in `prepare-giac.py`.
 2. Backlog P1 items that need no device: P1-05 page sizes (A5/Letter/landscape), P1-28 page snapshots, P1-34 SVG export, P1-16 z-order, P1-15 copy/paste between pages.
 3. Optional end-to-end encryption for the relay (keys already per notebook: derive an encryption key from the write/read key).
 4. P0-05 Android tile cache using `nb-render` display lists (needs device fps to justify).

@@ -67,6 +67,8 @@ So dropping PARI/NTL/GSL loses nothing on the curriculum set.
 
 **Size reduction 1 (2026-11-20, run 44784446151):** GMP, MPFR and Giac compiled with `-Os -ffunction-sections -fdata-sections`; the library linked without `--whole-archive` (as the APK link does: only what the shim reaches is kept), with `--gc-sections --icf=all --exclude-libs,ALL`. arm64: **14.6 MB stripped, 6.7 MB gzipped** (−38 % / −33 %). Target ≤ 12 MB. Remaining levers: `-Oz`, ThinLTO for Giac, and removing unused Giac modules (graphics, sound, Xcas UI code) in `prepare-giac.py` — Giac's command tables reference every command, so `--gc-sections` alone cannot drop them.
 
+**Size reduction 2 (run 44804588106):** `-Oz`, and Giac's built-in 5-language command help (~1 MB of strings, never shown by Kahie) replaced by the single empty entry Giac uses on calculators. arm64: **11.0 MB stripped (10 998 512 B), 5.6 MB gzipped** — under the 12 MB target (−54 % from the first build). The APK built with these libraries computes `2^100` exactly on the emulator (`android` smoke test).
+
 Build pitfalls found (all handled by the script/workflow): the dfsg tarball lacks `configure` and the generated parser; `AM_GNU_GETTEXT` needs `[external]` with current gettext; Bison 3 needs `%lex-param` and the `giac_yy` prefix; passing `CXXFLAGS` to `make` (instead of `configure`) silently drops `-DTIMEOUT` and breaks linking; the shim must be compiled with Giac's own defines (`HAVE_CONFIG_H`, `TIMEOUT`, `GIAC_GENERIC_CONSTANTS`, `USE_OBJET_BIDON`).
 
 ## Remaining work
