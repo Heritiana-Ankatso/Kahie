@@ -863,4 +863,12 @@ class InkView(context: Context) : View(context) {
 
     /** Centre of the visible part of the page, in page units (where new images go). */
     fun visibleCentre(): FloatArray = floatArrayOf(toPageX(width / 2f), toPageY(height / 2f))
+
+    /** Scroll (at the current zoom) so the page rectangle x, y, w, h is centred (search results). */
+    fun reveal(x: Float, y: Float, w: Float, h: Float) {
+        if (width == 0) return
+        ox = width / 2f - (x + w / 2) * s
+        oy = height / 2f - (y + h / 2) * s
+        invalidate()
+    }
 }
