@@ -41,6 +41,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 - **Notebooks → More → Send as PDF…** shares the whole notebook as a PDF through the share sheet.
 - **Open with Kahie**: opening or sharing a PDF to Kahie creates a new notebook from it; opening a `.kahie` file imports it.
 - **Notebooks → More → Export PDF** writes every page as a vector A4 PDF (ink, text and formulas stay sharp).
+- **Notebooks → More → Export as Markdown / LaTeX (ZIP)**: the notebook as `notebook.md` or `notebook.tex` with an `assets/` folder. Typed text, formulas and headings (sections, page titles) are exported as text; plots become pgfplots figures in LaTeX (they stay exact and vector) and pictures in Markdown; handwriting is exported as one picture per page. The LaTeX file compiles with `pdflatex` (packages: amsmath, graphicx, pgfplots).
 - **Notebooks → More → Export (.kahie)** saves the notebook as a `.kahie` file (open format: a ZIP with a readable `document.json`, see `docs/format/kahie-v0.md`). **Import** opens such a file as a new notebook.
 - **Sync between your devices** needs a relay server (see `docs/relay.md`):
   1. *Notebooks → More → Sync settings*: server address (`wss://…`) and access token.

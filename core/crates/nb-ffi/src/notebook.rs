@@ -89,6 +89,14 @@ fn entry(n: nb_model::notebook::Node) -> OutlineEntry {
     }
 }
 
+impl NotebookDoc {
+    /// Title, visible outline and directory, for exports.
+    pub(crate) fn export_parts(&self) -> (String, Vec<nb_model::notebook::Node>, PathBuf) {
+        let st = self.state.lock().unwrap();
+        (st.nb.title(), st.nb.outline(), st.dir.clone())
+    }
+}
+
 #[uniffi::export]
 impl NotebookDoc {
     /// Open (or create) the notebook stored in directory `dir`.

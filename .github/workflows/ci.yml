@@ -31,7 +31,12 @@ jobs:
         working-directory: core
     steps:
       - uses: actions/checkout@v4
+      # The LaTeX export test (E2.12) compiles a notebook with pdflatex + pgfplots.
+      - name: Install pdflatex and pgfplots
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends texlive-latex-base texlive-latex-recommended texlive-pictures texlive-fonts-recommended
       - name: Rust tests
+        env:
+          KAHIE_REQUIRE_PDFLATEX: "1"
         run: cargo test --locked
 
   deny:

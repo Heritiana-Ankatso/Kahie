@@ -5,6 +5,7 @@
 pub mod analysis;
 pub mod cas;
 pub mod plot;
+pub mod texout;
 
 use std::fmt;
 

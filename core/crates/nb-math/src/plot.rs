@@ -496,6 +496,113 @@ pub fn render(lines: &[String], w: &Window) -> Rendered {
     out
 }
 
+/// The plot as a pgfplots `tikzpicture` (E2.12): curves are written as formulas (so they stay
+/// exact and vector), analysis results as marks, labels and filled areas. Needs `pgfplots`
+/// with `trig format plots=rad` (see the exported preamble). `width_cm` sets the size.
+pub fn to_pgfplots(lines: &[String], w: &Window, width_cm: f64) -> String {
+    let colors = ["blue", "red", "green!60!black", "violet", "orange"];
+    let r = render(lines, w);
+    let height_cm = width_cm * 0.75;
+    let mut out = String::new();
+    out.push_str("\\begin{tikzpicture}\n\\begin{axis}[\n");
+    out.push_str(&format!(
+        "  width={width_cm:.1}cm, height={height_cm:.1}cm, axis lines=middle, grid=major, grid style={{gray!20}},\n  xmin={}, xmax={}, ymin={}, ymax={}, samples=300, unbounded coords=jump, restrict y to domain={}:{},\n  clip=true, axis on top=false]\n",
+        w.x0,
+        w.x1,
+        w.y0,
+        w.y1,
+        w.y0 - 10.0 * (w.y1 - w.y0),
+        w.y1 + 10.0 * (w.y1 - w.y0),
+    ));
+    let coords = |pts: &[(f64, f64)]| {
+        pts.iter()
+            .map(|(x, y)| format!("({x:.5},{y:.5})"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for sh in &r.shades {
+        out.push_str(&format!(
+            "  \\addplot[draw=none, fill=blue, fill opacity=0.2] coordinates {{{}}} -- cycle;\n",
+            coords(&sh.polygon)
+        ));
+        out.push_str(&format!(
+            "  \\node[font=\\small] at (axis cs:{:.5},{:.5}) {{{}}};\n",
+            sh.at.0,
+            sh.at.1,
+            tex_escape(&sh.label)
+        ));
+    }
+    for (i, line) in lines.iter().enumerate() {
+        let color = colors[i % colors.len()];
+        match parse_line(line) {
+            Ok(Line::Function { f, .. }) => out.push_str(&format!(
+                "  \\addplot[{color}, thick, domain={}:{}] {{{}}};\n",
+                w.x0,
+                w.x1,
+                f.to_pgf("x")
+            )),
+            Ok(Line::Parametric { x, y, t0, t1 }) => out.push_str(&format!(
+                "  \\addplot[{color}, thick, domain={t0}:{t1}, variable=\\t] ({{{}}}, {{{}}});\n",
+                x.to_pgf("\\t"),
+                y.to_pgf("\\t")
+            )),
+            Ok(Line::Polar { r: rr, t0, t1 }) => {
+                let rad = rr.to_pgf("\\t");
+                out.push_str(&format!(
+                    "  \\addplot[{color}, thick, domain={t0}:{t1}, variable=\\t] ({{{rad}*cos(\\t)}}, {{{rad}*sin(\\t)}});\n"
+                ))
+            }
+            // Tangents and asymptotes: straight dashed segments, already computed.
+            Ok(_) if r.dashed.get(i).copied().unwrap_or(false) => {
+                for seg in r.curves.get(i).into_iter().flatten() {
+                    out.push_str(&format!("  \\addplot[gray, dashed] coordinates {{{}}};\n", coords(seg)));
+                }
+            }
+            _ => {}
+        }
+    }
+    for m in &r.markers {
+        let mark = if m.kind == MarkerKind::Label {
+            ""
+        } else {
+            "\\fill (axis cs:{x},{y}) circle (1.5pt); "
+        };
+        let mark = mark
+            .replace("{x}", &format!("{:.5}", m.x))
+            .replace("{y}", &format!("{:.5}", m.y));
+        out.push_str(&format!(
+            "  {mark}\\node[font=\\scriptsize, anchor=south west] at (axis cs:{:.5},{:.5}) {{{}}};\n",
+            m.x,
+            m.y,
+            tex_escape(&m.label)
+        ));
+    }
+    out.push_str("\\end{axis}\n\\end{tikzpicture}\n");
+    out
+}
+
+/// Escape plain text for LaTeX (labels such as `max (1, -2)` or `y = 2x − 1`).
+pub fn tex_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\textbackslash{}"),
+            '{' | '}' | '$' | '&' | '#' | '%' | '_' => {
+                out.push('\\');
+                out.push(c);
+            }
+            '^' => out.push_str("\\^{}"),
+            '~' => out.push_str("\\~{}"),
+            '−' => out.push_str("$-$"),
+            '∫' => out.push_str("$\\int$"),
+            'θ' => out.push_str("$\\theta$"),
+            'π' => out.push_str("$\\pi$"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,5 +699,31 @@ mod tests {
         assert!(labels.contains(&"x = 1") && labels.contains(&"y = 2"), "{labels:?}");
         assert_eq!(out.curves[1].len(), 2, "one vertical, one horizontal (same at ±∞)");
         assert!(r(&["(t, t) t=2..1"]).errors[0].contains("range"));
+    }
+
+    #[test]
+    fn pgfplots_output() {
+        let lines: Vec<String> = [
+            "f(x) = x^2 - 1",
+            "(cos t, sin t)",
+            "roots f",
+            "tangent f at 1",
+            "area f from -1 to 1",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let tex = to_pgfplots(&lines, &W, 8.0);
+        assert!(
+            tex.contains("\\addplot[blue, thick, domain=-5:5] {((x^2)-1)};"),
+            "{tex}"
+        );
+        assert!(
+            tex.contains("variable=\\t] {cos(\\t)}, {sin(\\t)}") || tex.contains("({cos(\\t)}, {sin(\\t)})"),
+            "{tex}"
+        );
+        assert!(tex.contains("gray, dashed") && tex.contains("fill opacity=0.2") && tex.contains("$\\int$ = -1.333"));
+        assert_eq!(tex.matches("\\begin{").count(), tex.matches("\\end{").count());
+        assert_eq!(tex_escape("a_b & 50%"), "a\\_b \\& 50\\%");
     }
 }

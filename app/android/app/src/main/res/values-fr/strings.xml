@@ -201,4 +201,6 @@
     <string name="plot_line_intersections">intersections 1 2</string>
     <string name="plot_line_tangent">tangente 1 en 1</string>
     <string name="plot_line_area">aire 1 de 0 à 1</string>
+    <string name="export_markdown">Exporter en Markdown (ZIP)</string>
+    <string name="export_latex">Exporter en LaTeX (ZIP)</string>
 </resources>

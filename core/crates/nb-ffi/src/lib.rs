@@ -17,6 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 uniffi::setup_scaffolding!();
 
 mod cas;
+mod docexport;
 mod kahie_file;
 mod notebook;
 mod sync;

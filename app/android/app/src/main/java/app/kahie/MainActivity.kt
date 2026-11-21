@@ -76,6 +76,8 @@ class MainActivity : Activity() {
         const val REQ_IMPORT_PDF = 46
         const val REQ_BACKUP_DIR = 47
         const val REQ_EXPORT_SVG = 48
+        const val REQ_EXPORT_MD = 49
+        const val REQ_EXPORT_TEX = 50
         const val BACKUP_EVERY_MS = 24 * 3600 * 1000L
     }
 
@@ -327,6 +329,7 @@ class MainActivity : Activity() {
             getString(R.string.sync_share), getString(R.string.sync_join), getString(R.string.sync_settings),
             getString(R.string.language), getString(R.string.backup), getString(R.string.page_scrolling),
             getString(R.string.new_notebook_from_template), getString(R.string.save_notebook_as_template),
+            getString(R.string.export_markdown), getString(R.string.export_latex),
         )
         AlertDialog.Builder(this)
             .setItems(actions) { _, which ->
@@ -344,6 +347,8 @@ class MainActivity : Activity() {
                     10 -> if (prefs.getString("backupTree", null) == null) chooseBackupFolder() else showBackup()
                     11 -> choosePageScrolling()
                     12 -> newNotebookFromTemplate()
+                    14 -> startDocExport(REQ_EXPORT_MD, "-markdown.zip")
+                    15 -> startDocExport(REQ_EXPORT_TEX, "-latex.zip")
                     13 -> askText(R.string.template_name, notebook.title()) { name ->
                         saveNow()
                         val nb = notebook
@@ -571,6 +576,26 @@ class MainActivity : Activity() {
             .setType("application/pdf")
             .putExtra(android.content.Intent.EXTRA_TITLE, "$name.pdf")
         startActivityForResult(intent, REQ_EXPORT_PDF)
+    }
+
+    /** Markdown or LaTeX of the notebook with its pictures, as a ZIP (E2.12). */
+    private fun startDocExport(req: Int, suffix: String) {
+        saveNow()
+        val name = notebook.title().ifBlank { getString(R.string.untitled) }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            .setType("application/zip")
+            .putExtra(android.content.Intent.EXTRA_TITLE, "$name$suffix")
+        startActivityForResult(intent, req)
+    }
+
+    private fun exportDocument(uri: android.net.Uri, format: uniffi.nb_ffi.DocFormat) {
+        val nb = notebook
+        val currentId = pageIds.getOrNull(pageIndex)
+        val open = { id: String -> if (id == currentId && doc != null) doc!! else PageDoc.open(nb.pagePath(id)) }
+        val result = runCatching { contentResolver.openOutputStream(uri)!!.use { DocExport.write(nb, format, open, it) } }
+        result.onSuccess { toast(getString(R.string.exported)) }
+            .onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
     }
 
     private fun exportPdf(uri: android.net.Uri) =
@@ -945,6 +970,10 @@ class MainActivity : Activity() {
         val uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
         if (requestCode == REQ_EXPORT_PDF) { exportPdf(uri); return }
+        if (requestCode == REQ_EXPORT_MD || requestCode == REQ_EXPORT_TEX) {
+            exportDocument(uri, if (requestCode == REQ_EXPORT_TEX) uniffi.nb_ffi.DocFormat.LATEX else uniffi.nb_ffi.DocFormat.MARKDOWN)
+            return
+        }
         if (requestCode == REQ_EXPORT_PNG) { exportPng(uri); return }
         if (requestCode == REQ_EXPORT_SVG) { exportSvg(uri); return }
         if (requestCode == REQ_IMAGE) { insertImage(uri); return }

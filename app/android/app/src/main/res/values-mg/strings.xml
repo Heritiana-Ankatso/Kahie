@@ -202,4 +202,6 @@
     <string name="plot_line_intersections">intersections 1 2</string>
     <string name="plot_line_tangent">tangent 1 at 1</string>
     <string name="plot_line_area">area 1 from 0 to 1</string>
+    <string name="export_markdown">Avoaka ho Markdown (ZIP)</string>
+    <string name="export_latex">Avoaka ho LaTeX (ZIP)</string>
 </resources>
