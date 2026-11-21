@@ -1,0 +1,130 @@
+name: giac-android
+
+# P0-07: cross-compile GMP, MPFR and a minimal Giac for Android arm64 and measure the size
+# of the resulting CAS library (docs/spikes/p0-07-giac.md). Slow (~30 min); runs only when
+# this workflow or the CAS spike changes, or by hand.
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/giac-android.yml', 'spikes/p0-07/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Same Ubuntu as the dev container, so autoreconf regenerates the exact configure tested locally.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # arm64 for devices, x86_64 for the emulator smoke test.
+        target: [aarch64-linux-android, x86_64-linux-android]
+    env:
+      API: 31
+      TARGET: ${{ matrix.target }}
+      NDK_VERSION: 27.2.12479018
+      GMP: gmp-6.3.0
+      MPFR: mpfr-4.2.1
+      # Pinned, reproducible source (Debian/Ubuntu "dfsg" tarball of upstream Giac).
+      GIAC_URL: http://archive.ubuntu.com/ubuntu/pool/universe/g/giac/giac_2.0.0.21+dfsg2.orig.tar.xz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;27.2.12479018'
+      - name: Toolchain
+        run: |
+          TC=$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64
+          {
+            echo "TC=$TC"
+            echo "CC=$TC/bin/$TARGET$API-clang"
+            echo "CXX=$TC/bin/$TARGET$API-clang++"
+            echo "AR=$TC/bin/llvm-ar"
+            echo "RANLIB=$TC/bin/llvm-ranlib"
+            echo "STRIP=$TC/bin/llvm-strip"
+            echo "PREFIX=$RUNNER_TEMP/android-prefix"
+            # Size: optimise for size (-Oz) and give every function/datum its own section so the
+            # final link (--gc-sections, also used by rustc for the APK library) drops unused code.
+            echo "SZ=-Oz -ffunction-sections -fdata-sections"
+          } >> "$GITHUB_ENV"
+      - name: GMP
+        run: |
+          curl -fsSL https://ftp.gnu.org/gnu/gmp/$GMP.tar.xz | tar xJ
+          cd $GMP
+          ./configure --host=$TARGET --prefix=$PREFIX --enable-cxx --disable-shared --with-pic CFLAGS="$SZ -fPIC" CXXFLAGS="$SZ -fPIC"
+          make -j4 && make install
+      - name: MPFR
+        run: |
+          curl -fsSL https://ftp.gnu.org/gnu/mpfr/$MPFR.tar.xz | tar xJ
+          cd $MPFR
+          ./configure --host=$TARGET --prefix=$PREFIX --with-gmp=$PREFIX --disable-shared --with-pic CFLAGS="$SZ -fPIC"
+          make -j4 && make install
+      - name: Giac (minimal)
+        run: |
+          sudo apt-get install -y -qq autopoint gettext autoconf automake libtool flex bison >/dev/null
+          lsb_release -ds; autoconf --version | head -1; automake --version | head -1; gettextize --version | head -1
+          curl -fsSL -o giac.tar.xz "$GIAC_URL"
+          mkdir giac && tar xJf giac.tar.xz -C giac --strip-components=1
+          # Library-only build of the Debian source tree (see the script for why).
+          python3 spikes/p0-07/android/prepare-giac.py giac
+          (cd giac && autoreconf -fi >/dev/null 2>&1)
+          # Bionic has pthreads in libc: declare them and give the linker an empty -lpthread.
+          $AR rcs $PREFIX/lib/libpthread.a
+          cd giac
+          ./configure --host=$TARGET --prefix=$PREFIX --disable-shared --enable-static --with-pic \
+            --disable-fltk --disable-ntl --disable-pari --disable-gsl --disable-lapack --disable-glpk \
+            --disable-png --disable-curl --disable-ao --disable-ecm --disable-samplerate --disable-micropy \
+            --disable-quickjs --disable-gettext --disable-gmpxx --disable-tommath --disable-bernmm \
+            --disable-cocoa --disable-dl \
+            CPPFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib" \
+            CXXFLAGS="$SZ -fPIC -DHAVE_NO_HOME_DIRECTORY -DHAVE_LIBPTHREAD=1 -fpermissive -include $GITHUB_WORKSPACE/spikes/p0-07/android/android_compat.h" CFLAGS="$SZ -fPIC" > configure.out 2>&1 \
+            || { tail -60 configure.out; exit 1; }
+          grep -E "^#define HAVE_LIB(GMP|MPFR|PTHREAD)" config.h || true
+          # -k: keep going, so one run reports every file that fails.
+          make -C src -j4 -k libgiac.la > make.log 2>&1 || true
+          grep -E "error:" -A3 make.log | head -200 || true
+          test -f src/.libs/libgiac.a
+          cp src/.libs/libgiac.a $PREFIX/lib/
+      - name: Link the CAS library and measure it
+        run: |
+          mkdir -p out inc/giac
+          # The shim includes <giac/giac.h> and <giac/config.h>, as installed by distributions.
+          cp giac/src/*.h inc/giac/ && cp giac/config.h inc/giac/
+          # No --whole-archive: like the APK link, only what the shim reaches is kept.
+          $CXX -shared -fPIC -Os -std=c++17 -w -I inc -I $PREFIX/include \
+            -DHAVE_CONFIG_H -DTIMEOUT -DGIAC_GENERIC_CONSTANTS -DUSE_OBJET_BIDON \
+            spikes/p0-07/src/shim.cpp -o out/libkahiecas.so \
+            -Wl,--gc-sections -Wl,--icf=all -Wl,--exclude-libs,ALL \
+            $PREFIX/lib/libgiac.a $PREFIX/lib/libmpfr.a $PREFIX/lib/libgmp.a -static-libstdc++ -llog -lm
+          $STRIP --strip-unneeded out/libkahiecas.so
+          ls -l out/libkahiecas.so | tee out/size.txt
+          gzip -9 -k out/libkahiecas.so && ls -l out/libkahiecas.so.gz | tee -a out/size.txt
+          echo "### libkahiecas.so ($TARGET, stripped): $(stat -c %s out/libkahiecas.so) bytes; gzip $(stat -c %s out/libkahiecas.so.gz) bytes" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=CAS size $TARGET::libkahiecas.so $(stat -c %s out/libkahiecas.so) bytes stripped, $(stat -c %s out/libkahiecas.so.gz) bytes gzipped"
+          # Static libraries + headers for the APK build (nb-math feature "giac").
+          mkdir -p libs/$TARGET/include/giac
+          cp $PREFIX/lib/libgiac.a $PREFIX/lib/libgmp.a $PREFIX/lib/libmpfr.a libs/$TARGET/
+          cp inc/giac/*.h libs/$TARGET/include/giac/
+          # Giac's headers include gmp.h and mpfr.h.
+          cp $PREFIX/include/gmp*.h $PREFIX/include/mpfr*.h libs/$TARGET/include/
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: giac-libs-${{ matrix.target }}
+          path: libs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: giac-android-${{ matrix.target }}
+          path: |
+            out
+            giac/config.log
+            giac/configure.out
+            giac/make.log
+      # Last step, so the size is in the tail of the job log (the log API returns only the end).
+      - name: Report size
+        if: success()
+        run: cat out/size.txt

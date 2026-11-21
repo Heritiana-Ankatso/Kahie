@@ -1,0 +1,14 @@
+[package]
+name = "p0-07-giac"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace]
+
+[build-dependencies]
+cc = "1"
+
+[profile.release]
+debug = false

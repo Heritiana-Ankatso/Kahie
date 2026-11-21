@@ -44,7 +44,7 @@
 ├── core/                      Rust workspace
 │   ├── crates/
 │   │   ├── nb-model/          Document model, CRDT wrapper, commands, undo
-│   │   ├── nb-store/          SQLite persistence, journaling, .nbk import/export
+│   │   ├── nb-store/          SQLite persistence, journaling, .kahie import/export
 │   │   ├── nb-scene/          Scene graph, spatial index (R-tree), hit testing
 │   │   ├── nb-ink/            Stroke processing: smoothing, simplification, outlines
 │   │   ├── nb-render/         Display-list generation, tiling, LOD

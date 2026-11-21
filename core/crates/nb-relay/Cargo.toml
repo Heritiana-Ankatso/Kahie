@@ -1,0 +1,22 @@
+[package]
+name = "nb-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Self-hostable sync relay for Kahie notebooks (decision D9)."
+
+[dependencies]
+nb-store = { path = "../nb-store" }
+loro.workspace = true
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "signal"] }
+
+[dev-dependencies]
+nb-model = { path = "../nb-model" }
+nb-ink = { path = "../nb-ink" }
+tokio-tungstenite = "0.30"
+futures-util = "0.3"
+
+[lints]
+workspace = true

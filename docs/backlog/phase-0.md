@@ -23,7 +23,7 @@
 | P0-10 | Firebase cost & latency simulation | WS7 | S | P0-03 |
 | P0-11 | Document model v0 | WS2 | L | P0-03 |
 | P0-12 | Storage v0 | WS2 | M | P0-11 |
-| P0-13 | `.nbk` format specification draft | WS2 | S | P0-11 |
+| P0-13 | `.kahie` format specification draft | WS2 | S | P0-11 |
 | P0-14 | UX research & first-run prototype | WS8 | L | — |
 | P0-15 | Reference device lab | QA | S | D4 |
 | P0-16 | Handwriting corpus collection protocol | WS3/QA | S | — |
@@ -50,7 +50,7 @@
 
 ### P0-03 — CRDT library evaluation
 - **WS:** WS2/WS7 · **Size:** M · **Owner:** Rust core engineer
-- **Candidates:** Loro, Automerge, Yrs.
+- **Candidates:** Loro, Automerge, Yrs. **Loro chosen (D6);** run the scenarios on Loro to confirm it meets the budgets.
 - **Benchmark scenarios**
   - Document with 100 000 strokes (≈ 150 points each): load time, memory, file size (with/without history).
   - Two replicas diverge offline for one simulated week (5 000 ops each) → merge time.
@@ -73,15 +73,15 @@
 ### P0-06 — Handwriting recognition benchmark
 - **WS:** WS3 · **Size:** L · **Owner:** ML engineer · **Blocked by:** D2, D5
 - **Tasks**
-  - Text: ML Kit Digital Ink vs MyScript (evaluation licence) on own corpus in target languages: CER, latency, model size.
-  - Maths: MyScript vs a baseline open model trained on CROHME + MathWriting (licence check for each dataset), evaluated on CROHME test + own corpus: exact match, top-3, symbol accuracy, latency on device after int8 quantisation.
-  - Cost model for MyScript at projected user numbers.
+  - Text: ML Kit Digital Ink vs an open model on own corpus in French, English and Malagasy (D5): CER, latency, model size. MyScript is excluded by the GPL-3 licence (D1).
+  - Maths: a baseline open model trained on CROHME + MathWriting (licence check for each dataset), evaluated on CROHME test + own corpus: exact match, top-3, symbol accuracy, latency on device after int8 quantisation.
+  - Malagasy handwriting corpus: collection plan and size estimate.
 - **Acceptance:** report with tables; buy/build recommendation for D2 with effort estimate for "build" path; recalibrated targets for WS3.
 
 ### P0-07 — CAS evaluation
 - **WS:** WS4 · **Size:** M · **Owner:** Maths engineer · **Blocked by:** D1
-- **Tasks:** build SymEngine and Giac for Android arm64; binary size; run a 150-task subset of the curriculum suite (simplify, solve, diff, integrate, limits, series, matrices, inequalities); measure correctness and time; document gaps and effort to fill them for SymEngine.
-- **Acceptance:** report + recommendation for D7; draft `CasBackend` trait.
+- **Tasks (Giac chosen, D7):** build Giac for Android arm64; binary size; run a 150-task subset of the curriculum suite (simplify, solve, diff, integrate, limits, series, matrices, inequalities); measure correctness and time; document gaps.
+- **Acceptance:** report on Giac; draft `CasBackend` trait.
 
 ### P0-08 — On-device LLM benchmark
 - **WS:** WS6 · **Size:** M · **Owner:** ML engineer · **Blocked by:** D4, D5
@@ -108,9 +108,9 @@
 - **Tasks:** `nb-store` with SQLite (WAL): update log, snapshots, assets table, migration framework; kill-test harness.
 - **Acceptance:** 1 000 randomised kill-during-write tests with zero corruption and zero loss of committed commands; load 2 000-stroke page ≤ 400 ms.
 
-### P0-13 — `.nbk` format specification draft
+### P0-13 — `.kahie` format specification draft
 - **WS:** WS2 · **Size:** S · **Owner:** Rust core engineer
-- **Tasks:** write `docs/format/nbk-v0.md` (container layout, manifest schema, JSON schema for `document.json`, versioning policy).
+- **Tasks:** write `docs/format/kahie-v0.md` (container layout, manifest schema, JSON schema for `document.json`, versioning policy).
 - **Acceptance:** reviewed by tech lead; JSON Schema file validates a sample export.
 
 ### P0-14 — UX research & first-run prototype

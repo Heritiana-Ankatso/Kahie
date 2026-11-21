@@ -18,7 +18,7 @@
 | E1.8 | Text handwriting recognition & search | WS3, WS2 |
 | E1.9 | Export & portable format | WS2 |
 | E1.10 | Simple-mode shell & onboarding | WS8, WS1 |
-| E1.11 | Desktop build (preview) | WS1 |
+| E1.11 | ~~Desktop build (preview)~~ — descoped (D3: Android only) | WS1 |
 | E1.12 | Quality, performance, accessibility | QA, all |
 
 ---
@@ -83,7 +83,7 @@
 |---|---|---|---|
 | P1-25 | Undo/redo | M | Per-user, per-notebook; ≥ 500 steps; visible buttons + two-finger tap / three-finger tap gestures |
 | P1-26 | Autosave & crash recovery | M | Durable ≤ 1 s after commit; reopening after kill restores exact state; kill-test suite in CI |
-| P1-27 | Local backup | M | Scheduled `.nbk` backups to user-chosen folder; restore from backup flow; integrity check |
+| P1-27 | Local backup | M | Scheduled `.kahie` backups to user-chosen folder; restore from backup flow; integrity check |
 | P1-28 | Page/notebook version snapshots (local) | S | "Restore this page as it was" from recent snapshots (pre-sync history UI) |
 
 ## E1.8 — Text handwriting recognition & search
@@ -101,8 +101,8 @@
 |---|---|---|---|
 | P1-33 | PDF export | M | Vector; page range; with/without backgrounds; annotated PDFs export original pages + annotations; golden diff ≤ 0.5 % |
 | P1-34 | PNG & SVG export | S | Per page or selection; resolution option for PNG |
-| P1-35 | `.nbk` export/import v1 | M | Implements format spec; round-trip test (export → import → identical document); `document.json` validates against schema |
-| P1-36 | Share sheet integration | S | Android share intent for PDF/PNG; import `.nbk` and PDF via "open with" |
+| P1-35 | `.kahie` export/import v1 | M | Implements format spec; round-trip test (export → import → identical document); `document.json` validates against schema |
+| P1-36 | Share sheet integration | S | Android share intent for PDF/PNG; import `.kahie` and PDF via "open with" |
 
 ## E1.10 — Simple-mode shell & onboarding
 
@@ -114,11 +114,11 @@
 | P1-40 | Contextual tips & optional tutorials | M | One-time tips; 3 interactive tutorials (write & erase, organise notebooks, annotate PDF) |
 | P1-41 | Mode switch scaffold | S | Simple/Advanced setting exists; Advanced exposes layers & full style options (more added in later phases) |
 
-## E1.11 — Desktop build (preview)
+## E1.11 — Desktop build (preview) — descoped by D3 (Android only)
 
 | ID | Ticket | Size | Acceptance criteria |
 |---|---|---|---|
-| P1-42 | Desktop app (Windows/macOS/Linux) | L | Opens/edits same `.nbk` files; pen tablet pressure where supported; keyboard shortcuts; installers built in CI |
+| P1-42 | Desktop app (Windows/macOS/Linux) | L | Opens/edits same `.kahie` files; pen tablet pressure where supported; keyboard shortcuts; installers built in CI |
 
 ## E1.12 — Quality, performance, accessibility
 

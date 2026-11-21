@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Kahie corpus</title>
+  <meta name="description" content="Handwriting sample collection for Kahie (offline, nothing is uploaded).">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <style>
+    :root { --bg: #f6f4ef; --fg: #1d1d1f; --muted: #6b6b70; --line: #c9d8f0; --accent: #2f5bd3; --paper: #fff; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1b1d22; --fg: #ececf0; --muted: #a0a0a8; --line: #36405a; --accent: #8fb0ff; --paper: #23262d; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+    main { max-width: 720px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 1.4rem; margin: 0.5rem 0 1rem; }
+    fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; padding: 8px 12px; }
+    label { display: inline-flex; gap: 6px; align-items: center; margin: 4px 12px 4px 0; }
+    button { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--fg); }
+    button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button:disabled { opacity: 0.4; }
+    #session { display: none; position: fixed; inset: 0; flex-direction: column; }
+    #prompt { padding: 12px 16px; font-size: 1.6rem; text-align: center; min-height: 4.5rem; }
+    #prompt small { display: block; font-size: 0.9rem; color: var(--muted); }
+    #pad { flex: 1; background: var(--paper); touch-action: none; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    #bar { display: flex; gap: 8px; padding: 8px 16px; justify-content: space-between; align-items: center; }
+    #done { display: none; text-align: center; }
+    #writer { font: 2rem ui-monospace, monospace; margin: 1rem; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main id="setup">
+    <h1>Kahie — échantillons d'écriture / handwriting samples</h1>
+    <p class="muted">Rien n'est envoyé sur Internet : le fichier est téléchargé sur cet appareil à la fin.
+      Nothing is uploaded: a file is saved on this device at the end.</p>
+    <fieldset><legend>Langue / Language</legend><div id="langs"></div></fieldset>
+    <fieldset><legend>Consentement / Consent (formulaire signé / signed form)</legend>
+      <label><input type="checkbox" id="c-eval"> Évaluation (données de test publiques / public test data)</label><br>
+      <label><input type="checkbox" id="c-train"> Entraînement / Training</label>
+    </fieldset>
+    <fieldset><legend>Facultatif / Optional</legend>
+      <label>Âge / Age <select id="age"><option value="">—</option><option>&lt;12</option><option>12-17</option><option>18-25</option><option>26-40</option><option>&gt;40</option></select></label>
+      <label>Main / Hand <select id="hand"><option value="">—</option><option value="right">droite / right</option><option value="left">gauche / left</option></select></label>
+      <label>Rôle / Role <select id="role"><option value="">—</option><option value="student">élève / student</option><option value="teacher">enseignant / teacher</option></select></label>
+    </fieldset>
+    <button class="primary" id="start" disabled>Commencer / Start</button>
+    <p class="muted" id="why">Cochez au moins un consentement. / Tick at least one consent.</p>
+  </main>
+
+  <section id="session">
+    <div id="prompt"></div>
+    <canvas id="pad"></canvas>
+    <div id="bar">
+      <button id="clear">Effacer / Clear</button>
+      <span id="count" class="muted"></span>
+      <span><button id="skip">Passer / Skip</button> <button class="primary" id="next">Suivant / Next</button></span>
+    </div>
+  </section>
+
+  <main id="done">
+    <h1>Merci ! / Thank you!</h1>
+    <p>Identifiant à garder pour un retrait / Keep this id to withdraw later:</p>
+    <div id="writer"></div>
+    <button class="primary" id="save">Télécharger le fichier / Save file</button>
+  </main>
+
+  <script type="module" src="src/collect.js"></script>
+</body>
+</html>

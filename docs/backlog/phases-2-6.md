@@ -74,7 +74,7 @@ Epics are refined into tickets (same format as [phase-1.md](phase-1.md)) during 
 
 | Epic | Title | Notes |
 |---|---|---|
-| E6.1 | iPad / iOS app | Rust core via Swift bindings; depends on D3 |
+| E6.1 | ~~iPad / iOS app~~ | Descoped (D3: Android only) |
 | E6.2 | Web viewer | Core compiled to WASM; read-only + comments |
 | E6.3 | Self-hosted sync relay | Open-source relay implementing `SyncTransport` |
 | E6.4 | Vision model for diagram/photo understanding | Optional, high-tier devices |

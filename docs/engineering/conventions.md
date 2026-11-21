@@ -29,7 +29,7 @@
 |---|---|---|
 | Unit | `cargo test`, JUnit/Kotlin test | All crates/modules |
 | Property-based | `proptest` | CRDT convergence, undo/redo invariants, ADR-0003 ink preservation, solver invariants, format round-trips |
-| Fuzzing | `cargo-fuzz` | PDF import, `.nbk` import, LaTeX/expression parsers |
+| Fuzzing | `cargo-fuzz` | PDF import, `.kahie` import, LaTeX/expression parsers |
 | Golden images | Display-list rasteriser in CI; device screenshots nightly | Rendering, export |
 | Curriculum suites | Custom runners | CAS (≥ 300 tasks), constructions (≥ 100), curve fitting (200 sketches) |
 | Recognition evaluation | `ml/` evaluation scripts on frozen sets | Any model/engine change |
@@ -49,6 +49,10 @@
 - No Rust panics across FFI: catch at boundary, map to typed errors, report.
 - Ownership: large buffers passed as byte arrays; no long-lived references across the boundary.
 - All long operations async and cancellable.
+- Hot input path: one call per input event (`add_points`), never per sample. Pen-up commit ≤ 1 ms (P0-04: 0.06 ms in memory, 0.47 ms durable on desktop).
+- Error variants must not have a field named `message` (clashes with Kotlin `Throwable.message`); use `detail`.
+- Check generated bindings compile before pushing: generate them with `uniffi-bindgen` and compile with `kotlinc -cp jna.jar` (no Android SDK needed).
+- Check the whole app's Kotlin compiles before pushing: `app/android/ci/kt-check.sh` (no Android SDK needed; compiles against Robolectric's `android-all`, with stubs for `R` and `androidx.ink`). It does not replace the CI APK build (resources, manifest, AGP, linking).
 
 ## 7. Privacy and offline rules
 
@@ -67,6 +71,6 @@
 
 ## 9. Versioning and releases
 
-- Semantic versioning for the app and for the `.nbk` format (independently).
+- Semantic versioning for the app and for the `.kahie` format (independently).
 - Format readers support all older format versions (migration tests with stored fixtures in `testdata/formats/`).
 - Release channels: internal → pilot → beta → stable.

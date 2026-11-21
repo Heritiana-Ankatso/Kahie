@@ -1,0 +1,45 @@
+[package]
+name = "nb-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+# Build the CAS (Giac) into the library; needs libgiac for the target (see nb-math).
+giac = ["nb-math/giac"]
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "nb_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+nb-ink = { path = "../nb-ink" }
+nb-recog = { path = "../nb-recog" }
+nb-model = { path = "../nb-model" }
+nb-store = { path = "../nb-store" }
+nb-math = { path = "../nb-math" }
+sha2 = "0.11"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+loro.workspace = true
+# Relay sync client: blocking WebSocket on a background thread, TLS via rustls + ring
+# (pure Rust/asm, cross-compiles with the NDK; no system OpenSSL on Android).
+tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# End-to-end encryption of relay updates (ChaCha20-Poly1305); already linked by rustls.
+ring = "0.17"
+serde.workspace = true
+serde_json.workspace = true
+uniffi = { version = "0.32", features = ["cli"] }
+
+[dev-dependencies]
+nb-relay = { path = "../nb-relay" }
+tokio = { version = "1", features = ["rt-multi-thread", "net"] }
+axum = "0.8"
+
+[lints]
+workspace = true

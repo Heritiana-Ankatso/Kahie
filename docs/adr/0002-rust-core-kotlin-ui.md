@@ -1,7 +1,7 @@
-# ADR-0002: Rust core with Kotlin / Compose Multiplatform UI
+# ADR-0002: Rust core with native Android (Kotlin) UI
 
 - **Status:** Proposed
-- **Date:** 2026-11-18
+- **Date:** 2026-11-18 · **Amended:** 2026-11-20 (D3: Android only)
 - **Related:** P0-02, P0-04, P0-05, [overview.md](../architecture/overview.md)
 
 ## Context
@@ -14,6 +14,10 @@ Primary platform: Android tablets with stylus. Secondary: phones and computers. 
 2. **Flutter + Rust core.** Single UI codebase across all platforms; stylus low-latency path on Android needs native platform views anyway.
 3. **Rust core + Kotlin/Compose Multiplatform UI.** Best Android stylus access (front-buffered rendering, motion prediction, palm rejection); Compose also targets desktop; Rust core portable to Android, desktop, iOS and WASM.
 4. **C++ core.** Larger legacy library pool (CAS, PDFium), weaker safety and tooling.
+
+## Amendment (2026-11-20)
+
+Decision D3 makes Kahie **Android only**; Kahie Web covers other devices. Compose *Multiplatform* is therefore no longer needed: the UI is Android-only Kotlin (Android Views today, Jetpack Compose possible later). The wet-ink layer uses **Jetpack Ink** (`androidx.ink`, front-buffered rendering) over the core-rendered page. The Rust core and UniFFI boundary are unchanged. Desktop-related statements below are kept for history.
 
 ## Decision
 

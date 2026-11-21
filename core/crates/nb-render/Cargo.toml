@@ -1,0 +1,12 @@
+[package]
+name = "nb-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nb-ink = { path = "../nb-ink" }
+
+[lints]
+workspace = true

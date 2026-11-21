@@ -1,0 +1,120 @@
+{
+  "format": "kahie-document",
+  "version": "0.1.0",
+  "notebook": {
+    "id": "nb-1",
+    "title": "Géométrie"
+  },
+  "pages": [
+    {
+      "id": "page-1",
+      "template": "grid",
+      "items": [
+        {
+          "id": "s1",
+          "content": {
+            "type": "stroke",
+            "tool": "pen",
+            "color": 1907999,
+            "width": 3.0,
+            "points": [
+              {
+                "x": 10.0,
+                "y": 10.0,
+                "p": 0.5
+              },
+              {
+                "x": 110.0,
+                "y": 10.5,
+                "p": 0.5
+              }
+            ],
+            "interp": {
+              "shape": {
+                "kind": "line",
+                "a": {
+                  "x": 9.999375003906202,
+                  "y": 10.25,
+                  "p": 0.5
+                },
+                "b": {
+                  "x": 110.00062499609379,
+                  "y": 10.25,
+                  "p": 0.5
+                }
+              },
+              "show": true
+            }
+          }
+        },
+        {
+          "id": "t1",
+          "content": {
+            "type": "text",
+            "rect": {
+              "x": 10.0,
+              "y": 40.0,
+              "w": 200.0,
+              "h": 24.0
+            },
+            "text": "Théorème de Pythagore",
+            "size": 16.0,
+            "color": 1907999
+          }
+        },
+        {
+          "id": "m1",
+          "content": {
+            "type": "math",
+            "rect": {
+              "x": 10.0,
+              "y": 80.0,
+              "w": 120.0,
+              "h": 30.0
+            },
+            "latex": "a^2 + b^2 = c^2",
+            "size": 18.0,
+            "color": 1907999
+          }
+        },
+        {
+          "id": "g1",
+          "content": {
+            "type": "plot",
+            "rect": {
+              "x": 10.0,
+              "y": 120.0,
+              "w": 300.0,
+              "h": 200.0
+            },
+            "exprs": [
+              "x^2 - 2"
+            ],
+            "x0": -5.0,
+            "x1": 5.0,
+            "y0": -3.0,
+            "y1": 10.0
+          }
+        },
+        {
+          "id": "i1",
+          "content": {
+            "type": "image",
+            "rect": {
+              "x": 320.0,
+              "y": 120.0,
+              "w": 100.0,
+              "h": 80.0
+            },
+            "asset": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+          }
+        }
+      ]
+    },
+    {
+      "id": "page-2",
+      "template": "lined",
+      "items": []
+    }
+  ]
+}

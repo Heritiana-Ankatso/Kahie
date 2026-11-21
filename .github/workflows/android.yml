@@ -1,0 +1,126 @@
+name: android
+
+on:
+  # By hand, e.g. after giac-android published new libraries.
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths: ['core/**', 'app/android/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['core/**', 'app/android/**', '.github/workflows/android.yml']
+
+# A newer push to the same branch cancels the older run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # GitHub's Ubuntu runners ship the Android SDK; this sets ANDROID_HOME and installs what is missing.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018'
+
+      - name: Rust targets and cargo-ndk
+        run: |
+          rustup target add aarch64-linux-android x86_64-linux-android
+          cargo install cargo-ndk --locked
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - name: Rust lint and tests
+        working-directory: core
+        run: |
+          cargo fmt --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --locked
+
+      # The CAS (Giac) is built by giac-android.yml: take the libraries of its latest
+      # successful run on this branch.
+      - name: Find the latest Giac build
+        id: giac
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh run list -R "$GITHUB_REPOSITORY" -w giac-android.yml -b "${{ github.head_ref || github.ref_name }}" \
+            -s success -L 1 --json databaseId -q '.[0].databaseId')
+          echo "giac-android run: ${id:-none}"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        if: steps.giac.outputs.id != ''
+        with:
+          run-id: ${{ steps.giac.outputs.id }}
+          github-token: ${{ github.token }}
+          pattern: giac-libs-*
+          path: giac-libs
+      - name: Enable the CAS if both ABIs are available
+        run: |
+          A=$(find giac-libs -type d -name aarch64-linux-android | head -1)
+          X=$(find giac-libs -type d -name x86_64-linux-android | head -1)
+          if [[ -n "$A" && -n "$X" ]]; then
+            echo "GIAC_LIB_DIR_aarch64_linux_android=$PWD/$A" >> "$GITHUB_ENV"
+            echo "GIAC_LIB_DIR_x86_64_linux_android=$PWD/$X" >> "$GITHUB_ENV"
+            echo "KAHIE_FEATURES=giac" >> "$GITHUB_ENV"
+            echo "CAS: included" >> "$GITHUB_STEP_SUMMARY"
+          else
+            # The CAS is part of the product (D7): do not ship an APK without it silently.
+            echo "Downloaded:"; find giac-libs -maxdepth 4 | head -40 || true
+            echo "::error::Giac libraries not found (giac-android must have succeeded on this branch)"
+            exit 1
+          fi
+
+      - name: Build debug APK
+        working-directory: app/android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+        run: ./gradlew --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kahie-debug-apk
+          path: app/android/app/build/outputs/apk/debug/*.apk
+
+  # Installs the APK on an emulator, draws two strokes and checks they appear (app/android/ci/smoke.sh).
+  smoke:
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: kahie-debug-apk
+          path: app/android/app/build/outputs/apk/debug
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: pip install --quiet pillow
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash app/android/ci/smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-screenshots
+          path: smoke-out

@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A newer push to the same branch cancels the older run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax check
+        run: for f in app/web/src/*.js app/web/sw.js; do node --check "$f"; done
+      - name: Unit tests
+        working-directory: app/web
+        run: node --test tests/*.test.mjs
+
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust tests
+        run: cargo test --locked
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: core/Cargo.toml
+          command: check advisories bans licenses sources
+
+  # Privacy rule (conventions §7): the test suites must pass with no network at all.
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch Rust dependencies (online)
+        working-directory: core
+        run: cargo fetch --locked && cargo test --locked --no-run
+      - name: Run all tests in a network namespace with only loopback
+        run: |
+          # Loopback stays up (sync/relay tests talk to a local relay); nothing else exists.
+          sudo unshare --net -- bash -c 'ip link set lo up && exec sudo -u "$0" env "PATH=$1" "HOME=$2" bash -euo pipefail -c "$3"' \
+            "$USER" "$PATH" "$HOME" '
+            ! curl -sS --max-time 5 https://example.com >/dev/null 2>&1 || { echo "network is reachable"; exit 1; }
+            (cd core && cargo test --locked --offline)
+            (cd app/web && node --test tests/*.test.mjs)
+          '
+
+  format-schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the .kahie document.json example against its JSON Schema
+        run: |
+          pip install --quiet jsonschema==4.26.0
+          python3 - <<'PY'
+          import json, jsonschema
+          schema = json.load(open("docs/format/document.schema.json"))
+          jsonschema.Draft202012Validator.check_schema(schema)
+          jsonschema.Draft202012Validator(schema).validate(json.load(open("docs/format/examples/document.json")))
+          print("document.json example is valid")
+          PY

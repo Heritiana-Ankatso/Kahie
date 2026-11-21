@@ -1,0 +1,20 @@
+[package]
+name = "p0-09-typeset"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace]
+
+[dependencies]
+typst-as-lib = { version = "0.18", features = ["typst-kit-fonts"] }
+typst = "0.15"
+typst-svg = "0.15"
+typst-layout = "0.15"
+typst-pdf = "0.15"
+typst-assets = { version = "0.15", features = ["fonts"] }
+mitex = "0.2"
+
+[profile.release]
+debug = false

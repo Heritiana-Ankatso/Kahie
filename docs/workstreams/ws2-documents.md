@@ -8,14 +8,14 @@ A robust, never-lose-data document system with the library, page types, template
 
 ## Scope
 
-- Document model (`nb-model`), storage (`nb-store`), `.nbk` format.
+- Document model (`nb-model`), storage (`nb-store`), `.kahie` format.
 - Library: folders, notebooks, sections, pages; reorder/move; trash with restore.
 - Page kinds & templates: fixed sizes, infinite canvas, backgrounds, template gallery (teaching, research, study, personal).
 - Typed rich text blocks; images (insert, crop, rotate).
 - PDF: import, render, annotate, insert pages, export flattened or with annotations.
 - Undo/redo (per-user, per-document), autosave, crash recovery, local backup.
 - Search: typed text, recognised handwriting, maths (normalised), notebook/page titles.
-- Export: PDF (vector), SVG, PNG, Markdown (+ LaTeX maths), LaTeX (+ TikZ for diagrams/geometry), `.nbk`, JSON.
+- Export: PDF (vector), SVG, PNG, Markdown (+ LaTeX maths), LaTeX (+ TikZ for diagrams/geometry), `.kahie`, JSON.
 
 ## Technical approach
 
@@ -23,7 +23,7 @@ A robust, never-lose-data document system with the library, page types, template
 |---|---|
 | Undo | Command-based undo over CRDT: each user command records inverse ops; undo applies inverses (only own changes) |
 | Autosave | Every committed command is durable within 1 s (SQLite WAL); no "save" button |
-| Backup | Scheduled local `.nbk` export to user-chosen folder (Android Storage Access Framework); Drive backup in Phase 4 |
+| Backup | Scheduled local `.kahie` export to user-chosen folder (Android Storage Access Framework); Drive backup in Phase 4 |
 | PDF render | PDFium (BSD) via Rust bindings; per-page tiles; text layer extracted for search/selection |
 | PDF annotate | Annotations are ordinary objects on a page with `pdf_source`; PDF itself never modified |
 | PDF export | Display list → PDF writer (vector paths, embedded fonts, original PDF pages as XObjects) |
@@ -36,8 +36,8 @@ A robust, never-lose-data document system with the library, page types, template
 
 | Phase | Deliverable |
 |---|---|
-| 0 | Model v0, storage v0, `.nbk` spec draft (P0-11…P0-13) |
-| 1 | Library, pages, templates, text, images, PDF, undo/autosave, search (text/HWR), PDF/PNG/SVG export, `.nbk` export/import |
+| 0 | Model v0, storage v0, `.kahie` spec draft (P0-11…P0-13) |
+| 1 | Library, pages, templates, text, images, PDF, undo/autosave, search (text/HWR), PDF/PNG/SVG export, `.kahie` export/import |
 | 2 | Markdown, LaTeX/TikZ export; maths search |
 
 ## Quality metrics
