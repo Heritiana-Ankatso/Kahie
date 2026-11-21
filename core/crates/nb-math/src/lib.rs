@@ -4,6 +4,7 @@
 
 pub mod analysis;
 pub mod cas;
+pub mod geo;
 pub mod plot;
 pub mod texout;
 

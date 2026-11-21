@@ -203,4 +203,5 @@
     <string name="plot_line_area">aire 1 de 0 à 1</string>
     <string name="export_markdown">Exporter en Markdown (ZIP)</string>
     <string name="export_latex">Exporter en LaTeX (ZIP)</string>
+    <string name="plot_geo_help">Géométrie (déplacez les points libres avec l’outil Graphique) : A = (0, 0) · B = (4, 1) · c = cercle(A, B) · d = droite(A, B) · P = intersection(c, d, 2) · M = milieu(A, B) · m = mediatrice(A, B) · perpendiculaire(d, A) · parallele(d, A) · polygone(A, B, C) · distance(A, B) · angle(B, A, C) · sans axes</string>
 </resources>

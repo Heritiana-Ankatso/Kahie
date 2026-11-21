@@ -90,7 +90,8 @@ pub struct MathBlock {
 pub struct PlotMarker {
     pub x: f32,
     pub y: f32,
-    /// `root`, `max`, `min`, `inflection`, `intersection`, `point` or `label` (text only).
+    /// `root`, `max`, `min`, `inflection`, `intersection`, `point`, `free` (a construction's
+    /// free point: draggable, see `PageDoc::move_plot_point`) or `label` (text only).
     pub kind: String,
     pub label: String,
 }
@@ -126,8 +127,10 @@ pub struct PlotBlock {
     pub dashed: Vec<bool>,
     /// Points found by analysis lines (roots, extrema, …) and point lines, inside the window.
     pub markers: Vec<PlotMarker>,
-    /// Shaded areas (`area f from a to b`).
+    /// Shaded areas (`area f from a to b`, polygons).
     pub shades: Vec<PlotShade>,
+    /// Draw axes and grid (false after an `axes off` line).
+    pub axes: bool,
     /// Lines that are invalid, with the reason (same order as `exprs`, empty if fine).
     pub errors: Vec<String>,
     /// Tick spacing on each axis, in window units.
@@ -193,7 +196,7 @@ fn plot_block(it: &Item) -> Option<PlotBlock> {
             }
         })
         .collect();
-    let (dashed, errors) = (r.dashed, r.errors);
+    let (dashed, errors, axes) = (r.dashed, r.errors, r.axes);
     Some(PlotBlock {
         key: item_key(it),
         id: it.id.clone(),
@@ -210,6 +213,7 @@ fn plot_block(it: &Item) -> Option<PlotBlock> {
         dashed,
         markers,
         shades,
+        axes,
         errors,
         x_step: nb_math::tick_step(x1 - x0, 8.0),
         y_step: nb_math::tick_step(y1 - y0, 8.0),
@@ -1188,6 +1192,51 @@ impl PageDoc {
         Ok(st.commit(op))
     }
 
+    /// The lines of plot `id` with free point `name` moved to page position (x, y), snapped
+    /// to `snap` window units (0: no snapping). `None` if there is no such plot or point.
+    /// Use with `preview_plot` while dragging and `set_plot` on release (one undo step).
+    pub fn move_plot_point(&self, id: String, name: String, x: f64, y: f64, snap: f64) -> Option<Vec<String>> {
+        let st = self.state.lock().unwrap();
+        let it = st.doc.page().items.iter().find(|i| i.id == id)?;
+        let Content::Plot {
+            rect,
+            exprs,
+            x0,
+            x1,
+            y0,
+            y1,
+        } = &it.content
+        else {
+            return None;
+        };
+        let mut wx = x0 + (x - rect.x) / rect.w * (x1 - x0);
+        let mut wy = y1 - (y - rect.y) / rect.h * (y1 - y0);
+        if snap > 0.0 {
+            wx = (wx / snap).round() * snap;
+            wy = (wy / snap).round() * snap;
+        }
+        let mut lines = exprs.clone();
+        let line = lines.iter_mut().enumerate().find(
+            |(i, l)| matches!(nb_math::geo::parse_line(l, *i), Ok(Some((n, nb_math::geo::Def::Free(..)))) if n == name),
+        )?;
+        *line.1 = format!(
+            "{name} = ({}, {})",
+            nb_math::analysis::fmt_num(wx),
+            nb_math::analysis::fmt_num(wy)
+        );
+        Some(lines)
+    }
+
+    /// Plot `id` drawn with `exprs` instead of its stored lines (not saved): for previews.
+    pub fn preview_plot(&self, id: String, exprs: Vec<String>) -> Option<PlotBlock> {
+        let st = self.state.lock().unwrap();
+        let mut it = st.doc.page().items.iter().find(|i| i.id == id)?.clone();
+        if let Content::Plot { exprs: e, .. } = &mut it.content {
+            *e = exprs;
+        }
+        plot_block(&it)
+    }
+
     /// Topmost plot containing (x, y), if any.
     pub fn plot_at(&self, x: f64, y: f64) -> Option<String> {
         let st = self.state.lock().unwrap();
@@ -1553,6 +1602,35 @@ mod tests {
         );
         assert!(doc.set_math(id, "".into(), 0.0, 0.0));
         assert!(doc.math_blocks().is_empty());
+    }
+
+    #[test]
+    fn drag_a_free_point_of_a_construction() {
+        let doc = PageDoc::new_in_memory();
+        let lines: Vec<String> = ["A = (0, 0)", "B = (2, 0)", "M = midpoint(A, B)"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        // Box 0..100 for window −5..5: 10 px per unit, y up.
+        let id = doc
+            .add_plot(0.0, 0.0, 100.0, 100.0, lines, -5.0, 5.0, -5.0, 5.0)
+            .unwrap();
+        assert!(doc.plot_blocks()[0].markers.iter().filter(|m| m.kind == "free").count() == 2);
+        let moved = doc.move_plot_point(id.clone(), "B".into(), 91.0, 29.0, 0.5).unwrap();
+        assert_eq!(moved[1], "B = (4, 2)");
+        let preview = doc.preview_plot(id.clone(), moved.clone()).unwrap();
+        let m = preview.markers.iter().find(|m| m.label == "M").unwrap();
+        assert!(
+            (m.x - 70.0).abs() < 1e-3 && (m.y - 40.0).abs() < 1e-3,
+            "M = (2, 1) → page (70, 40)"
+        );
+        assert_eq!(doc.plot_blocks()[0].exprs[1], "B = (2, 0)", "preview does not save");
+        assert!(
+            doc.move_plot_point(id.clone(), "M".into(), 0.0, 0.0, 0.0).is_none(),
+            "M is not free"
+        );
+        doc.set_plot(id, moved, -5.0, 5.0, -5.0, 5.0).unwrap();
+        assert_eq!(doc.plot_blocks()[0].exprs[1], "B = (4, 2)");
     }
 
     #[test]

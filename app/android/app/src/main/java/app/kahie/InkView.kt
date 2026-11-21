@@ -117,6 +117,66 @@ class InkView(context: Context) : View(context) {
     }
 
     private var plots: List<uniffi.nb_ffi.PlotBlock> = emptyList()
+
+    // Dragging a free point of a construction (E2.6) with the Plot tool.
+    private var dragPlot: String? = null
+    private var dragPoint: String? = null
+    private var dragLines: List<String>? = null
+    private var dragMoved = false
+
+    /** Free point of a plot under (x, y) page units, within ~14 screen px: (plot id, name). */
+    private fun freePointAt(x: Float, y: Float): Pair<String, String>? {
+        val r = 14f * density / s
+        for (p in plots.asReversed()) {
+            val m = p.markers.firstOrNull { it.kind == "free" && hypot(it.x - x, it.y - y) <= r } ?: continue
+            return p.id to m.label
+        }
+        return null
+    }
+
+    private fun handlePlot(e: MotionEvent) {
+        val x = toPageX(e.x)
+        val y = toPageY(e.y)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val hit = if (readOnly) null else freePointAt(x, y)
+                dragPlot = hit?.first
+                dragPoint = hit?.second
+                dragLines = null
+                dragMoved = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val id = dragPlot ?: return
+                val d = doc ?: return
+                // Snap to half units, like a squared exercise book.
+                val lines = d.movePlotPoint(id, dragPoint!!, x.toDouble(), y.toDouble(), 0.5) ?: return
+                if (lines == dragLines) return
+                dragLines = lines
+                dragMoved = true
+                val preview = d.previewPlot(id, lines) ?: return
+                plots = plots.map { if (it.id == id) preview else it }
+                invalidate()
+            }
+            MotionEvent.ACTION_UP -> {
+                val id = dragPlot
+                val lines = dragLines
+                dragPlot = null
+                if (id != null && dragMoved && lines != null) {
+                    // One undoable, synced change for the whole drag.
+                    val p = plots.firstOrNull { it.id == id }
+                    if (p != null) runCatching { doc?.setPlot(id, lines, p.x0, p.x1, p.y0, p.y1) }
+                    refresh()
+                    onChanged()
+                } else if (id == null) {
+                    onPlotTap(x, y, doc?.plotAt(x.toDouble(), y.toDouble()))
+                }
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                dragPlot = null
+                refresh()
+            }
+        }
+    }
     private var images: List<uniffi.nb_ffi.ImageBlock> = emptyList()
 
     /** Plot tool tap at page coordinates, with the id of the plot there (if any). */
@@ -508,11 +568,7 @@ class InkView(context: Context) : View(context) {
             return true
         }
         if (tool == Tool.PLOT && !drawing && !erasing) {
-            if (e.actionMasked == MotionEvent.ACTION_UP) {
-                val x = toPageX(e.x)
-                val y = toPageY(e.y)
-                onPlotTap(x, y, doc?.plotAt(x.toDouble(), y.toDouble()))
-            }
+            handlePlot(e)
             return true
         }
         if (tool == Tool.MATH && !drawing && !erasing) {

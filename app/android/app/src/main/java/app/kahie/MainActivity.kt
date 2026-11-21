@@ -1069,11 +1069,12 @@ class MainActivity : Activity() {
         }
         val x0 = num("x min", existing?.x0 ?: -5.0)
         val x1 = num("x max", existing?.x1 ?: 5.0)
-        val y0 = num("y min", existing?.y0 ?: -5.0)
-        val y1 = num("y max", existing?.y1 ?: 5.0)
+        // Same scale on both axes by default (the box is 4:3), so circles look round.
+        val y0 = num("y min", existing?.y0 ?: -3.75)
+        val y1 = num("y max", existing?.y1 ?: 3.75)
         box.addView(exprs)
         box.addView(TextView(this).apply {
-            text = getString(R.string.plot_syntax_help)
+            text = getString(R.string.plot_syntax_help) + "\n" + getString(R.string.plot_geo_help)
             textSize = 12f
             setTextIsSelectable(true)
         })

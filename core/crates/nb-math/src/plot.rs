@@ -37,7 +37,9 @@ pub enum MarkerKind {
     Inflection,
     Intersection,
     Point,
-    /// Text only (equation of a tangent or asymptote).
+    /// A free point of a construction: the app lets the teacher drag it.
+    Free,
+    /// Text only (equation of a tangent or asymptote, a measurement).
     Label,
 }
 
@@ -68,6 +70,8 @@ pub struct Rendered {
     pub errors: Vec<String>,
     pub markers: Vec<Marker>,
     pub shades: Vec<Shade>,
+    /// Draw axes and grid (`axes off` / `sans axes` hides them, e.g. for geometry).
+    pub axes: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -78,9 +82,21 @@ enum Fref {
 
 #[derive(Clone, Debug, PartialEq)]
 enum Line {
-    Function { name: Option<String>, f: Expr },
-    Parametric { x: Expr, y: Expr, t0: f64, t1: f64 },
-    Polar { r: Expr, t0: f64, t1: f64 },
+    Function {
+        name: Option<String>,
+        f: Expr,
+    },
+    Parametric {
+        x: Expr,
+        y: Expr,
+        t0: f64,
+        t1: f64,
+    },
+    Polar {
+        r: Expr,
+        t0: f64,
+        t1: f64,
+    },
     Point(f64, f64),
     Roots(Fref),
     Extrema(Fref),
@@ -89,6 +105,9 @@ enum Line {
     Intersections(Fref, Fref),
     Tangent(Fref, f64, bool),
     Area(Fref, Option<Fref>, f64, f64),
+    /// A construction object (see [`crate::geo`]): index into the evaluated values.
+    Geo(String, Box<crate::geo::Def>),
+    AxesOff,
 }
 
 fn perr<T>(m: impl Into<String>) -> Result<T, ParseError> {
@@ -160,8 +179,17 @@ fn keyword(first: &str) -> Option<&'static str> {
     })
 }
 
-fn parse_line(src: &str) -> Result<Line, ParseError> {
+fn parse_line(src: &str, index: usize) -> Result<Line, ParseError> {
     let s = src.trim();
+    if matches!(
+        s.to_lowercase().as_str(),
+        "axes off" | "no axes" | "sans axes" | "hide axes"
+    ) {
+        return Ok(Line::AxesOff);
+    }
+    if let Some((name, def)) = crate::geo::parse_line(s, index)? {
+        return Ok(Line::Geo(name, Box::new(def)));
+    }
     let mut words = s.split_whitespace();
     let first = words.next().unwrap_or("");
     if let Some(kw) = keyword(first) {
@@ -295,7 +323,16 @@ fn pt(x: f64, y: f64) -> String {
 
 /// Parse and draw every line of a plot in window `w`.
 pub fn render(lines: &[String], w: &Window) -> Rendered {
-    let parsed: Vec<Result<Line, ParseError>> = lines.iter().map(|l| parse_line(l)).collect();
+    let parsed: Vec<Result<Line, ParseError>> = lines.iter().enumerate().map(|(i, l)| parse_line(l, i)).collect();
+    // Constructions are evaluated together, in order (each object uses earlier ones).
+    let geo_defs: Vec<(String, crate::geo::Def)> = parsed
+        .iter()
+        .filter_map(|l| match l {
+            Ok(Line::Geo(n, d)) => Some((n.clone(), (**d).clone())),
+            _ => None,
+        })
+        .collect();
+    let mut geo_values = crate::geo::evaluate(&geo_defs).into_iter();
     // Functions by name and by order.
     let funcs: Vec<(Option<String>, &Expr)> = parsed
         .iter()
@@ -315,7 +352,10 @@ pub fn render(lines: &[String], w: &Window) -> Rendered {
         }
     };
     let (a, b) = (w.x0, w.x1);
-    let mut out = Rendered::default();
+    let mut out = Rendered {
+        axes: true,
+        ..Rendered::default()
+    };
     for line in &parsed {
         let mut curves = vec![];
         let mut dashed = false;
@@ -325,6 +365,64 @@ pub fn render(lines: &[String], w: &Window) -> Rendered {
             Ok(line) => {
                 let r: Result<(), String> = (|| {
                     match line {
+                        Line::AxesOff => out.axes = false,
+                        Line::Geo(name, def) => {
+                            use crate::geo::Value;
+                            let value = geo_values.next().expect("one value per construction")?;
+                            let label = if name.starts_with('#') {
+                                String::new()
+                            } else {
+                                name.clone()
+                            };
+                            match value {
+                                Value::Point((x, y)) => out.markers.push(Marker {
+                                    x,
+                                    y,
+                                    kind: if matches!(**def, crate::geo::Def::Free(..)) {
+                                        MarkerKind::Free
+                                    } else {
+                                        MarkerKind::Point
+                                    },
+                                    label,
+                                }),
+                                Value::Line { a, b, kind } => {
+                                    let (lo_x, hi_x) = (w.x0.min(w.x1), w.x0.max(w.x1));
+                                    let (lo_y, hi_y) = (w.y0.min(w.y1), w.y0.max(w.y1));
+                                    if let Some((p, q)) = crate::geo::clip(a, b, kind, lo_x, hi_x, lo_y, hi_y) {
+                                        curves.push(vec![p, q]);
+                                    }
+                                }
+                                Value::Circle { c, r } => {
+                                    curves.push(
+                                        (0..=360)
+                                            .map(|k| {
+                                                let t = (k as f64).to_radians();
+                                                (c.0 + r * t.cos(), c.1 + r * t.sin())
+                                            })
+                                            .collect(),
+                                    );
+                                }
+                                Value::Polygon(pts) => {
+                                    let mut closed = pts.clone();
+                                    closed.push(pts[0]);
+                                    curves.push(closed);
+                                    let n = pts.len() as f64;
+                                    let at = pts.iter().fold((0.0, 0.0), |s, p| (s.0 + p.0 / n, s.1 + p.1 / n));
+                                    out.shades.push(Shade {
+                                        polygon: pts,
+                                        label: String::new(),
+                                        at,
+                                    });
+                                }
+                                Value::Measure(_, text, (x, y)) => out.markers.push(Marker {
+                                    x,
+                                    y,
+                                    kind: MarkerKind::Label,
+                                    label: text,
+                                }),
+                                Value::Undefined => {}
+                            }
+                        }
                         Line::Function { f, .. } => {
                             let n = 1000;
                             curves = crate::sample(f, a, b, w.y0, w.y1, n);
@@ -532,9 +630,20 @@ pub fn to_pgfplots(lines: &[String], w: &Window, width_cm: f64) -> String {
             tex_escape(&sh.label)
         ));
     }
+    if !r.axes {
+        out = out.replace(
+            "axis lines=middle, grid=major, grid style={gray!20}",
+            "axis lines=none, axis equal image",
+        );
+    }
     for (i, line) in lines.iter().enumerate() {
         let color = colors[i % colors.len()];
-        match parse_line(line) {
+        match parse_line(line, i) {
+            Ok(Line::Geo(..)) => {
+                for seg in r.curves.get(i).into_iter().flatten() {
+                    out.push_str(&format!("  \\addplot[black, thick] coordinates {{{}}};\n", coords(seg)));
+                }
+            }
             Ok(Line::Function { f, .. }) => out.push_str(&format!(
                 "  \\addplot[{color}, thick, domain={}:{}] {{{}}};\n",
                 w.x0,
@@ -725,5 +834,44 @@ mod tests {
         assert!(tex.contains("gray, dashed") && tex.contains("fill opacity=0.2") && tex.contains("$\\int$ = -1.333"));
         assert_eq!(tex.matches("\\begin{").count(), tex.matches("\\end{").count());
         assert_eq!(tex_escape("a_b & 50%"), "a\\_b \\& 50\\%");
+    }
+
+    #[test]
+    fn constructions_in_a_plot() {
+        let out = r(&[
+            "A = (0, 0)",
+            "B = (3, 0)",
+            "c = circle(A, B)",
+            "d = line(A, B)",
+            "P = intersect(c, d, 1)",
+            "T = polygon(A, B, X)",
+            "axes off",
+            "y = x",
+        ]);
+        assert!(!out.axes);
+        assert_eq!(out.errors[5], "unknown object X");
+        assert!(
+            out.errors.iter().enumerate().all(|(i, e)| i == 5 || e.is_empty()),
+            "{:?}",
+            out.errors
+        );
+        let free: Vec<&str> = out
+            .markers
+            .iter()
+            .filter(|m| m.kind == MarkerKind::Free)
+            .map(|m| m.label.as_str())
+            .collect();
+        assert_eq!(free, ["A", "B"]);
+        let p = out.markers.iter().find(|m| m.label == "P").unwrap();
+        assert!((p.x + 3.0).abs() < 1e-9 && p.y.abs() < 1e-9 && p.kind == MarkerKind::Point);
+        assert_eq!(out.curves[2].len(), 1, "circle");
+        // The line is clipped to the window [−5, 5].
+        assert_eq!(out.curves[3], vec![vec![(-5.0, 0.0), (5.0, 0.0)]]);
+        let tex = to_pgfplots(
+            &["A = (0, 0)".into(), "c = circle(A, 2)".into(), "axes off".into()],
+            &W,
+            6.0,
+        );
+        assert!(tex.contains("axis lines=none") && tex.contains("black, thick"));
     }
 }

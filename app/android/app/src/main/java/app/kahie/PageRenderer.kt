@@ -126,19 +126,21 @@ object PageRenderer {
         canvas.clipRect(l, t, r, b)
         canvas.drawColor(Color.WHITE)
         var gx = kotlin.math.ceil(p.x0 / p.xStep) * p.xStep
+        if (!p.axes) gx = Double.MAX_VALUE // "axes off": no grid, axes or tick labels
         while (gx <= p.x1) { canvas.drawLine(px(gx), t, px(gx), b, grid); gx += p.xStep }
         var gy = kotlin.math.ceil(p.y0 / p.yStep) * p.yStep
+        if (!p.axes) gy = Double.MAX_VALUE
         while (gy <= p.y1) { canvas.drawLine(l, py(gy), r, py(gy), grid); gy += p.yStep }
-        val ax = if (0.0 in p.x0..p.x1) px(0.0) else null
-        val ay = if (0.0 in p.y0..p.y1) py(0.0) else null
+        val ax = if (p.axes && 0.0 in p.x0..p.x1) px(0.0) else null
+        val ay = if (p.axes && 0.0 in p.y0..p.y1) py(0.0) else null
         ay?.let { canvas.drawLine(l, it, r, it, axis) }
         ax?.let { canvas.drawLine(it, t, it, b, axis) }
         fun fmt(v: Double) = if (kotlin.math.abs(v - Math.rint(v)) < 1e-9) Math.rint(v).toLong().toString() else "%.2f".format(v).trimEnd('0').trimEnd('.')
         val labelY = (ay ?: b) - 3f
-        gx = kotlin.math.ceil(p.x0 / p.xStep) * p.xStep
+        gx = if (p.axes) kotlin.math.ceil(p.x0 / p.xStep) * p.xStep else Double.MAX_VALUE
         while (gx <= p.x1) { if (kotlin.math.abs(gx) > 1e-12) canvas.drawText(fmt(gx), px(gx) + 2f, labelY, label); gx += p.xStep }
         val labelX = (ax ?: l) + 3f
-        gy = kotlin.math.ceil(p.y0 / p.yStep) * p.yStep
+        gy = if (p.axes) kotlin.math.ceil(p.y0 / p.yStep) * p.yStep else Double.MAX_VALUE
         while (gy <= p.y1) { if (kotlin.math.abs(gy) > 1e-12) canvas.drawText(fmt(gy), labelX, py(gy) - 2f, label); gy += p.yStep }
         // Shaded areas first (under the curves), with their value.
         val shadeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0x332F5BD3 }
@@ -177,7 +179,13 @@ object PageRenderer {
         val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
         val markText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1D1D1F.toInt(); textSize = 10.5f }
         for (m in p.markers) {
-            if (m.kind != "label") {
+            if (m.kind == "free") {
+                // Draggable point: a larger ring, so it reads as a handle.
+                dot.color = markerColor(m.kind)
+                canvas.drawCircle(m.x, m.y, 4.5f, dot)
+                dot.color = Color.WHITE
+                canvas.drawCircle(m.x, m.y, 2.2f, dot)
+            } else if (m.kind != "label") {
                 dot.color = markerColor(m.kind)
                 canvas.drawCircle(m.x, m.y, 3f, dot)
             }
