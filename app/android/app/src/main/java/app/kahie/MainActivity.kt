@@ -1043,6 +1043,15 @@ class MainActivity : Activity() {
         val y0 = num("y min", existing?.y0 ?: -5.0)
         val y1 = num("y max", existing?.y1 ?: 5.0)
         box.addView(exprs)
+        box.addView(TextView(this).apply {
+            text = getString(R.string.plot_syntax_help)
+            textSize = 12f
+            setTextIsSelectable(true)
+        })
+        box.addView(android.widget.Button(this).apply {
+            text = getString(R.string.plot_analyse)
+            setOnClickListener { addPlotAnalysis(exprs) }
+        })
         box.addView(LinearLayout(this).apply { addView(x0); addView(x1) })
         box.addView(LinearLayout(this).apply { addView(y0); addView(y1) })
         AlertDialog.Builder(this)
@@ -1065,6 +1074,27 @@ class MainActivity : Activity() {
                 d.plotBlocks().firstOrNull { it.id == plotId }?.errors?.firstOrNull { it.isNotEmpty() }?.let { toast(it) }
                 ink.refresh()
                 ink.onChanged()
+            }
+            .show()
+    }
+
+    /** Append an analysis line (E2.5) for function 1 to the plot's text; the teacher can edit it. */
+    private fun addPlotAnalysis(field: android.widget.EditText) {
+        val items = arrayOf(
+            getString(R.string.plot_an_roots), getString(R.string.plot_an_extrema), getString(R.string.plot_an_inflections),
+            getString(R.string.plot_an_asymptotes), getString(R.string.plot_an_intersections), getString(R.string.plot_an_tangent),
+            getString(R.string.plot_an_area),
+        )
+        val lines = arrayOf(
+            R.string.plot_line_roots, R.string.plot_line_extrema, R.string.plot_line_inflections, R.string.plot_line_asymptotes,
+            R.string.plot_line_intersections, R.string.plot_line_tangent, R.string.plot_line_area,
+        )
+        AlertDialog.Builder(this)
+            .setTitle(R.string.plot_analyse)
+            .setItems(items) { _, which ->
+                val cur = field.text.toString().trimEnd()
+                field.setText(if (cur.isEmpty()) getString(lines[which]) else cur + "\n" + getString(lines[which]))
+                field.setSelection(field.text.length)
             }
             .show()
     }

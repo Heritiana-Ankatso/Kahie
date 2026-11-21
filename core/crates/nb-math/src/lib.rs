@@ -2,7 +2,9 @@
 //! Grammar: expr := term (('+'|'-') term)* ; term := unary (('*'|'/'|implicit) unary)*
 //! unary := ('-'|'+') unary | power ; power := atom ('^' unary)?
 
+pub mod analysis;
 pub mod cas;
+pub mod plot;
 
 use std::fmt;
 
@@ -116,7 +118,7 @@ fn err<T>(msg: impl Into<String>) -> Result<T, ParseError> {
     Err(ParseError(msg.into()))
 }
 
-fn tokenize(src: &str) -> Result<Vec<Tok>, ParseError> {
+fn tokenize(src: &str, var: char) -> Result<Vec<Tok>, ParseError> {
     let c: Vec<char> = src.chars().collect();
     let mut toks = vec![];
     let mut i = 0;
@@ -148,13 +150,13 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, ParseError> {
                 _ => return err(format!("bad number {s}")),
             }
             i = j;
-        } else if ch.is_ascii_alphabetic() || ch == 'π' {
+        } else if ch.is_ascii_alphabetic() || ch == 'π' || ch == 'θ' {
             let mut j = i;
-            while j < c.len() && (c[j].is_ascii_alphabetic() || c[j] == 'π') {
+            while j < c.len() && (c[j].is_ascii_alphabetic() || c[j] == 'π' || c[j] == 'θ') {
                 j += 1;
             }
             let word: String = c[i..j].iter().collect();
-            split_ident(&word, &mut toks)?;
+            split_ident(&word, var, &mut toks)?;
             i = j;
         } else {
             match ch {
@@ -172,7 +174,7 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, ParseError> {
 }
 
 /// "xsin" → x, sin ; "pix" → pi, x. Longest known name first.
-fn split_ident(word: &str, out: &mut Vec<Tok>) -> Result<(), ParseError> {
+fn split_ident(word: &str, var: char, out: &mut Vec<Tok>) -> Result<(), ParseError> {
     let mut rest = word;
     while !rest.is_empty() {
         if let Some((name, f)) = FUNCS.iter().find(|(n, _)| rest.starts_with(n)) {
@@ -187,9 +189,13 @@ fn split_ident(word: &str, out: &mut Vec<Tok>) -> Result<(), ParseError> {
         } else if let Some(r) = rest.strip_prefix('e') {
             out.push(Tok::Const(std::f64::consts::E));
             rest = r;
-        } else if let Some(r) = rest.strip_prefix('x') {
+        } else if let Some(r) = rest.strip_prefix(var) {
             out.push(Tok::X);
             rest = r;
+        } else if var == 't' && rest.starts_with('θ') {
+            // Polar curves may use θ or t.
+            out.push(Tok::X);
+            rest = &rest['θ'.len_utf8()..];
         } else {
             return err(format!("unknown name \"{rest}\""));
         }
@@ -320,11 +326,17 @@ pub fn parse(src: &str) -> Result<Expr, ParseError> {
         }
         None => s,
     };
+    parse_in(body, 'x')
+}
+
+/// Parse an expression whose variable is `var` (`x`, `t`; with `t`, `θ` is accepted too).
+/// With any other character (e.g. `'\0'`), the expression must be a constant.
+pub fn parse_in(body: &str, var: char) -> Result<Expr, ParseError> {
     if body.trim().is_empty() {
         return err("empty expression");
     }
     let mut p = Parser {
-        toks: tokenize(body)?,
+        toks: tokenize(body, var)?,
         k: 0,
     };
     let tree = p.expr()?;
@@ -332,6 +344,16 @@ pub fn parse(src: &str) -> Result<Expr, ParseError> {
         return err(format!("unexpected {:?}", p.toks[p.k]));
     }
     Ok(tree)
+}
+
+/// Value of a constant expression such as `pi/2` or `-3.5`.
+pub fn parse_number(src: &str) -> Result<f64, ParseError> {
+    let v = parse_in(src, '\0')?.eval(0.0);
+    if v.is_finite() {
+        Ok(v)
+    } else {
+        err(format!("not a number: {}", src.trim()))
+    }
 }
 
 impl Expr {

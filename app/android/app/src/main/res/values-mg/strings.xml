@@ -186,4 +186,20 @@
     <string name="nbtpl_sec_exercises">Fanazaran-tena</string>
     <string name="nbtpl_sec_assessments">Fanombanana</string>
     <string name="nbtpl_week_n">Herinandro %1$d</string>
+    <string name="plot_syntax_help">Andalana iray isaky ny singa: y = x^2 − 2 · (cos t, sin t) · r = 1 + cos θ · (2, 1) · roots 1 · extrema 1 · tangent 1 at 2 · area 1 from 0 to 2 · intersections 1 2</string>
+    <string name="plot_analyse">Hamakafaka…</string>
+    <string name="plot_an_roots">Fototra (roots)</string>
+    <string name="plot_an_extrema">Ambony indrindra sy ambany indrindra</string>
+    <string name="plot_an_inflections">Teboka fiolahana</string>
+    <string name="plot_an_asymptotes">Asymptota</string>
+    <string name="plot_an_intersections">Fihaonan’ny asa 1 sy 2</string>
+    <string name="plot_an_tangent">Tangenta amin’ny teboka iray</string>
+    <string name="plot_an_area">Velarana ambanin’ny fiolahana</string>
+    <string name="plot_line_roots">roots 1</string>
+    <string name="plot_line_extrema">extrema 1</string>
+    <string name="plot_line_inflections">inflections 1</string>
+    <string name="plot_line_asymptotes">asymptotes 1</string>
+    <string name="plot_line_intersections">intersections 1 2</string>
+    <string name="plot_line_tangent">tangent 1 at 1</string>
+    <string name="plot_line_area">area 1 from 0 to 1</string>
 </resources>

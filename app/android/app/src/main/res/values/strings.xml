@@ -187,4 +187,20 @@
     <string name="nbtpl_sec_exercises">Exercises</string>
     <string name="nbtpl_sec_assessments">Assessments</string>
     <string name="nbtpl_week_n">Week %1$d</string>
+    <string name="plot_syntax_help">One per line: y = x^2 − 2 · (cos t, sin t) · r = 1 + cos θ · (2, 1) · roots 1 · extrema 1 · tangent 1 at 2 · area 1 from 0 to 2 · intersections 1 2</string>
+    <string name="plot_analyse">Analyse…</string>
+    <string name="plot_an_roots">Roots</string>
+    <string name="plot_an_extrema">Maximum and minimum</string>
+    <string name="plot_an_inflections">Inflection points</string>
+    <string name="plot_an_asymptotes">Asymptotes</string>
+    <string name="plot_an_intersections">Intersections of functions 1 and 2</string>
+    <string name="plot_an_tangent">Tangent at a point</string>
+    <string name="plot_an_area">Area under the curve</string>
+    <string name="plot_line_roots">roots 1</string>
+    <string name="plot_line_extrema">extrema 1</string>
+    <string name="plot_line_inflections">inflections 1</string>
+    <string name="plot_line_asymptotes">asymptotes 1</string>
+    <string name="plot_line_intersections">intersections 1 2</string>
+    <string name="plot_line_tangent">tangent 1 at 1</string>
+    <string name="plot_line_area">area 1 from 0 to 1</string>
 </resources>

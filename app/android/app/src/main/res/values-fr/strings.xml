@@ -185,4 +185,20 @@
     <string name="nbtpl_sec_exercises">Exercices</string>
     <string name="nbtpl_sec_assessments">Évaluations</string>
     <string name="nbtpl_week_n">Semaine %1$d</string>
+    <string name="plot_syntax_help">Une ligne par élément : y = x^2 − 2 · (cos t, sin t) · r = 1 + cos θ · (2, 1) · racines 1 · extremums 1 · tangente 1 en 2 · aire 1 de 0 à 2 · intersections 1 2</string>
+    <string name="plot_analyse">Analyser…</string>
+    <string name="plot_an_roots">Racines</string>
+    <string name="plot_an_extrema">Maximum et minimum</string>
+    <string name="plot_an_inflections">Points d’inflexion</string>
+    <string name="plot_an_asymptotes">Asymptotes</string>
+    <string name="plot_an_intersections">Intersections des fonctions 1 et 2</string>
+    <string name="plot_an_tangent">Tangente en un point</string>
+    <string name="plot_an_area">Aire sous la courbe</string>
+    <string name="plot_line_roots">racines 1</string>
+    <string name="plot_line_extrema">extremums 1</string>
+    <string name="plot_line_inflections">inflexions 1</string>
+    <string name="plot_line_asymptotes">asymptotes 1</string>
+    <string name="plot_line_intersections">intersections 1 2</string>
+    <string name="plot_line_tangent">tangente 1 en 1</string>
+    <string name="plot_line_area">aire 1 de 0 à 1</string>
 </resources>

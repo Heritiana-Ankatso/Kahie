@@ -84,7 +84,27 @@ pub struct MathBlock {
     pub color: u32,
 }
 
-/// A function plot: expressions of x drawn in a window, inside a box on the page.
+/// A point on a plot, in page coordinates, with its label (e.g. `max (1, -2)`).
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct PlotMarker {
+    pub x: f32,
+    pub y: f32,
+    /// `root`, `max`, `min`, `inflection`, `intersection`, `point` or `label` (text only).
+    pub kind: String,
+    pub label: String,
+}
+
+/// A shaded area of a plot: polygon in page coordinates (x0, y0, x1, y1, …) and its value.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct PlotShade {
+    pub points: Vec<f32>,
+    pub label: String,
+    pub label_x: f32,
+    pub label_y: f32,
+}
+
+/// A plot: functions of x, parametric and polar curves, points and analysis lines (roots,
+/// extrema, tangents, areas…; syntax in `nb_math::plot`) drawn in a window, inside a box.
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct PlotBlock {
     pub key: String,
@@ -101,7 +121,13 @@ pub struct PlotBlock {
     /// One entry per expression: polylines in page coordinates (x0, y0, x1, y1, …), split at
     /// poles and undefined points. Empty when the expression does not parse.
     pub curves: Vec<Vec<Vec<f32>>>,
-    /// Expressions that do not parse, with the reason (same order as `exprs`, empty if fine).
+    /// Per line: draw dashed (tangents, normals, asymptotes).
+    pub dashed: Vec<bool>,
+    /// Points found by analysis lines (roots, extrema, …) and point lines, inside the window.
+    pub markers: Vec<PlotMarker>,
+    /// Shaded areas (`area f from a to b`).
+    pub shades: Vec<PlotShade>,
+    /// Lines that are invalid, with the reason (same order as `exprs`, empty if fine).
     pub errors: Vec<String>,
     /// Tick spacing on each axis, in window units.
     pub x_step: f64,
@@ -124,26 +150,49 @@ fn plot_block(it: &Item) -> Option<PlotBlock> {
     let sx = rect.w / (x1 - x0);
     let sy = rect.h / (y1 - y0);
     let to_page = |(x, y): (f64, f64)| [(rect.x + (x - x0) * sx) as f32, (rect.y + (y1 - y) * sy) as f32];
-    let mut curves = Vec::with_capacity(exprs.len());
-    let mut errors = Vec::with_capacity(exprs.len());
-    for e in exprs {
-        match nb_math::parse(e) {
-            Ok(f) => {
-                let n = (rect.w as usize).clamp(64, 2000);
-                curves.push(
-                    nb_math::sample(&f, *x0, *x1, *y0, *y1, n)
-                        .into_iter()
-                        .map(|seg| seg.into_iter().flat_map(to_page).collect())
-                        .collect(),
-                );
-                errors.push(String::new());
+    let window = nb_math::plot::Window {
+        x0: *x0,
+        x1: *x1,
+        y0: *y0,
+        y1: *y1,
+    };
+    let r = nb_math::plot::render(exprs, &window);
+    let curves = r
+        .curves
+        .into_iter()
+        .map(|segs| {
+            segs.into_iter()
+                .map(|seg| seg.into_iter().flat_map(to_page).collect())
+                .collect()
+        })
+        .collect();
+    let markers = r
+        .markers
+        .into_iter()
+        .map(|m| {
+            let [x, y] = to_page((m.x, m.y));
+            PlotMarker {
+                x,
+                y,
+                kind: format!("{:?}", m.kind).to_lowercase(),
+                label: m.label,
             }
-            Err(err) => {
-                curves.push(vec![]);
-                errors.push(err.0);
+        })
+        .collect();
+    let shades = r
+        .shades
+        .into_iter()
+        .map(|sh| {
+            let [lx, ly] = to_page(sh.at);
+            PlotShade {
+                points: sh.polygon.into_iter().flat_map(to_page).collect(),
+                label: sh.label,
+                label_x: lx,
+                label_y: ly,
             }
-        }
-    }
+        })
+        .collect();
+    let (dashed, errors) = (r.dashed, r.errors);
     Some(PlotBlock {
         key: item_key(it),
         id: it.id.clone(),
@@ -157,6 +206,9 @@ fn plot_block(it: &Item) -> Option<PlotBlock> {
         y0: *y0,
         y1: *y1,
         curves,
+        dashed,
+        markers,
+        shades,
         errors,
         x_step: nb_math::tick_step(x1 - x0, 8.0),
         y_step: nb_math::tick_step(y1 - y0, 8.0),
@@ -1500,6 +1552,46 @@ mod tests {
         );
         assert!(doc.set_math(id, "".into(), 0.0, 0.0));
         assert!(doc.math_blocks().is_empty());
+    }
+
+    #[test]
+    fn plot_analysis_markers_and_areas_in_page_coordinates() {
+        let doc = PageDoc::new_in_memory();
+        let lines = [
+            "f(x) = x^2 - 1",
+            "roots f",
+            "area f from -1 to 1",
+            "tangent f at 1",
+            "(cos t, sin t)",
+        ];
+        doc.add_plot(
+            100.0,
+            100.0,
+            200.0,
+            200.0,
+            lines.iter().map(|s| s.to_string()).collect(),
+            -2.0,
+            2.0,
+            -2.0,
+            2.0,
+        )
+        .unwrap();
+        let p = &doc.plot_blocks()[0];
+        assert!(p.errors.iter().all(String::is_empty), "{:?}", p.errors);
+        let roots: Vec<(f32, f32)> = p
+            .markers
+            .iter()
+            .filter(|m| m.kind == "root")
+            .map(|m| (m.x, m.y))
+            .collect();
+        // x = ±1, y = 0 → page (150, 200) and (250, 200).
+        assert_eq!(roots.len(), 2);
+        assert!((roots[0].0 - 150.0).abs() < 0.01 && (roots[0].1 - 200.0).abs() < 0.01);
+        assert_eq!(p.shades.len(), 1);
+        assert_eq!(p.shades[0].label, "∫ = -1.333");
+        assert_eq!(p.dashed, [false, false, false, true, false]);
+        assert!(p.markers.iter().any(|m| m.label == "y = 2x − 2"));
+        assert!(!p.curves[4].is_empty(), "parametric circle drawn");
     }
 
     #[test]

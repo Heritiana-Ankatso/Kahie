@@ -47,7 +47,8 @@ object SvgExport {
         }
 
         override fun drawText(text: String, x: Float, y: Float, p: Paint) {
-            out.append("<text x=\"${n(x)}\" y=\"${n(y)}\" font-size=\"${n(p.textSize)}\" fill=\"${hex(p.color)}\" font-family=\"sans-serif\">${esc(text)}</text>\n")
+            val anchor = if (p.textAlign == Paint.Align.CENTER) " text-anchor=\"middle\"" else ""
+            out.append("<text x=\"${n(x)}\" y=\"${n(y)}\" font-size=\"${n(p.textSize)}\" fill=\"${hex(p.color)}\" font-family=\"sans-serif\"$anchor>${esc(text)}</text>\n")
         }
 
         override fun drawColor(color: Int) {}
@@ -101,10 +102,22 @@ object SvgExport {
         }
         for (p in d.plotBlocks()) {
             out.append("<rect x=\"${n(p.x)}\" y=\"${n(p.y)}\" width=\"${n(p.width)}\" height=\"${n(p.height)}\" fill=\"#ffffff\"/>\n")
+            // Shaded areas (drawPath is not recorded), clipped to the plot box.
+            out.append("<g><clipPath id=\"clip-${esc(p.id)}\"><rect x=\"${n(p.x)}\" y=\"${n(p.y)}\" width=\"${n(p.width)}\" height=\"${n(p.height)}\"/></clipPath></g>\n")
+            for (sh in p.shades) {
+                val c = sh.points
+                if (c.size < 6) continue
+                out.append("<polygon fill=\"#2f5bd3\" fill-opacity=\"0.2\" clip-path=\"url(#clip-${esc(p.id)})\" points=\"")
+                var i = 0
+                while (i + 1 < c.size) { out.append(n(c[i])).append(',').append(n(c[i + 1])).append(' '); i += 2 }
+                out.append("\"/>\n")
+            }
             PageRenderer.drawPlot(rec, p, 0.75f)
             p.curves.forEachIndexed { i, segments ->
-                val color = hex(PageRenderer.curveColors[i % PageRenderer.curveColors.size])
-                for (seg in segments) polyline(out, seg.toFloatArray(), color, 2f)
+                val dashed = p.dashed.getOrElse(i) { false }
+                val color = if (dashed) "#6b6f78" else hex(PageRenderer.curveColors[i % PageRenderer.curveColors.size])
+                val extra = if (dashed) " stroke-dasharray=\"6 4\" clip-path=\"url(#clip-${esc(p.id)})\"" else " clip-path=\"url(#clip-${esc(p.id)})\""
+                for (seg in segments) polyline(out, seg.toFloatArray(), color, if (dashed) 1.3f else 2f, extra)
             }
         }
         for (b in d.textBlocks()) {

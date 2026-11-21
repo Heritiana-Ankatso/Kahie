@@ -32,7 +32,10 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 - **Notebooks → More → Import a PDF** adds one page per PDF page, with the PDF as the page background: write on worksheets and exam papers, then *Export PDF* to hand them back.
 - **Image** inserts a photo (resized automatically); images sit under the ink so you can annotate them.
 - **Selection** (after *Select*): copy (paste on any page or notebook from *Selection → Paste*), duplicate, delete, bring to front, send to back.
-- **Plot** draws functions of x (one per line, e.g. `y = x^2 - 2`, `2sin(x)`) in a window you choose; tap a plot to edit it.
+- **Plot** draws, one per line, in a window you choose (tap a plot to edit it):
+  - functions of x: `y = x^2 - 2`, `f(x) = 2sin(x)` (functions are referred to by name, `f`, or by order, `1`, `2`…);
+  - parametric curves `(cos t, sin t)`, polar curves `r = 1 + cos θ` (optional range: `t=0..4pi`), points `(2, 1)`;
+  - analysis (button *Analyse…*): `roots f`, `extrema f`, `inflections f`, `asymptotes f`, `intersections f g`, `tangent f at 2`, `normal f at 2`, `area f from 0 to 2` (signed integral) and `area f g from 0 to 2` (area between two curves). French keywords work too: `racines f`, `extremums f`, `tangente f en 2`, `aire f de 0 à 2`. Values are numerical (3 decimals).
 - **Pages → More → Export this page (SVG)** writes the page as a vector SVG at its real paper size (for editing in Inkscape or printing at any scale).
 - **Pages → More → Export this page (PNG)** for sharing a single page; *Send this page (PNG)…* opens the share sheet (email, messaging, Drive…).
 - **Notebooks → More → Send as PDF…** shares the whole notebook as a PDF through the share sheet.
