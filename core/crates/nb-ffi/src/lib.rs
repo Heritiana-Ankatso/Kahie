@@ -123,8 +123,11 @@ pub struct PlotBlock {
     /// One entry per expression: polylines in page coordinates (x0, y0, x1, y1, …), split at
     /// poles and undefined points. Empty when the expression does not parse.
     pub curves: Vec<Vec<Vec<f32>>>,
-    /// Per line: draw dashed (tangents, normals, asymptotes).
+    /// Per line: draw dashed (tangents, normals, asymptotes, `[dashed]`).
     pub dashed: Vec<bool>,
+    /// Per line: ARGB colour from a style suffix (0: default palette) and width (0: default).
+    pub colors: Vec<u32>,
+    pub widths: Vec<f32>,
     /// Points found by analysis lines (roots, extrema, …) and point lines, inside the window.
     pub markers: Vec<PlotMarker>,
     /// Shaded areas (`area f from a to b`, polygons).
@@ -196,7 +199,7 @@ fn plot_block(it: &Item) -> Option<PlotBlock> {
             }
         })
         .collect();
-    let (dashed, errors, axes) = (r.dashed, r.errors, r.axes);
+    let (dashed, errors, axes, colors, widths) = (r.dashed, r.errors, r.axes, r.colors, r.widths);
     Some(PlotBlock {
         key: item_key(it),
         id: it.id.clone(),
@@ -211,6 +214,8 @@ fn plot_block(it: &Item) -> Option<PlotBlock> {
         y1: *y1,
         curves,
         dashed,
+        colors,
+        widths,
         markers,
         shades,
         axes,
@@ -1216,11 +1221,14 @@ impl PageDoc {
             wy = (wy / snap).round() * snap;
         }
         let mut lines = exprs.clone();
-        let line = lines.iter_mut().enumerate().find(
-            |(i, l)| matches!(nb_math::geo::parse_line(l, *i), Ok(Some((n, nb_math::geo::Def::Free(..)))) if n == name),
-        )?;
+        let line = lines.iter_mut().enumerate().find(|(i, l)| {
+            let base = nb_math::plot::split_style_suffix(l).0;
+            matches!(nb_math::geo::parse_line(&base, *i), Ok(Some((n, nb_math::geo::Def::Free(..)))) if n == name)
+        })?;
+        // Keep the point's style suffix ([red], …).
+        let suffix = nb_math::plot::split_style_suffix(line.1).1;
         *line.1 = format!(
-            "{name} = ({}, {})",
+            "{name} = ({}, {}){suffix}",
             nb_math::analysis::fmt_num(wx),
             nb_math::analysis::fmt_num(wy)
         );
@@ -1607,7 +1615,7 @@ mod tests {
     #[test]
     fn drag_a_free_point_of_a_construction() {
         let doc = PageDoc::new_in_memory();
-        let lines: Vec<String> = ["A = (0, 0)", "B = (2, 0)", "M = midpoint(A, B)"]
+        let lines: Vec<String> = ["A = (0, 0)", "B = (2, 0) [red]", "M = midpoint(A, B)"]
             .iter()
             .map(|s| s.to_string())
             .collect();
@@ -1617,20 +1625,24 @@ mod tests {
             .unwrap();
         assert!(doc.plot_blocks()[0].markers.iter().filter(|m| m.kind == "free").count() == 2);
         let moved = doc.move_plot_point(id.clone(), "B".into(), 91.0, 29.0, 0.5).unwrap();
-        assert_eq!(moved[1], "B = (4, 2)");
+        assert_eq!(moved[1], "B = (4, 2) [red]", "style kept");
         let preview = doc.preview_plot(id.clone(), moved.clone()).unwrap();
         let m = preview.markers.iter().find(|m| m.label == "M").unwrap();
         assert!(
             (m.x - 70.0).abs() < 1e-3 && (m.y - 40.0).abs() < 1e-3,
             "M = (2, 1) → page (70, 40)"
         );
-        assert_eq!(doc.plot_blocks()[0].exprs[1], "B = (2, 0)", "preview does not save");
+        assert_eq!(
+            doc.plot_blocks()[0].exprs[1],
+            "B = (2, 0) [red]",
+            "preview does not save"
+        );
         assert!(
             doc.move_plot_point(id.clone(), "M".into(), 0.0, 0.0, 0.0).is_none(),
             "M is not free"
         );
         doc.set_plot(id, moved, -5.0, 5.0, -5.0, 5.0).unwrap();
-        assert_eq!(doc.plot_blocks()[0].exprs[1], "B = (4, 2)");
+        assert_eq!(doc.plot_blocks()[0].exprs[1], "B = (4, 2) [red]");
     }
 
     #[test]

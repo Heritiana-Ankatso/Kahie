@@ -160,8 +160,14 @@ object PageRenderer {
             val dashed = p.dashed.getOrElse(i) { false }
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                color = if (dashed) 0xFF6B6F78.toInt() else curveColors[i % curveColors.size]
-                strokeWidth = if (dashed) 1.3f else 2f
+                val custom = p.colors.getOrElse(i) { 0u }.toInt()
+                val width = p.widths.getOrElse(i) { 0f }
+                color = when {
+                    custom != 0 -> custom
+                    dashed -> 0xFF6B6F78.toInt()
+                    else -> curveColors[i % curveColors.size]
+                }
+                strokeWidth = if (width > 0f) width else if (dashed) 1.3f else 2f
                 strokeJoin = Paint.Join.ROUND
                 strokeCap = Paint.Cap.ROUND
                 if (dashed) pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f, 4f), 0f)

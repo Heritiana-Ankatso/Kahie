@@ -18,7 +18,8 @@
 //! | `b = anglebisector(A, B, C)` · `bissectrice` | bisector of angle ABC |
 //! | `P = intersect(d, c, 2)` · `intersection` | intersection (n-th, for circles) |
 //! | `P = on(c, 0.25)` · `sur` | point on a line (0 = first point, 1 = second) or circle (fraction of a turn) |
-//! | `R = reflect(A, d)` · `symetrique` | reflection of a point in a line (or in a point) |
+//! | `R = reflect(A, d)` · `symetrique` | reflection of any object in a line (or a point) |
+//! | `rotate(T, O, 60)` · `dilate(c, O, 2)` · `homothetie` · `translate(T, A, B)` | image of any object (E2.11) |
 //! | `T = polygon(A, B, C)` · `polygone` | polygon |
 //! | `distance(A, B)` · `angle(A, B, C)` | measurements, shown as labels |
 
@@ -53,6 +54,19 @@ pub enum Value {
     Undefined,
 }
 
+/// A plane transformation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Tf {
+    /// Reflection in a line, or point symmetry about a point.
+    Reflect(String),
+    /// Rotation about a point by an angle in degrees (anticlockwise).
+    Rotate(String, f64),
+    /// Homothety (dilation) with centre and ratio.
+    Dilate(String, f64),
+    /// Translation by the vector from the first point to the second.
+    Translate(String, String),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Def {
     Free(f64, f64),
@@ -66,7 +80,8 @@ pub enum Def {
     AngleBisector(String, String, String),
     Intersect(String, String, usize),
     On(String, f64),
-    Reflect(String, String),
+    /// Image of an object (point, line, circle, polygon) by a transformation (E2.11).
+    Transform(String, Tf),
     Polygon(Vec<String>),
     Distance(String, String),
     Angle(String, String, String),
@@ -95,6 +110,9 @@ fn kw(word: &str) -> Option<&'static str> {
         "intersect" | "intersection" | "inter" => "intersect",
         "on" | "sur" | "pointon" => "on",
         "reflect" | "symetrique" | "reflection" | "mirror" => "reflect",
+        "rotate" | "rotation" => "rotate",
+        "dilate" | "homothetie" | "homothety" | "scale" | "enlarge" => "dilate",
+        "translate" | "translation" => "translate",
         "polygon" | "polygone" | "triangle" => "polygon",
         "distance" | "dist" | "length" | "longueur" => "distance",
         "angle" => "angle",
@@ -218,7 +236,21 @@ pub fn parse_line(line: &str, index: usize) -> Result<Option<(String, Def)>, Par
         }
         "reflect" => {
             need(2)?;
-            Def::Reflect(a(0)?, a(1)?)
+            Def::Transform(a(0)?, Tf::Reflect(a(1)?))
+        }
+        "rotate" | "dilate" => {
+            need(3)?;
+            let v = parse_number(args[2])?;
+            let tf = if k == "rotate" {
+                Tf::Rotate(a(1)?, v)
+            } else {
+                Tf::Dilate(a(1)?, v)
+            };
+            Def::Transform(a(0)?, tf)
+        }
+        "translate" => {
+            need(3)?;
+            Def::Transform(a(0)?, Tf::Translate(a(1)?, a(2)?))
         }
         "polygon" => {
             if n < 3 {
@@ -521,13 +553,54 @@ pub fn evaluate(defs: &[(String, Def)]) -> Vec<Result<Value, String>> {
                     Value::Undefined => Value::Undefined,
                     _ => return Err(format!("{o}: a point can only be on a line or a circle")),
                 },
-                Def::Reflect(p, m) => {
-                    let Some(p) = pt(p)? else { return Ok(Value::Undefined) };
-                    match get(m)? {
-                        Value::Line { a, b, .. } => Value::Point(reflect_point(p, a, b)),
-                        Value::Point(c) => Value::Point(sub(mul(c, 2.0), p)),
+                Def::Transform(o, tf) => {
+                    // The transformation as a map of points (None: undefined).
+                    let map: Box<dyn Fn(P) -> P> = match tf {
+                        Tf::Reflect(m) => match get(m)? {
+                            Value::Line { a, b, .. } => Box::new(move |p| reflect_point(p, a, b)),
+                            Value::Point(c) => Box::new(move |p| sub(mul(c, 2.0), p)),
+                            Value::Undefined => return Ok(Value::Undefined),
+                            _ => return Err(format!("{m}: reflect in a line or a point")),
+                        },
+                        Tf::Rotate(c, deg) => {
+                            let Some(c) = pt(c)? else { return Ok(Value::Undefined) };
+                            let (sn, cs) = deg.to_radians().sin_cos();
+                            Box::new(move |p| {
+                                let d = sub(p, c);
+                                (c.0 + d.0 * cs - d.1 * sn, c.1 + d.0 * sn + d.1 * cs)
+                            })
+                        }
+                        Tf::Dilate(c, k) => {
+                            let Some(c) = pt(c)? else { return Ok(Value::Undefined) };
+                            let k = *k;
+                            Box::new(move |p| add(c, mul(sub(p, c), k)))
+                        }
+                        Tf::Translate(a, b) => match (pt(a)?, pt(b)?) {
+                            (Some(a), Some(b)) => {
+                                let v = sub(b, a);
+                                Box::new(move |p| add(p, v))
+                            }
+                            _ => return Ok(Value::Undefined),
+                        },
+                    };
+                    let ratio = if let Tf::Dilate(_, k) = tf { k.abs() } else { 1.0 };
+                    match get(o)? {
+                        Value::Point(p) => Value::Point(map(p)),
+                        Value::Line { a, b, kind } => {
+                            let (a, b) = (map(a), map(b));
+                            if norm(sub(b, a)) > EPS {
+                                Value::Line { a, b, kind }
+                            } else {
+                                Value::Undefined
+                            }
+                        }
+                        Value::Circle { c, r } => Value::Circle {
+                            c: map(c),
+                            r: r * ratio,
+                        },
+                        Value::Polygon(ps) => Value::Polygon(ps.into_iter().map(&map).collect()),
                         Value::Undefined => Value::Undefined,
-                        _ => return Err(format!("{m}: reflect in a line or a point")),
+                        Value::Measure(..) => return Err(format!("{o}: a measurement cannot be transformed")),
                     }
                 }
                 Def::Polygon(ps) => {
@@ -722,5 +795,40 @@ mod tests {
         near(b, (2.0, 2.0));
         let (a, _) = clip((0.0, 0.0), (1.0, 0.0), LineKind::Ray, -5.0, 5.0, -2.0, 2.0).unwrap();
         near(a, (0.0, 0.0));
+    }
+
+    #[test]
+    fn transformations_of_any_object() {
+        let v = run(&[
+            "O = (0, 0)",
+            "A = (2, 0)",
+            "B = (2, 1)",
+            "T = polygon(O, A, B)",
+            "T2 = rotate(T, O, 90)",
+            "c = circle(A, 1)",
+            "c2 = homothetie(c, O, -2)",
+            "d = line(O, B)",
+            "A2 = symetrique(A, d)",
+            "T3 = translate(T, O, B)",
+            "U = rotate(A, Z, 1)",
+        ]);
+        match &v[4] {
+            Ok(Value::Polygon(p)) => {
+                near(p[1], (0.0, 2.0));
+                near(p[2], (-1.0, 2.0));
+            }
+            other => panic!("{other:?}"),
+        }
+        match &v[6] {
+            Ok(Value::Circle { c, r }) => {
+                near(*c, (-4.0, 0.0));
+                assert!((r - 2.0).abs() < 1e-12);
+            }
+            other => panic!("{other:?}"),
+        }
+        // Reflection of A(2, 0) in y = x/2: (1.2, 1.6).
+        near(point(&v[8]), (1.2, 1.6));
+        assert!(matches!(&v[9], Ok(Value::Polygon(p)) if (p[0].0 - 2.0).abs() < 1e-12 && (p[0].1 - 1.0).abs() < 1e-12));
+        assert!(v[10].as_ref().unwrap_err().contains("unknown object Z"));
     }
 }

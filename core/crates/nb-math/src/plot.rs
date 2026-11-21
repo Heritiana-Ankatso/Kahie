@@ -66,6 +66,10 @@ pub struct Rendered {
     pub curves: Vec<Vec<Vec<(f64, f64)>>>,
     /// Dashed lines (tangents, asymptotes) instead of solid curves.
     pub dashed: Vec<bool>,
+    /// Per line: colour as ARGB (0: the default colour) and stroke width (0: default),
+    /// from a style suffix such as `[red, thick, dashed]`.
+    pub colors: Vec<u32>,
+    pub widths: Vec<f32>,
     /// Error message per line (empty if fine).
     pub errors: Vec<String>,
     pub markers: Vec<Marker>,
@@ -282,6 +286,63 @@ fn parse_line(src: &str, index: usize) -> Result<Line, ParseError> {
     Ok(Line::Function { name, f: parse(s)? })
 }
 
+/// Style suffix of a line: `… [red, thick, dashed]` (EN/FR), or `[hidden]` / `[cache]`.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Style {
+    color: u32,
+    width: f32,
+    dashed: bool,
+    hidden: bool,
+}
+
+/// A line without its style suffix, and the suffix (`" [red]"`, or empty).
+pub fn split_style_suffix(line: &str) -> (String, String) {
+    let t = line.trim_end();
+    match t.rfind('[').filter(|_| t.ends_with(']')) {
+        Some(open) => (t[..open].trim_end().to_string(), format!(" {}", &t[open..])),
+        None => (line.to_string(), String::new()),
+    }
+}
+
+fn split_style(line: &str) -> (String, Result<Style, ParseError>) {
+    let t = line.trim_end();
+    let Some(open) = t.rfind('[').filter(|_| t.ends_with(']')) else {
+        return (line.to_string(), Ok(Style::default()));
+    };
+    let mut st = Style::default();
+    for word in t[open + 1..t.len() - 1].split(',') {
+        let w = word.trim().to_lowercase();
+        let color = match w.as_str() {
+            "red" | "rouge" | "mena" => 0xFFD0453A,
+            "blue" | "bleu" | "manga" => 0xFF2F5BD3,
+            "green" | "vert" | "maitso" => 0xFF2E9E5B,
+            "black" | "noir" | "mainty" => 0xFF1D1D1F,
+            "orange" | "volomboasary" => 0xFFE67E22,
+            "purple" | "violet" => 0xFF8E44AD,
+            "grey" | "gray" | "gris" => 0xFF8A8F98,
+            "brown" | "marron" => 0xFF8B5A2B,
+            _ => 0,
+        };
+        match w.as_str() {
+            _ if color != 0 => st.color = color,
+            "thick" | "epais" | "épais" | "bold" => st.width = 3.5,
+            "thin" | "fin" => st.width = 1.0,
+            "dashed" | "pointille" | "pointillé" | "pointilles" | "pointillés" => st.dashed = true,
+            "hidden" | "hide" | "cache" | "caché" | "masque" | "masqué" => st.hidden = true,
+            "" => {}
+            other => {
+                return (
+                    line.to_string(),
+                    Err(ParseError(format!(
+                        "unknown style \"{other}\" (colours, thick, thin, dashed, hidden)"
+                    ))),
+                )
+            }
+        }
+    }
+    (t[..open].trim_end().to_string(), Ok(st))
+}
+
 /// Sample a parametric curve, splitting at undefined points and jumps.
 fn sample_param(x: &dyn Fn(f64) -> f64, y: &dyn Fn(f64) -> f64, t0: f64, t1: f64, w: &Window) -> Vec<Vec<(f64, f64)>> {
     let n = 1500;
@@ -328,7 +389,15 @@ fn pt(x: f64, y: f64) -> String {
 
 /// Parse and draw every line of a plot in window `w`.
 pub fn render(lines: &[String], w: &Window) -> Rendered {
-    let parsed: Vec<Result<Line, ParseError>> = lines.iter().enumerate().map(|(i, l)| parse_line(l, i)).collect();
+    let styled: Vec<(String, Result<Style, ParseError>)> = lines.iter().map(|l| split_style(l)).collect();
+    let parsed: Vec<Result<Line, ParseError>> = styled
+        .iter()
+        .enumerate()
+        .map(|(i, (l, st))| match st {
+            Err(e) => Err(e.clone()),
+            Ok(_) => parse_line(l, i),
+        })
+        .collect();
     // Constructions are evaluated together, in order (each object uses earlier ones).
     let mut geo_defs: Vec<(String, crate::geo::Def)> = parsed
         .iter()
@@ -389,7 +458,9 @@ pub fn render(lines: &[String], w: &Window) -> Rendered {
         axes: true,
         ..Rendered::default()
     };
-    for line in &parsed {
+    for (line, (_, style)) in parsed.iter().zip(&styled) {
+        let style = style.clone().unwrap_or_default();
+        let (markers_before, shades_before) = (out.markers.len(), out.shades.len());
         let mut curves = vec![];
         let mut dashed = false;
         let mut error = String::new();
@@ -634,8 +705,16 @@ pub fn render(lines: &[String], w: &Window) -> Rendered {
                 }
             }
         }
+        if style.hidden {
+            // A helper of a construction: computed and usable, not drawn.
+            curves.clear();
+            out.markers.truncate(markers_before);
+            out.shades.truncate(shades_before);
+        }
         out.curves.push(curves);
-        out.dashed.push(dashed);
+        out.dashed.push(dashed || style.dashed);
+        out.colors.push(style.color);
+        out.widths.push(style.width);
         out.errors.push(error);
     }
     // Markers outside the window are not drawn.
@@ -687,11 +766,42 @@ pub fn to_pgfplots(lines: &[String], w: &Window, width_cm: f64) -> String {
         );
     }
     for (i, line) in lines.iter().enumerate() {
-        let color = colors[i % colors.len()];
-        match parse_line(line, i) {
+        let (clean, style) = split_style(line);
+        let style = style.unwrap_or_default();
+        if style.hidden {
+            continue;
+        }
+        let rgb = |c: u32| {
+            format!(
+                "{{rgb,255:red,{};green,{};blue,{}}}",
+                (c >> 16) & 255,
+                (c >> 8) & 255,
+                c & 255
+            )
+        };
+        let mut color = if style.color != 0 {
+            format!("color={}", rgb(style.color))
+        } else {
+            colors[i % colors.len()].to_string()
+        };
+        if style.dashed {
+            color.push_str(", dashed");
+        }
+        if style.width > 3.0 {
+            color.push_str(", very thick");
+        }
+        match parse_line(&clean, i) {
             Ok(Line::Geo(..)) => {
+                let geo_color = if style.color != 0 || style.dashed {
+                    color.clone()
+                } else {
+                    "black".to_string()
+                };
                 for seg in r.curves.get(i).into_iter().flatten() {
-                    out.push_str(&format!("  \\addplot[black, thick] coordinates {{{}}};\n", coords(seg)));
+                    out.push_str(&format!(
+                        "  \\addplot[{geo_color}, thick] coordinates {{{}}};\n",
+                        coords(seg)
+                    ));
                 }
             }
             Ok(Line::Function { f, .. }) => out.push_str(&format!(
@@ -954,5 +1064,36 @@ mod tests {
         );
         assert!(bad.errors[4].contains("free points"), "{:?}", bad.errors);
         assert!(r(&["constrain distance(A, B)"]).errors[0].contains("constrain distance"));
+    }
+
+    #[test]
+    fn styles_and_hidden_helpers() {
+        let out = r(&[
+            "A = (0, 0)",
+            "B = (4, 0)",
+            "m = bisector(A, B) [hidden]",
+            "M = intersect(m, line(A, B))",
+            "y = x [red, thick]",
+            "c = circle(A, B) [dashed, bleu]",
+            "y = 2 [sparkly]",
+        ]);
+        assert!(out.curves[2].is_empty(), "hidden");
+        assert_eq!((out.colors[4], out.widths[4]), (0xFFD0453A, 3.5));
+        assert!(out.dashed[5] && out.colors[5] == 0xFF2F5BD3 && !out.curves[5].is_empty());
+        assert!(out.errors[6].contains("unknown style"));
+        // The hidden bisector is still usable: nested calls are not, so line 3 errors, but
+        // a helper referenced by name works.
+        let ok = r(&[
+            "A = (0, 0)",
+            "B = (4, 0)",
+            "m = bisector(A, B) [hidden]",
+            "d = line(A, B) [hidden]",
+            "M = intersect(m, d)",
+        ]);
+        assert!(ok.errors.iter().all(String::is_empty), "{:?}", ok.errors);
+        assert_eq!(
+            ok.markers.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(),
+            ["A", "B", "M"]
+        );
     }
 }

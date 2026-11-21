@@ -115,9 +115,11 @@ object SvgExport {
             PageRenderer.drawPlot(rec, p, 0.75f)
             p.curves.forEachIndexed { i, segments ->
                 val dashed = p.dashed.getOrElse(i) { false }
-                val color = if (dashed) "#6b6f78" else hex(PageRenderer.curveColors[i % PageRenderer.curveColors.size])
+                val custom = p.colors.getOrElse(i) { 0u }.toInt()
+                val color = if (custom != 0) hex(custom) else if (dashed) "#6b6f78" else hex(PageRenderer.curveColors[i % PageRenderer.curveColors.size])
+                val width = p.widths.getOrElse(i) { 0f }.let { if (it > 0f) it else if (dashed) 1.3f else 2f }
                 val extra = if (dashed) " stroke-dasharray=\"6 4\" clip-path=\"url(#clip-${esc(p.id)})\"" else " clip-path=\"url(#clip-${esc(p.id)})\""
-                for (seg in segments) polyline(out, seg.toFloatArray(), color, if (dashed) 1.3f else 2f, extra)
+                for (seg in segments) polyline(out, seg.toFloatArray(), color, width, extra)
             }
         }
         for (b in d.textBlocks()) {

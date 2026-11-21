@@ -204,7 +204,7 @@
     <string name="plot_line_area">area 1 from 0 to 1</string>
     <string name="export_markdown">Avoaka ho Markdown (ZIP)</string>
     <string name="export_latex">Avoaka ho LaTeX (ZIP)</string>
-    <string name="plot_geo_help">Jeometria (afindrao amin’ny fitaovana Plot ireo teboka malalaka): A = (0, 0) · B = (4, 1) · c = circle(A, B) · d = line(A, B) · P = intersect(c, d, 2) · M = midpoint(A, B) · m = bisector(A, B) · perpendicular(d, A) · parallel(d, A) · polygon(A, B, C) · distance(A, B) · angle(B, A, C) · axes off · constrain distance(A, B) = 5</string>
+    <string name="plot_geo_help">Jeometria (afindrao amin’ny fitaovana Plot ireo teboka malalaka): A = (0, 0) · B = (4, 1) · c = circle(A, B) · d = line(A, B) · P = intersect(c, d, 2) · M = midpoint(A, B) · m = bisector(A, B) · perpendicular(d, A) · parallel(d, A) · polygon(A, B, C) · distance(A, B) · angle(B, A, C) · axes off · constrain distance(A, B) = 5 · rotate(T, O, 90) · dilate(c, O, 2) · translate(T, A, B) · [mena, thick, dashed] · [hidden]</string>
     <string name="cas_solve">Vahao</string>
     <string name="cas_factor">Zarao ho singa</string>
     <string name="cas_expand">Velarina</string>
