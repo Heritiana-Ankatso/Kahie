@@ -705,6 +705,7 @@ mod tests {
                     size: "a4".into(),
                     items,
                     groups: Default::default(),
+                    pdf: None,
                 };
                 write_page(&path.join(format!("{id}.kpage")), &page);
             }

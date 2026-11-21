@@ -423,6 +423,35 @@ fn page_size_is_stored_synced_and_defaults_to_a4() {
 }
 
 #[test]
+fn pdf_source_and_text_layer_sync_and_appear_in_the_page() {
+    use crate::PdfSource;
+    let mut p = CrdtPage::new("p", 1);
+    assert_eq!(p.pdf_source(), None);
+    let src = PdfSource {
+        asset: "ab".repeat(32),
+        page_index: 41,
+    };
+    p.set_pdf_source(Some(&src), Some(r#"[["Kahie",0.1,0.1,0.2,0.12]]"#));
+    assert_eq!(p.page().pdf.as_ref(), Some(&src));
+    let q = CrdtPage::load(&[&p.snapshot()], 2).unwrap();
+    assert_eq!(q.pdf_source(), Some(src.clone()));
+    assert!(q.pdf_text_layer().contains("Kahie"));
+    let json = serde_json::to_string(q.page()).unwrap();
+    assert!(
+        json.contains(r#""pdf":{"asset":"#) && json.contains(r#""page_index":41"#),
+        "{json}"
+    );
+    // A page made from its plain view keeps the PDF page.
+    let r = CrdtPage::from_page(q.page(), 3);
+    assert_eq!(r.pdf_source(), Some(src));
+    p.set_pdf_source(None, None);
+    assert_eq!(
+        (p.pdf_source(), p.page().pdf.clone(), p.pdf_text_layer()),
+        (None, None, String::new())
+    );
+}
+
+#[test]
 fn custom_page_sizes() {
     use crate::{custom_size, page_dims, parse_custom_size, valid_size};
     assert_eq!(custom_size(210.0, 99.0).as_deref(), Some("210x99mm"));

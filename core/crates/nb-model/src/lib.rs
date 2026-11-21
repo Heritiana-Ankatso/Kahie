@@ -446,10 +446,21 @@ pub struct Page {
     /// A4 portrait by default.
     #[serde(default = "default_size", skip_serializing_if = "is_default_size")]
     pub size: String,
+    /// Imported PDF page drawn under the content (P1-21), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf: Option<PdfSource>,
     pub items: Vec<Item>,
     /// Groups (P1-16): item id → group id. Items of a group are selected together.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub groups: BTreeMap<Id, Id>,
+}
+
+/// A page of a PDF kept once per notebook (P1-21): `asset` is the SHA-256 (hex) of the PDF
+/// file (`assets/<sha256>` in a `.kahie` file), `page_index` its page, from 0.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PdfSource {
+    pub asset: String,
+    pub page_index: u32,
 }
 
 fn default_template() -> String {
@@ -534,6 +545,7 @@ impl Page {
             id: id.into(),
             template: default_template(),
             size: default_size(),
+            pdf: None,
             items: vec![],
             groups: BTreeMap::new(),
         }
@@ -1022,7 +1034,16 @@ mod tests {
                 id: "nb-1".into(),
                 title: "Géométrie".into(),
             },
-            pages: vec![page, canvas],
+            pages: vec![page, canvas, {
+                // A page showing page 3 of a PDF kept once in the notebook's assets.
+                let mut p = Page::new("page-3");
+                p.template = "blank".into();
+                p.pdf = Some(PdfSource {
+                    asset: "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d".into(),
+                    page_index: 2,
+                });
+                p
+            }],
         };
         let json = serde_json::to_string_pretty(&doc).unwrap() + "\n";
         let path = concat!(

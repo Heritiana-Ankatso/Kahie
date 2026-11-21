@@ -22,6 +22,7 @@ mod editing;
 mod kahie_file;
 mod library;
 mod notebook;
+mod pdf;
 mod search;
 mod sync;
 pub use cas::{cas_available, cas_command, cas_eval, CasAnswer, CasOp};
@@ -29,6 +30,7 @@ pub use editing::{ink_radius, AttachmentBlock, RichSpan};
 pub use kahie_file::{export_kahie, import_kahie};
 pub use library::{LibraryDoc, LibraryEntry, LibraryKind};
 pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
+pub use pdf::{pdf_extract_text, pdf_file, pdf_import, PdfPageRef, PdfPageSize, PdfWord};
 pub use search::{parse_page_range, HitKind, SearchHit, SearchIndex};
 pub use sync::{sync_page_once, SyncListener, SyncSession, SyncStatus};
 
@@ -941,7 +943,7 @@ impl PageDoc {
         if std::ptr::eq(self, template.as_ref()) {
             return 0;
         }
-        let (items, assets, paper, size, background) = {
+        let (items, assets, paper, size, background, pdf) = {
             let src = template.state.lock().unwrap();
             let items = src.doc.page().items.clone();
             let assets: Vec<(String, Vec<u8>)> = src
@@ -957,11 +959,15 @@ impl PageDoc {
                 src.doc.template().to_string(),
                 src.doc.size().to_string(),
                 background,
+                src.doc.pdf_source().map(|p| (p, src.doc.pdf_text_layer())),
             )
         };
         let mut st = self.state.lock().unwrap();
         st.doc.set_template(&paper);
         st.doc.set_size(&size);
+        if let Some((p, text)) = &pdf {
+            st.doc.set_pdf_source(Some(p), Some(text));
+        }
         if let Some(bg) = &background {
             if let Some((_, bytes)) = assets.iter().find(|(h, _)| h == bg) {
                 st.doc.set_background(Some((bg, bytes)));

@@ -134,6 +134,11 @@ impl NotebookDoc {
 }
 
 impl NotebookDoc {
+    /// Directory of this notebook.
+    pub(crate) fn dir(&self) -> PathBuf {
+        self.state.lock().unwrap().dir.clone()
+    }
+
     fn open_inner(dir: String, title: String, default_page: bool) -> Result<std::sync::Arc<Self>, CoreError> {
         let dir = PathBuf::from(dir);
         std::fs::create_dir_all(&dir).map_err(|e| CoreError::Io { detail: e.to_string() })?;
@@ -362,6 +367,8 @@ impl NotebookDoc {
             (t.nb.outline(), t.dir.clone())
         };
         let mut st = self.state.lock().unwrap();
+        // PDFs shown by the template's pages (stored once per notebook).
+        crate::pdf::copy_notebook_assets(&src_dir, &st.dir)?;
         let before = st.nb.outline();
         let blank = match before.as_slice() {
             [only] if only.kind == NodeKind::Page => {

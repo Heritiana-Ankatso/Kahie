@@ -5,7 +5,7 @@
 //!
 //! | Root container | Type | Content |
 //! |---|---|---|
-//! | `meta` | map | `id`, `template`, `size` (absent: A4) |
+//! | `meta` | map | `id`, `template`, `size` (absent: A4), `background`, `pdf_asset` + `pdf_page` + `pdf_text` (PDF page, P1-21/23) |
 //! | `order` | movable list | object ids, bottom to top (z-order) |
 //! | `objects` | map | object id → map of fields (below) |
 //! | `groups` | map | object id → group id (P1-16; `""` = not grouped) |
@@ -23,7 +23,9 @@
 //! The plain [`Page`] returned by [`CrdtPage::page`] is a materialised view rebuilt
 //! after every change; decoded ink is cached per object id because ink never changes.
 
-use crate::{inkcodec, normalize_spans, Content, Interp, Item, Linear, Op, Page, Stroke, TextSpan, Tool, IDENTITY};
+use crate::{
+    inkcodec, normalize_spans, Content, Interp, Item, Linear, Op, Page, PdfSource, Stroke, TextSpan, Tool, IDENTITY,
+};
 use loro::event::{Diff, DiffEvent};
 use loro::{
     Container, ContainerTrait, ExpandType, ExportMode, Frontiers, Index, LoroDoc, LoroMap, LoroText, LoroValue,
@@ -96,6 +98,9 @@ impl CrdtPage {
             .expect("insert");
         if page.size != "a4" {
             p.doc.get_map(META).insert("size", page.size.as_str()).expect("insert");
+        }
+        if let Some(pdf) = &page.pdf {
+            p.write_pdf_source(Some(pdf), None);
         }
         for (i, item) in page.items.iter().enumerate() {
             p.write_new(i, item);
@@ -246,6 +251,12 @@ impl CrdtPage {
         }
     }
 
+    /// [`CrdtPage::put_asset`] as a change of its own (a notebook's asset store, P1-21).
+    pub fn store_asset(&mut self, hash: &str, bytes: &[u8]) {
+        self.put_asset(hash, bytes);
+        self.doc.commit();
+    }
+
     pub fn asset(&self, hash: &str) -> Option<Vec<u8>> {
         match self.doc.get_map(ASSETS).get(hash) {
             Some(ValueOrContainer::Value(LoroValue::Binary(b))) => Some(b.to_vec()),
@@ -274,6 +285,38 @@ impl CrdtPage {
             }
         }
         self.doc.commit();
+    }
+
+    /// PDF page shown under this page (P1-21), if any. The PDF itself is a notebook asset.
+    pub fn pdf_source(&self) -> Option<PdfSource> {
+        pdf_field(&self.doc.get_map(META).get_value())
+    }
+
+    /// Text layer of the PDF page (P1-23): JSON written by the app's PDF import (words with
+    /// boxes normalised to the page), empty when the PDF page has no text.
+    pub fn pdf_text_layer(&self) -> String {
+        str_field(&self.doc.get_map(META).get_value(), "pdf_text").unwrap_or_default()
+    }
+
+    /// Show a PDF page under this page (or none), with its text layer, as one change.
+    pub fn set_pdf_source(&mut self, src: Option<&PdfSource>, text_layer: Option<&str>) {
+        self.write_pdf_source(src, text_layer);
+        self.doc.commit();
+        self.rebuild();
+    }
+
+    fn write_pdf_source(&mut self, src: Option<&PdfSource>, text_layer: Option<&str>) {
+        let meta = self.doc.get_map(META);
+        match src {
+            Some(s) => {
+                meta.insert("pdf_asset", s.asset.as_str()).expect("insert");
+                meta.insert("pdf_page", i64::from(s.page_index)).expect("insert");
+            }
+            None => {
+                meta.insert("pdf_asset", "").expect("insert");
+            }
+        }
+        meta.insert("pdf_text", text_layer.unwrap_or("")).expect("insert");
     }
 
     /// Hashes of all stored assets (for export).
@@ -785,6 +828,7 @@ impl CrdtPage {
             id,
             template,
             size,
+            pdf: pdf_field(&meta),
             items,
             groups,
         };
@@ -862,6 +906,7 @@ impl CrdtPage {
             id: str_field(&meta, "id").unwrap_or_default(),
             template: str_field(&meta, "template").unwrap_or_else(|| "lined".into()),
             size: str_field(&meta, "size").unwrap_or_else(|| "a4".into()),
+            pdf: pdf_field(&meta),
             items,
             groups,
         }
@@ -1068,6 +1113,12 @@ fn field<'a>(v: &'a LoroValue, key: &str) -> Option<&'a LoroValue> {
         LoroValue::Map(m) => m.get(key),
         _ => None,
     }
+}
+
+fn pdf_field(meta: &LoroValue) -> Option<PdfSource> {
+    let asset = str_field(meta, "pdf_asset").filter(|s| !s.is_empty())?;
+    let page_index = num_v(field(meta, "pdf_page")).max(0.0) as u32;
+    Some(PdfSource { asset, page_index })
 }
 
 fn str_field(v: &LoroValue, key: &str) -> Option<String> {

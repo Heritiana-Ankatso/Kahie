@@ -48,6 +48,13 @@ pub fn export_kahie(notebook_dir: String, out_path: String) -> Result<(), CoreEr
             }
         }
     }
+    // PDFs (stored once per notebook) referenced by pages.
+    let notebook_dir = nb.dir();
+    for (h, b) in crate::pdf::notebook_assets(&notebook_dir) {
+        if pages.iter().any(|p| p.pdf.as_ref().is_some_and(|s| s.asset == h)) {
+            assets.entry(h).or_insert(b);
+        }
+    }
     let manifest = serde_json::json!({
         "format": FORMAT,
         "version": VERSION,
@@ -153,6 +160,17 @@ pub fn import_kahie(path: String, notebooks_root: String) -> Result<String, Core
         let b = read(&format!("pages/{id}.crdt"))?.ok_or_else(|| fmt(format!("pages/{id}.crdt missing")))?;
         pages.push((id.clone(), CrdtPage::from_snapshot(&b, peer_id()).map_err(fmt)?));
     }
+    // PDFs shown by pages: kept once in the new notebook's asset store.
+    let mut pdfs: Vec<(String, Vec<u8>)> = vec![];
+    for (_, page) in &pages {
+        if let Some(src) = page.pdf_source() {
+            if valid_id(&src.asset) && !pdfs.iter().any(|(h, _)| *h == src.asset) {
+                if let Some(b) = read(&format!("assets/{}", src.asset))? {
+                    pdfs.push((src.asset, b));
+                }
+            }
+        }
+    }
 
     let root = Path::new(&notebooks_root);
     std::fs::create_dir_all(root).map_err(io)?;
@@ -166,6 +184,9 @@ pub fn import_kahie(path: String, notebooks_root: String) -> Result<String, Core
     for (id, page) in &pages {
         let mut s = Store::open(dir.join(format!("{id}.kpage"))).map_err(fmt)?;
         s.compact(&page.snapshot()).map_err(fmt)?;
+    }
+    for (h, b) in &pdfs {
+        crate::pdf::store_notebook_asset(&dir, h, b)?;
     }
     Ok(dir.to_string_lossy().into_owned())
 }
