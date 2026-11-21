@@ -10,7 +10,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 | Eraser | Eraser tool, the stylus eraser end, or the stylus button while drawing; erases whole strokes |
 | Tidy shapes | Hold the pen still at the end of a stroke: it becomes a clean line, circle, rectangle… Turn on *Shapes* to do it automatically |
 | Text | *Text*, then tap the page; tap a text to edit it (empty it to delete it) |
-| Compute | In the text dialog, *Compute* evaluates the last line (e.g. `factor(x^2-5*x+6)`, `solve(x^2=2,x)`) — in builds that include the maths engine |
+| Compute | In the text dialog, *Compute* evaluates the last line (e.g. `factor(x^2-5*x+6)`, `solve(x^2=2,x)`). The buttons under the text apply an operation to the last line without typing the command: *Solve* (`x^2 = 2`, or an expression = 0), *Factor*, *Expand*, *Simplify*, *d/dx*, *∫ dx*, *≈* (decimal value). Results are exact unless you choose ≈. In builds that include the maths engine |
 | Undo / redo | Arrows in the toolbar, or tap with two fingers (undo) / three fingers (redo) |
 | Select | *Select*, drag a rectangle; drag the selection to move it; *Selection* → duplicate, delete |
 | Maths | *Maths*, tap the page and type LaTeX (e.g. `\frac{a}{b}`); tap a formula to edit it |

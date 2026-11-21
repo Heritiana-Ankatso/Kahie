@@ -1186,7 +1186,7 @@ class MainActivity : Activity() {
         }
         val builder = AlertDialog.Builder(this)
             .setTitle(if (existing == null) R.string.add_text else R.string.edit_text)
-            .setView(input)
+            .setView(withCasTools(input))
             .setNegativeButton(android.R.string.cancel, null)
         if (casAvailable()) {
             // Evaluate the last line with the CAS and append "= result" to the text.
@@ -1220,6 +1220,44 @@ class MainActivity : Activity() {
             }
         }
         dialog.show()
+    }
+
+    /**
+     * The text field plus a row of CAS operations (E2.3) when this build has the CAS: each
+     * applies to the last line and appends "= result" (exact unless "≈" is chosen).
+     */
+    private fun withCasTools(input: android.widget.EditText): android.view.View {
+        if (!casAvailable()) return input
+        val ops = listOf(
+            R.string.cas_solve to uniffi.nb_ffi.CasOp.SOLVE, R.string.cas_factor to uniffi.nb_ffi.CasOp.FACTOR,
+            R.string.cas_expand to uniffi.nb_ffi.CasOp.EXPAND, R.string.cas_simplify to uniffi.nb_ffi.CasOp.SIMPLIFY,
+            R.string.cas_derivative to uniffi.nb_ffi.CasOp.DERIVATIVE, R.string.cas_antiderivative to uniffi.nb_ffi.CasOp.ANTIDERIVATIVE,
+            R.string.cas_numeric to uniffi.nb_ffi.CasOp.NUMERIC,
+        )
+        val row = LinearLayout(this)
+        for ((label, op) in ops) {
+            row.addView(android.widget.Button(this, null, android.R.attr.buttonStyleSmall).apply {
+                text = getString(label)
+                isAllCaps = false
+                setOnClickListener {
+                    val line = input.text.toString().trimEnd().lines().lastOrNull()?.trim().orEmpty()
+                    if (line.isEmpty()) return@setOnClickListener
+                    val command = uniffi.nb_ffi.casCommand(op, line)
+                    io.execute {
+                        val result = runCatching { casEval(command).text }
+                        main.post {
+                            result.onSuccess { input.append("\n= $it"); input.setSelection(input.text.length) }
+                                .onFailure { toast(getString(R.string.compute_failed, it.message ?: "")) }
+                        }
+                    }
+                }
+            })
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(input)
+            addView(android.widget.HorizontalScrollView(this@MainActivity).apply { addView(row) })
+        }
     }
 
     private fun penColor(): Int = ink.penColor

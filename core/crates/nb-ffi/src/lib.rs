@@ -21,7 +21,7 @@ mod docexport;
 mod kahie_file;
 mod notebook;
 mod sync;
-pub use cas::{cas_available, cas_eval, CasAnswer};
+pub use cas::{cas_available, cas_command, cas_eval, CasAnswer, CasOp};
 pub use kahie_file::{export_kahie, import_kahie};
 pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
 pub use sync::{sync_page_once, SyncListener, SyncSession, SyncStatus};
