@@ -54,6 +54,18 @@ impl State {
         }
     }
 
+    /// Remove a trashed node for good with the files of its pages; returns the page count.
+    fn remove_for_good(&mut self, node: TreeID) -> u32 {
+        let pages = self.nb.page_ids_under(node);
+        for page in &pages {
+            for ext in ["kpage", "kpage-wal", "kpage-shm"] {
+                let _ = std::fs::remove_file(self.dir.join(format!("{page}.{ext}")));
+            }
+        }
+        self.nb.purge(node);
+        pages.len() as u32
+    }
+
     fn node(&self, id: &str) -> Option<TreeID> {
         TreeID::try_from(id).ok()
     }
@@ -62,6 +74,14 @@ impl State {
 #[derive(uniffi::Object)]
 pub struct NotebookDoc {
     pub(crate) state: Mutex<State>,
+}
+
+/// Seconds since 1970.
+pub(crate) fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 fn fmt_err(e: impl std::fmt::Display) -> CoreError {
@@ -273,13 +293,37 @@ impl NotebookDoc {
         ok
     }
 
-    /// Put a node in the trash (its pages stay on disk until the trash is emptied).
+    /// Put a node in the trash (its pages stay on disk until the trash is emptied, or for
+    /// 30 days: see `purge_expired`).
     pub fn delete_node(&self, node: String) {
         let mut st = self.state.lock().unwrap();
         if let Some(n) = st.node(&node) {
-            st.nb.delete(n);
+            st.nb.delete_at(n, now_secs());
             st.persist();
         }
+    }
+
+    /// Drag and drop: move `node` right before (or after, when `after`) `sibling`, into
+    /// `sibling`'s section. False if that would put a section inside itself.
+    pub fn move_next_to(&self, node: String, sibling: String, after: bool) -> bool {
+        let mut st = self.state.lock().unwrap();
+        let (Some(n), Some(s)) = (st.node(&node), st.node(&sibling)) else {
+            return false;
+        };
+        let ok = st.nb.move_next_to(n, s, after);
+        st.persist();
+        ok
+    }
+
+    /// Permanently remove what has been in the trash for `max_age_days` days or more, with
+    /// its page files (P1-04). Returns the number of pages removed.
+    pub fn purge_expired(&self, max_age_days: u32) -> u32 {
+        let mut st = self.state.lock().unwrap();
+        let now = now_secs();
+        let expired = st.nb.expired(now - i64::from(max_age_days) * 86_400, now);
+        let removed = expired.iter().map(|n| st.remove_for_good(n.id)).sum();
+        st.persist();
+        removed
     }
 
     pub fn restore_node(&self, node: String) {
@@ -298,16 +342,8 @@ impl NotebookDoc {
     /// number of pages removed.
     pub fn empty_trash(&self) -> u32 {
         let mut st = self.state.lock().unwrap();
-        let mut removed = 0;
-        for n in st.nb.trash() {
-            for page in st.nb.page_ids_under(n.id) {
-                for ext in ["kpage", "kpage-wal", "kpage-shm"] {
-                    let _ = std::fs::remove_file(st.dir.join(format!("{page}.{ext}")));
-                }
-                removed += 1;
-            }
-            st.nb.purge(n.id);
-        }
+        let trash = st.nb.trash();
+        let removed = trash.iter().map(|n| st.remove_for_good(n.id)).sum();
         st.persist();
         removed
     }
@@ -539,6 +575,36 @@ mod tests {
         nb.delete_node(sec.clone());
         assert_eq!(nb.page_ids(), [a.clone(), b.clone()]);
         assert_eq!(nb.trash().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn trash_older_than_the_limit_is_purged_with_its_files() {
+        let dir = tmp("purge");
+        let nb = NotebookDoc::open(dir.to_string_lossy().into(), "N".into()).unwrap();
+        let a = nb.page_ids()[0].clone();
+        let b = nb.add_page(Some(a.clone()));
+        let c = nb.add_page(Some(b.clone()));
+        let node = |id: &str| {
+            nb.outline()
+                .into_iter()
+                .find(|e| e.page_id.as_deref() == Some(id))
+                .unwrap()
+                .node
+        };
+        let path = nb.page_path(b.clone());
+        crate::PageDoc::open(path.clone()).unwrap();
+        nb.delete_node(node(&b));
+        assert_eq!(nb.purge_expired(30), 0, "deleted just now: kept");
+        assert_eq!(nb.trash().len(), 1);
+        assert_eq!(nb.purge_expired(0), 1, "older than 0 days: purged");
+        assert!(nb.trash().is_empty() && !std::path::Path::new(&path).exists());
+        // Drag and drop between pages.
+        assert!(nb.move_next_to(node(&c), node(&a), false));
+        assert_eq!(nb.page_ids(), [c.clone(), a.clone()]);
+        assert!(nb.move_next_to(node(&c), node(&a), true));
+        assert_eq!(nb.page_ids(), [a.clone(), c.clone()]);
+        assert!(!nb.move_next_to("bad".into(), node(&a), true));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

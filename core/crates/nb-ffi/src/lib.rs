@@ -19,11 +19,15 @@ uniffi::setup_scaffolding!();
 mod cas;
 mod docexport;
 mod kahie_file;
+mod library;
 mod notebook;
+mod search;
 mod sync;
 pub use cas::{cas_available, cas_command, cas_eval, CasAnswer, CasOp};
 pub use kahie_file::{export_kahie, import_kahie};
+pub use library::{LibraryDoc, LibraryEntry, LibraryKind};
 pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
+pub use search::{parse_page_range, HitKind, SearchHit, SearchIndex};
 pub use sync::{sync_page_once, SyncListener, SyncSession, SyncStatus};
 
 #[derive(Debug, uniffi::Error)]
@@ -599,7 +603,7 @@ impl PageDoc {
         Ok(changed)
     }
 
-    /// Paper size name (`a4`, `a4-landscape`, `a5`, `a5-landscape`, `letter`, `letter-landscape`,
+    /// Paper size name (`a3`, `a3-landscape`, `a4`, `a4-landscape`, `a5`, `a5-landscape`, `letter`, `letter-landscape`,
     /// or a custom `<w>x<h>mm` from [`custom_page_size`]).
     pub fn page_size(&self) -> String {
         self.state.lock().unwrap().doc.size().to_string()

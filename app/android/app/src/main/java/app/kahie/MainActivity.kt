@@ -1540,7 +1540,7 @@ class MainActivity : Activity() {
     /** Paper size of the open page (P1-05): a named size or a custom one in millimetres. */
     private fun choosePageSize() {
         val d = doc ?: return
-        val sizes = listOf("a4", "a4-landscape", "a5", "a5-landscape", "letter", "letter-landscape")
+        val sizes = listOf("a3", "a3-landscape", "a4", "a4-landscape", "a5", "a5-landscape", "letter", "letter-landscape")
         val portrait = getString(R.string.portrait)
         val landscape = getString(R.string.landscape)
         val current = d.pageSize()

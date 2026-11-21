@@ -4,6 +4,7 @@
 
 pub mod crdt;
 pub mod inkcodec;
+pub mod library;
 pub mod notebook;
 
 /// `document.json` of a `.kahie` file (docs/format/kahie-v0.md): readable without the app.
@@ -198,6 +199,8 @@ fn is_default_size(s: &String) -> bool {
 
 /// Supported paper sizes and their dimensions in page units (1 unit = 1 px at 96 dpi).
 pub const PAGE_SIZES: &[(&str, f64, f64)] = &[
+    ("a3", 1123.0, 1587.0),
+    ("a3-landscape", 1587.0, 1123.0),
     ("a4", 794.0, 1123.0),
     ("a4-landscape", 1123.0, 794.0),
     ("a5", 559.0, 794.0),

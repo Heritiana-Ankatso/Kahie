@@ -24,7 +24,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 - **Templates**: *Pages → More → New page from a template…* adds a page from a built-in model (lesson plan, lecture notes, exercise sheet, research canvas, journal, weekly planner) or one of yours; *Save this page as a template* keeps any page as a model (marked ★ in the list).
 - **Notebook templates**: *Notebooks → More → New notebook from a template* creates a whole notebook from a built-in model (course notebook with Lessons / Exercises / Assessments sections, monthly planner, exercise book) or one of yours; *Save this notebook as a template* keeps the current notebook's sections, page titles and pages as a model.
 - **Page scrolling**: *Notebooks → More → Page scrolling*. *Vertical* (default): move freely on the page, the arrows turn pages. *Horizontal*: the whole page fits the screen; drag sideways past the edge of the page (two fingers, or one finger when you write with a stylus) to turn to the next or previous page.
-- **Paper size**: *Pages → More → Paper size* (A4, A5 or Letter, portrait or landscape, or *Custom size…* in millimetres, 50 to 1000 mm per side) for the open page. Landscape PDF pages are imported as landscape pages; PDF export keeps each page's size.
+- **Paper size**: *Pages → More → Paper size* (A3, A4, A5 or Letter, portrait or landscape, or *Custom size…* in millimetres, 50 to 1000 mm per side) for the open page. Landscape PDF pages are imported as landscape pages; PDF export keeps each page's size.
 - **Language**: *Notebooks → More → Language* (English, Français, Malagasy, or the system's language).
 
 ## Sharing and backup
