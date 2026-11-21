@@ -67,6 +67,7 @@ fn stroke(id: &str, x: f64) -> Item {
             width: 3.0,
             points: (0..50).map(|k| Point::new(x + k as f64, 10.0, 0.5)).collect(),
             interp: None,
+            frame: nb_model::IDENTITY,
         }),
     }
 }

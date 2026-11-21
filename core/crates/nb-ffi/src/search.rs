@@ -576,6 +576,7 @@ mod tests {
                     h: 30.0,
                 },
                 text: s.into(),
+                spans: vec![],
                 size: 20.0,
                 color: 0,
             },
@@ -703,6 +704,7 @@ mod tests {
                     template: "lined".into(),
                     size: "a4".into(),
                     items,
+                    groups: Default::default(),
                 };
                 write_page(&path.join(format!("{id}.kpage")), &page);
             }

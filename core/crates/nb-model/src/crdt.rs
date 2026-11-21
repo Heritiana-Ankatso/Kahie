@@ -8,22 +8,29 @@
 //! | `meta` | map | `id`, `template`, `size` (absent: A4) |
 //! | `order` | movable list | object ids, bottom to top (z-order) |
 //! | `objects` | map | object id → map of fields (below) |
+//! | `groups` | map | object id → group id (P1-16; `""` = not grouped) |
+//! | `assets` | map | SHA-256 (hex) → bytes of images and attachments |
 //!
 //! Object fields: `t` (`"stroke"` or `"block"`), `deleted` (bool, trash tombstone).
 //! Strokes: `tool`, `color`, `width`, `ink` (packed points, [`crate::inkcodec`],
-//! **immutable once written** — ADR-0003), `dx`/`dy` (translation applied to the ink),
-//! `interp` (JSON of [`Interp`] or null). Other objects: `json` (JSON of [`Content`]).
+//! **immutable once written** — ADR-0003), `xf` (optional list `[a, b, c, d]`: linear part
+//! of the transform applied to the ink, P1-15; absent = identity), `dx`/`dy` (translation
+//! applied after it), `interp` (JSON of [`Interp`] or null). Other objects: `json` (JSON of
+//! [`Content`]). Text blocks also have `rt`, a Loro rich text (P1-17) holding the text and
+//! its marks (`bold`, `italic`, `underline`, `color`, `h`, `list`); it wins over the text
+//! in `json`, which is kept for older readers.
 //!
 //! The plain [`Page`] returned by [`CrdtPage::page`] is a materialised view rebuilt
 //! after every change; decoded ink is cached per object id because ink never changes.
 
-use crate::{inkcodec, Content, Interp, Item, Op, Page, Stroke, Tool};
+use crate::{inkcodec, normalize_spans, Content, Interp, Item, Linear, Op, Page, Stroke, TextSpan, Tool, IDENTITY};
 use loro::event::{Diff, DiffEvent};
 use loro::{
-    Container, ContainerTrait, ExportMode, Frontiers, Index, LoroDoc, LoroMap, LoroValue, Subscription, UndoManager,
-    ValueOrContainer, VersionVector,
+    Container, ContainerTrait, ExpandType, ExportMode, Frontiers, Index, LoroDoc, LoroMap, LoroText, LoroValue,
+    StyleConfig, StyleConfigMap, Subscription, TextDelta, UndoManager, UpdateOptions, ValueOrContainer, VersionVector,
 };
 use nb_ink::Point;
+use std::collections::BTreeMap;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -32,6 +39,9 @@ const ORDER: &str = "order";
 const OBJECTS: &str = "objects";
 /// Image bytes by SHA-256 (hex). Stored in the CRDT so images sync and export with the page.
 const ASSETS: &str = "assets";
+const GROUPS: &str = "groups";
+/// Rich text mark keys (P1-17).
+const MARKS: [&str; 6] = ["bold", "italic", "underline", "color", "h", "list"];
 
 /// Errors from loading or merging CRDT data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +150,11 @@ impl CrdtPage {
     }
 
     fn wrap(doc: LoroDoc) -> Self {
+        let mut styles = StyleConfigMap::new();
+        for k in MARKS {
+            styles.insert(k.into(), StyleConfig::new().expand(ExpandType::After));
+        }
+        doc.config_text_style(styles);
         let undo = Self::undo_manager(&doc);
         let dirty: Arc<Mutex<HashSet<String>>> = Arc::default();
         let objects_id = doc.get_map(OBJECTS).id();
@@ -306,6 +321,23 @@ impl CrdtPage {
         // view one-to-one (possible after concurrent restores), falls back to a rebuild.
         let incremental =
             matches!(op, Op::Add(_) | Op::Remove(_)) && self.doc.get_movable_list(ORDER).len() == self.view.items.len();
+        self.write_op(op);
+        self.doc.commit();
+        if incremental {
+            self.patch_view(op);
+            #[cfg(debug_assertions)]
+            {
+                let patched = self.view.clone();
+                self.rebuild();
+                debug_assert_eq!(patched, self.view, "incremental view diverged from rebuild");
+            }
+        } else {
+            self.rebuild();
+        }
+        true
+    }
+
+    fn write_op(&mut self, op: &Op) {
         match op {
             Op::Add(entries) => {
                 let mut sorted = entries.clone();
@@ -323,20 +355,8 @@ impl CrdtPage {
                     self.write_update(old, new);
                 }
             }
+            Op::Batch(ops) => ops.iter().for_each(|o| self.write_op(o)),
         }
-        self.doc.commit();
-        if incremental {
-            self.patch_view(op);
-            #[cfg(debug_assertions)]
-            {
-                let patched = self.view.clone();
-                self.rebuild();
-                debug_assert_eq!(patched, self.view, "incremental view diverged from rebuild");
-            }
-        } else {
-            self.rebuild();
-        }
-        true
     }
 
     fn patch_view(&mut self, op: &Op) {
@@ -345,10 +365,17 @@ impl CrdtPage {
                 let mut sorted = entries.clone();
                 sorted.sort_by_key(|(i, _)| *i);
                 for (i, mut item) in sorted {
-                    if let Content::Stroke(s) = &mut item.content {
-                        // Same values a rebuild would decode from the stored ink.
-                        s.points = inkcodec::quantize(&s.points);
-                        self.ink_cache.insert(item.id.clone(), Arc::new(s.points.clone()));
+                    match &mut item.content {
+                        Content::Stroke(s) => {
+                            // Same values a rebuild would decode from the stored ink.
+                            s.points = inkcodec::quantize(&s.points);
+                            s.frame = IDENTITY;
+                            self.ink_cache.insert(item.id.clone(), Arc::new(s.points.clone()));
+                        }
+                        Content::Text { text, spans, .. } => {
+                            *spans = normalize_spans(spans, text.chars().count() as u32);
+                        }
+                        _ => {}
                     }
                     let at = i.min(self.view.items.len());
                     self.view.items.insert(at, item);
@@ -357,8 +384,54 @@ impl CrdtPage {
             Op::Remove(entries) => {
                 self.view.items.retain(|it| !entries.iter().any(|(_, e)| e.id == it.id));
             }
-            Op::Update { .. } => self.rebuild(),
+            Op::Update { .. } | Op::Batch(_) => return self.rebuild(),
         }
+        if !self.view.groups.is_empty() || !self.doc.get_map(GROUPS).is_empty() {
+            self.view.groups = self.groups(&self.view.items);
+        }
+    }
+
+    // ---------- groups (P1-16) ----------
+
+    /// Put `ids` in one new group `group` (or take them out of any group with `None`), as
+    /// one undo step. Returns false if nothing changed.
+    pub fn set_group(&mut self, ids: &[&str], group: Option<&str>) -> bool {
+        let want = group.unwrap_or("");
+        let changed = self.write_groups(ids.iter().map(|id| (*id, want)));
+        if changed {
+            self.doc.commit();
+            self.rebuild();
+        }
+        changed
+    }
+
+    /// Apply `op` and assign groups (item id, group id) in the same undo step, e.g. pasting
+    /// a copied group as a new group.
+    pub fn apply_grouped(&mut self, op: &Op, groups: &[(&str, &str)]) -> bool {
+        if op.is_empty() {
+            return false;
+        }
+        self.write_op(op);
+        self.write_groups(groups.iter().copied());
+        self.doc.commit();
+        self.rebuild();
+        true
+    }
+
+    fn write_groups<'a>(&mut self, pairs: impl Iterator<Item = (&'a str, &'a str)>) -> bool {
+        let groups = self.doc.get_map(GROUPS);
+        let mut changed = false;
+        for (id, want) in pairs {
+            let cur = match groups.get(id) {
+                Some(ValueOrContainer::Value(LoroValue::String(s))) => s.to_string(),
+                _ => String::new(),
+            };
+            if cur != want {
+                groups.insert(id, want).expect("insert");
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// Restore objects from the trash to the top of the page.
@@ -554,7 +627,7 @@ impl CrdtPage {
         match &item.content {
             Content::Stroke(s) => {
                 m.insert("t", "stroke").expect("insert");
-                m.insert("tool", tool_name(s.tool)).expect("insert");
+                m.insert("tool", s.tool.name()).expect("insert");
                 m.insert("color", i64::from(s.color)).expect("insert");
                 m.insert("width", s.width).expect("insert");
                 m.insert("ink", LoroValue::Binary(inkcodec::encode(&s.points).into()))
@@ -567,6 +640,10 @@ impl CrdtPage {
                 m.insert("t", "block").expect("insert");
                 m.insert("json", serde_json::to_string(other).expect("serialise"))
                     .expect("insert");
+                if let Content::Text { text, spans, .. } = other {
+                    let rt = m.insert_container("rt", LoroText::new()).expect("insert text");
+                    write_rich(&rt, text, spans);
+                }
             }
         }
         m.insert("deleted", false).expect("insert");
@@ -598,23 +675,42 @@ impl CrdtPage {
         };
         match (&old.content, &new.content) {
             (Content::Stroke(a), Content::Stroke(b)) => {
-                // Ink is immutable: only a translation of the raw points is representable.
-                let (dx, dy) = match (a.points.first(), b.points.first()) {
-                    (Some(p), Some(q)) => (q.x - p.x, q.y - p.y),
-                    _ => (0.0, 0.0),
+                // Ink is immutable: only a transform of the stored points is representable,
+                // its linear part in `xf` (`b.frame`) and its translation in `dx`/`dy`.
+                let raw = match self.ink_cache.get(&new.id) {
+                    Some(p) => p.clone(),
+                    None => match m.get("ink") {
+                        Some(ValueOrContainer::Value(LoroValue::Binary(bytes))) => {
+                            Arc::new(inkcodec::decode(&bytes).unwrap_or_default())
+                        }
+                        _ => Arc::new(vec![]),
+                    },
+                };
+                let f = b.frame;
+                let (dx, dy) = match (raw.first(), b.points.first()) {
+                    (Some(r), Some(q)) => (q.x - (f[0] * r.x + f[2] * r.y), q.y - (f[1] * r.x + f[3] * r.y)),
+                    _ => (num(m.get("dx")), num(m.get("dy"))),
                 };
                 debug_assert!(
-                    a.points.len() == b.points.len()
-                        && a.points
-                            .iter()
-                            .zip(&b.points)
-                            .all(|(p, q)| { (q.x - p.x - dx).abs() < 1e-6 && (q.y - p.y - dy).abs() < 1e-6 }),
-                    "stroke update must be a pure translation (ADR-0003)"
+                    raw.len() == b.points.len()
+                        && raw.iter().zip(&b.points).all(|(r, q)| {
+                            (f[0] * r.x + f[2] * r.y + dx - q.x).abs() < 1e-3
+                                && (f[1] * r.x + f[3] * r.y + dy - q.y).abs() < 1e-3
+                        }),
+                    "stroke update must be a transform of the stored ink (ADR-0003)"
                 );
+                if a.frame != b.frame {
+                    let xf = if f == IDENTITY {
+                        LoroValue::Null
+                    } else {
+                        LoroValue::from(f.to_vec())
+                    };
+                    m.insert("xf", xf).expect("insert");
+                }
                 let (ox, oy) = (num(m.get("dx")), num(m.get("dy")));
-                if dx != 0.0 || dy != 0.0 {
-                    m.insert("dx", ox + dx).expect("insert");
-                    m.insert("dy", oy + dy).expect("insert");
+                if (dx - ox).abs() > 1e-9 || (dy - oy).abs() > 1e-9 {
+                    m.insert("dx", dx).expect("insert");
+                    m.insert("dy", dy).expect("insert");
                 }
                 if a.color != b.color {
                     m.insert("color", i64::from(b.color)).expect("insert");
@@ -623,7 +719,7 @@ impl CrdtPage {
                     m.insert("width", b.width).expect("insert");
                 }
                 if a.tool != b.tool {
-                    m.insert("tool", tool_name(b.tool)).expect("insert");
+                    m.insert("tool", b.tool.name()).expect("insert");
                 }
                 if a.interp != b.interp {
                     m.insert("interp", interp_value(&b.interp)).expect("insert");
@@ -632,6 +728,13 @@ impl CrdtPage {
             (_, other) => {
                 m.insert("json", serde_json::to_string(other).expect("serialise"))
                     .expect("insert");
+                if let Content::Text { text, spans, .. } = other {
+                    let rt = match m.get("rt") {
+                        Some(ValueOrContainer::Container(Container::Text(t))) => t,
+                        _ => m.insert_container("rt", LoroText::new()).expect("insert text"),
+                    };
+                    write_rich(&rt, text, spans);
+                }
             }
         }
     }
@@ -677,17 +780,36 @@ impl CrdtPage {
                 items.push(item.clone());
             }
         }
+        let groups = self.groups(&items);
         self.view = Page {
             id,
             template,
             size,
             items,
+            groups,
         };
         #[cfg(debug_assertions)]
         {
             let full = self.rebuild_full();
             debug_assert_eq!(self.view, full, "cached view diverged from the document");
         }
+    }
+
+    /// Group of each grouped item in `items`.
+    fn groups(&self, items: &[Item]) -> BTreeMap<String, String> {
+        let LoroValue::Map(g) = self.doc.get_map(GROUPS).get_value() else {
+            return BTreeMap::new();
+        };
+        if g.is_empty() {
+            return BTreeMap::new();
+        }
+        items
+            .iter()
+            .filter_map(|it| match g.get(&it.id) {
+                Some(LoroValue::String(s)) if !s.is_empty() => Some((it.id.clone(), s.to_string())),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Re-read one object from the document into the caches.
@@ -721,7 +843,7 @@ impl CrdtPage {
             unreachable!()
         };
         let mut seen = HashSet::new();
-        let items = order
+        let items: Vec<Item> = order
             .iter()
             .filter_map(|v| match v {
                 LoroValue::String(s) if seen.insert(s.to_string()) => Some(s.to_string()),
@@ -735,11 +857,13 @@ impl CrdtPage {
                 self.decode_item(&oid, f)
             })
             .collect();
+        let groups = self.groups(&items);
         Page {
             id: str_field(&meta, "id").unwrap_or_default(),
             template: str_field(&meta, "template").unwrap_or_else(|| "lined".into()),
             size: str_field(&meta, "size").unwrap_or_else(|| "a4".into()),
             items,
+            groups,
         }
     }
 
@@ -756,17 +880,31 @@ impl CrdtPage {
                     }
                 };
                 let (dx, dy) = (num_v(field(fields, "dx")), num_v(field(fields, "dy")));
-                let points = raw.iter().map(|p| Point::new(p.x + dx, p.y + dy, p.p)).collect();
+                let frame = frame_v(field(fields, "xf"));
+                let f = frame;
+                let points = if f == IDENTITY {
+                    raw.iter()
+                        .map(|p| Point {
+                            x: p.x + dx,
+                            y: p.y + dy,
+                            ..*p
+                        })
+                        .collect()
+                } else {
+                    raw.iter()
+                        .map(|p| Point {
+                            x: f[0] * p.x + f[2] * p.y + dx,
+                            y: f[1] * p.x + f[3] * p.y + dy,
+                            ..*p
+                        })
+                        .collect()
+                };
                 let interp = match field(fields, "interp") {
                     Some(LoroValue::String(s)) => serde_json::from_str::<Interp>(s).ok(),
                     _ => None,
                 };
                 Content::Stroke(Stroke {
-                    tool: if str_field(fields, "tool").as_deref() == Some("highlighter") {
-                        Tool::Highlighter
-                    } else {
-                        Tool::Pen
-                    },
+                    tool: Tool::from_name(str_field(fields, "tool").as_deref().unwrap_or("pen")),
                     color: match field(fields, "color") {
                         Some(LoroValue::I64(c)) => *c as u32,
                         _ => 0,
@@ -774,9 +912,21 @@ impl CrdtPage {
                     width: num_v(field(fields, "width")),
                     points,
                     interp,
+                    frame,
                 })
             }
-            _ => serde_json::from_str(&str_field(fields, "json")?).ok()?,
+            _ => {
+                let mut c: Content = serde_json::from_str(&str_field(fields, "json")?).ok()?;
+                if let Content::Text { text, spans, .. } = &mut c {
+                    if let Some(rt) = child_map(&self.doc.get_map(OBJECTS), id).and_then(|m| match m.get("rt") {
+                        Some(ValueOrContainer::Container(Container::Text(t))) => Some(t),
+                        _ => None,
+                    }) {
+                        (*text, *spans) = read_rich(&rt);
+                    }
+                }
+                c
+            }
         };
         Some(Item {
             id: id.to_string(),
@@ -811,10 +961,91 @@ pub(crate) fn sync_incoming(doc: &LoroDoc, bytes: &[u8], relay: &mut VersionVect
     Ok(())
 }
 
-fn tool_name(t: Tool) -> &'static str {
-    match t {
-        Tool::Pen => "pen",
-        Tool::Highlighter => "highlighter",
+/// The `xf` field: four numbers, anything else is the identity.
+fn frame_v(v: Option<&LoroValue>) -> Linear {
+    let Some(LoroValue::List(l)) = v else {
+        return IDENTITY;
+    };
+    if l.len() != 4 {
+        return IDENTITY;
+    }
+    let mut f = IDENTITY;
+    for (i, x) in l.iter().enumerate() {
+        f[i] = num_v(Some(x));
+    }
+    f
+}
+
+/// Text and normalised spans of a rich text.
+fn read_rich(rt: &LoroText) -> (String, Vec<TextSpan>) {
+    let mut text = String::new();
+    let mut spans = vec![];
+    let mut at = 0u32;
+    for d in rt.to_delta() {
+        let TextDelta::Insert { insert, attributes } = d else {
+            continue;
+        };
+        let n = insert.chars().count() as u32;
+        text.push_str(&insert);
+        if let Some(attrs) = attributes {
+            let on = |k: &str| matches!(attrs.get(k), Some(LoroValue::Bool(true)));
+            let int = |k: &str| match attrs.get(k) {
+                Some(LoroValue::I64(v)) => Some(*v),
+                Some(LoroValue::Double(v)) => Some(*v as i64),
+                _ => None,
+            };
+            spans.push(TextSpan {
+                start: at,
+                end: at + n,
+                bold: on("bold"),
+                italic: on("italic"),
+                underline: on("underline"),
+                color: int("color").map(|c| c as u32),
+                heading: int("h").unwrap_or(0).clamp(0, 3) as u8,
+                list: int("list").unwrap_or(0).clamp(0, 2) as u8,
+            });
+        }
+        at += n;
+    }
+    let len = at;
+    (text, normalize_spans(&spans, len))
+}
+
+/// Make `rt` hold `text` with `spans`: a character diff (so concurrent edits merge), then
+/// marks reset where the formatting differs.
+fn write_rich(rt: &LoroText, text: &str, spans: &[TextSpan]) {
+    if rt.to_string() != text {
+        rt.update(text, UpdateOptions::default()).expect("update text");
+    }
+    let len = text.chars().count();
+    let want = normalize_spans(spans, len as u32);
+    let (_, have) = read_rich(rt);
+    if want == have || len == 0 {
+        return;
+    }
+    for k in MARKS {
+        rt.unmark(0..len, k).expect("unmark");
+    }
+    for s in &want {
+        let r = s.start as usize..s.end as usize;
+        if s.bold {
+            rt.mark(r.clone(), "bold", true).expect("mark");
+        }
+        if s.italic {
+            rt.mark(r.clone(), "italic", true).expect("mark");
+        }
+        if s.underline {
+            rt.mark(r.clone(), "underline", true).expect("mark");
+        }
+        if let Some(c) = s.color {
+            rt.mark(r.clone(), "color", i64::from(c)).expect("mark");
+        }
+        if s.heading > 0 {
+            rt.mark(r.clone(), "h", i64::from(s.heading)).expect("mark");
+        }
+        if s.list > 0 {
+            rt.mark(r, "list", i64::from(s.list)).expect("mark");
+        }
     }
 }
 

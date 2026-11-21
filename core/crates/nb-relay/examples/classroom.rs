@@ -52,6 +52,7 @@ fn stroke(id: String, r: &mut Rng) -> Item {
     Item {
         id,
         content: Content::Stroke(Stroke {
+            frame: nb_model::IDENTITY,
             tool: Tool::Pen,
             color: 0x1d1d1f,
             width: 3.0,

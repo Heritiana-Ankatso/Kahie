@@ -1,6 +1,6 @@
 {
   "format": "kahie-document",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "notebook": {
     "id": "nb-1",
     "title": "Géométrie"
@@ -59,7 +59,20 @@
             },
             "text": "Théorème de Pythagore",
             "size": 16.0,
-            "color": 1907999
+            "color": 1907999,
+            "spans": [
+              {
+                "start": 0,
+                "end": 9,
+                "bold": true
+              },
+              {
+                "start": 13,
+                "end": 22,
+                "italic": true,
+                "color": 2841027
+              }
+            ]
           }
         },
         {
@@ -108,13 +121,57 @@
             },
             "asset": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
           }
+        },
+        {
+          "id": "f1",
+          "content": {
+            "type": "attachment",
+            "rect": {
+              "x": 440.0,
+              "y": 120.0,
+              "w": 180.0,
+              "h": 48.0
+            },
+            "asset": "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752",
+            "name": "worksheet.odt",
+            "mime": "application/vnd.oasis.opendocument.text"
+          }
         }
-      ]
+      ],
+      "groups": {
+        "f1": "grp-1",
+        "i1": "grp-1"
+      }
     },
     {
       "id": "page-2",
-      "template": "lined",
-      "items": []
+      "template": "blank",
+      "size": "infinite",
+      "items": [
+        {
+          "id": "s2",
+          "content": {
+            "type": "stroke",
+            "tool": "pencil",
+            "color": 1907999,
+            "width": 3.0,
+            "points": [
+              {
+                "x": -500.0,
+                "y": -200.0,
+                "p": 0.5
+              },
+              {
+                "x": -450.0,
+                "y": -180.0,
+                "p": 0.5,
+                "t": 0.6
+              }
+            ],
+            "interp": null
+          }
+        }
+      ]
     }
   ]
 }

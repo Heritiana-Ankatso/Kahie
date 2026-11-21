@@ -11,6 +11,7 @@ fn stroke(id: &str, pts: &[(f64, f64)]) -> Item {
             width: 3.0,
             points: pts.iter().map(|&(x, y)| Point::new(x, y, 0.5)).collect(),
             interp: None,
+            frame: IDENTITY,
         }),
     }
 }
@@ -28,6 +29,7 @@ fn text(id: &str, s: &str) -> Item {
             text: s.into(),
             size: 16.0,
             color: 0,
+            spans: vec![],
         },
     }
 }
@@ -449,4 +451,242 @@ fn custom_page_sizes() {
     assert_eq!(p.size(), "250x120mm", "out of range is ignored");
     let q = CrdtPage::load(&[&p.snapshot()], 2).unwrap();
     assert_eq!((q.size(), page_dims(q.size())), ("250x120mm", (945.0, 454.0)));
+}
+
+#[test]
+fn scale_and_rotate_keep_ink_and_are_one_undo_step() {
+    // P1-15: a similarity changes the stroke's frame, never its stored ink (ADR-0003).
+    let mut p = CrdtPage::new("p", 1);
+    p.apply(&Op::add(
+        p.page(),
+        vec![stroke("s", &[(0.0, 0.0), (50.0, 0.0), (100.0, 10.0)]), text("t", "hi")],
+    ));
+    let before = raw_ink(&p, "s");
+    let t = crate::Similarity {
+        cx: 50.0,
+        cy: 0.0,
+        scale: 1.5,
+        angle: 0.7,
+        dx: 3.0,
+        dy: -4.0,
+    };
+    let after: Vec<Item> = p.page().items.iter().map(|it| it.transformed(&t)).collect();
+    let want = after.clone();
+    assert!(p.apply(&Op::update(p.page(), after)));
+    assert_eq!(raw_ink(&p, "s"), before);
+    let Content::Stroke(st) = &p.page().items[0].content else {
+        unreachable!()
+    };
+    let Content::Stroke(w) = &want[0].content else {
+        unreachable!()
+    };
+    for (a, b) in st.points.iter().zip(&w.points) {
+        assert!((a.x - b.x).abs() < 1e-6 && (a.y - b.y).abs() < 1e-6, "{a:?} vs {b:?}");
+    }
+    assert_eq!(st.width, 4.5);
+    let Content::Text { size, .. } = &p.page().items[1].content else {
+        unreachable!()
+    };
+    assert_eq!(*size, 24.0);
+    // Reloads and syncs the same.
+    let q = CrdtPage::load(&[&p.snapshot()], 2).unwrap();
+    assert_eq!(q.page(), p.page());
+    // A later move composes with the rotation.
+    let st = st.clone();
+    let moved = p.page().items[0].translated(10.0, 0.0);
+    p.apply(&Op::update(p.page(), vec![moved]));
+    let Content::Stroke(st2) = &p.page().items[0].content else {
+        unreachable!()
+    };
+    assert!((st2.points[1].x - st.points[1].x - 10.0).abs() < 1e-6);
+    assert!(p.undo() && p.undo());
+    let Content::Stroke(orig) = &p.page().items[0].content else {
+        unreachable!()
+    };
+    assert_eq!(orig.points[2], Point::new(100.0, 10.0, 0.5));
+    assert_eq!(orig.frame, IDENTITY);
+}
+
+#[test]
+fn pencil_brush_and_tilt_round_trip() {
+    let mut p = CrdtPage::new("p", 1);
+    let mut s = stroke("s", &[(0.0, 0.0), (10.0, 0.0)]);
+    if let Content::Stroke(st) = &mut s.content {
+        st.tool = Tool::Brush;
+        st.points[1].t = 0.9;
+    }
+    let mut s2 = stroke("q", &[(0.0, 5.0)]);
+    if let Content::Stroke(st) = &mut s2.content {
+        st.tool = Tool::Pencil;
+    }
+    p.apply(&Op::add(p.page(), vec![s, s2]));
+    let q = CrdtPage::load(&[&p.snapshot()], 2).unwrap();
+    let Content::Stroke(st) = &q.page().items[0].content else {
+        unreachable!()
+    };
+    assert_eq!(st.tool, Tool::Brush);
+    assert!((st.points[1].t - 0.9).abs() < 1e-3);
+    let Content::Stroke(st) = &q.page().items[1].content else {
+        unreachable!()
+    };
+    assert_eq!(st.tool, Tool::Pencil);
+}
+
+#[test]
+fn partial_erase_batch_tombstones_the_original() {
+    // P1-11: the original stroke goes to the trash untouched; the pieces are new strokes.
+    let mut p = CrdtPage::new("p", 1);
+    p.apply(&Op::add(
+        p.page(),
+        vec![
+            stroke("under", &[(0.0, 50.0)]),
+            stroke("s", &[(0.0, 0.0), (100.0, 0.0)]),
+            stroke("over", &[(0.0, 60.0)]),
+        ],
+    ));
+    let before = raw_ink(&p, "s");
+    let rm = Op::remove(p.page(), &["s"]);
+    let add = Op::Add(vec![
+        (1, stroke("s.1", &[(0.0, 0.0), (40.0, 0.0)])),
+        (2, stroke("s.2", &[(60.0, 0.0), (100.0, 0.0)])),
+    ]);
+    assert!(p.apply(&Op::Batch(vec![rm, add])));
+    assert_eq!(
+        ids(&p),
+        ["under", "s.1", "s.2", "over"],
+        "pieces keep the stroke's place"
+    );
+    assert_eq!(raw_ink(&p, "s"), before);
+    assert_eq!(p.trash().iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["s"]);
+    assert!(p.undo());
+    assert_eq!(ids(&p), ["under", "s", "over"], "one undo step");
+    assert!(p.redo());
+    assert_eq!(ids(&p).len(), 4);
+}
+
+#[test]
+fn groups_are_stored_synced_and_undoable() {
+    let mut a = CrdtPage::new("p", 1);
+    a.apply(&Op::add(
+        a.page(),
+        vec![
+            stroke("x", &[(0.0, 0.0)]),
+            stroke("y", &[(1.0, 0.0)]),
+            stroke("z", &[(2.0, 0.0)]),
+        ],
+    ));
+    let mut b = CrdtPage::from_snapshot(&a.snapshot(), 2).unwrap();
+    assert!(a.set_group(&["x", "y"], Some("g1")));
+    assert!(!a.set_group(&["x", "y"], Some("g1")), "no change");
+    assert_eq!(a.page().with_groups(&["x".into()]), ["x", "y"]);
+    sync(&mut a, &mut b);
+    assert_eq!(b.page().groups, a.page().groups);
+    assert!(a.set_group(&["x", "y"], None));
+    assert!(a.page().groups.is_empty());
+    assert!(a.undo());
+    assert_eq!(a.page().groups.len(), 2);
+    // Deleted items leave the view's groups.
+    a.apply(&Op::remove(a.page(), &["x"]));
+    assert_eq!(a.page().groups.keys().collect::<Vec<_>>(), ["y"]);
+}
+
+#[test]
+fn rich_text_is_crdt_text_and_merges_concurrent_edits() {
+    use crate::TextSpan;
+    let span = |start, end| TextSpan {
+        start,
+        end,
+        ..Default::default()
+    };
+    let mut a = CrdtPage::new("p", 1);
+    let mut t = text("t", "Hello world");
+    if let Content::Text { spans, .. } = &mut t.content {
+        spans.push(TextSpan {
+            bold: true,
+            ..span(0, 5)
+        });
+    }
+    a.apply(&Op::add(a.page(), vec![t]));
+    let mut b = CrdtPage::from_snapshot(&a.snapshot(), 2).unwrap();
+    assert_eq!(b.page(), a.page());
+    let edit = |p: &mut CrdtPage, s: &str, spans: Vec<TextSpan>| {
+        let mut it = p.page().items[0].clone();
+        if let Content::Text { text, spans: sp, .. } = &mut it.content {
+            *text = s.into();
+            *sp = spans;
+        }
+        p.apply(&Op::update(p.page(), vec![it]));
+    };
+    // Concurrent: A appends, B inserts at the start and colours "world".
+    edit(
+        &mut a,
+        "Hello world!",
+        vec![TextSpan {
+            bold: true,
+            ..span(0, 5)
+        }],
+    );
+    edit(
+        &mut b,
+        "Oh, Hello world",
+        vec![
+            TextSpan {
+                bold: true,
+                ..span(4, 9)
+            },
+            TextSpan {
+                color: Some(0xff0000),
+                ..span(10, 15)
+            },
+        ],
+    );
+    sync(&mut a, &mut b);
+    assert_eq!(a.page(), b.page());
+    let Content::Text { text, spans, .. } = &a.page().items[0].content else {
+        unreachable!()
+    };
+    assert_eq!(text, "Oh, Hello world!", "both edits kept");
+    assert!(spans.iter().any(|s| s.bold && (s.start, s.end) == (4, 9)), "{spans:?}");
+    assert!(
+        spans.iter().any(|s| s.color == Some(0xff0000) && s.start == 10),
+        "{spans:?}"
+    );
+}
+
+#[test]
+fn plain_text_blocks_from_older_versions_still_load() {
+    // A block written before rich text: `json` only, no `rt`.
+    let doc = LoroDoc::new();
+    doc.set_peer_id(9).unwrap();
+    doc.get_map(META).insert("id", "old").unwrap();
+    let m = doc.get_map(OBJECTS).insert_container("t", LoroMap::new()).unwrap();
+    m.insert("t", "block").unwrap();
+    m.insert(
+        "json",
+        r#"{"type":"text","rect":{"x":0,"y":0,"w":10,"h":10},"text":"ancien","size":12,"color":0}"#,
+    )
+    .unwrap();
+    m.insert("deleted", false).unwrap();
+    doc.get_movable_list(ORDER).push("t").unwrap();
+    doc.commit();
+    let mut p = CrdtPage::load(&[&doc.export(ExportMode::Snapshot).unwrap()], 3).unwrap();
+    let Content::Text { text, spans, .. } = &p.page().items[0].content else {
+        unreachable!()
+    };
+    assert_eq!((text.as_str(), spans.len()), ("ancien", 0));
+    // Editing it upgrades it to rich text.
+    let mut it = p.page().items[0].clone();
+    if let Content::Text { spans, .. } = &mut it.content {
+        spans.push(crate::TextSpan {
+            start: 0,
+            end: 6,
+            italic: true,
+            ..Default::default()
+        });
+    }
+    p.apply(&Op::update(p.page(), vec![it]));
+    let Content::Text { spans, .. } = &p.page().items[0].content else {
+        unreachable!()
+    };
+    assert!(spans[0].italic);
 }

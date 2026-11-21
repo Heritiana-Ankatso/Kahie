@@ -14,7 +14,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 const FORMAT: &str = "kahie";
-const VERSION: &str = "0.1.0";
+const VERSION: &str = "0.2.0";
 
 fn io(e: impl std::fmt::Display) -> CoreError {
     CoreError::Io { detail: e.to_string() }
