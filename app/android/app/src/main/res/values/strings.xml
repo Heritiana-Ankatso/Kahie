@@ -205,7 +205,7 @@
     <string name="plot_line_area">area 1 from 0 to 1</string>
     <string name="export_markdown">Export as Markdown (ZIP)</string>
     <string name="export_latex">Export as LaTeX (ZIP)</string>
-    <string name="plot_geo_help">Geometry (drag the free points with the Plot tool): A = (0, 0) · B = (4, 1) · c = circle(A, B) · d = line(A, B) · P = intersect(c, d, 2) · M = midpoint(A, B) · m = bisector(A, B) · perpendicular(d, A) · parallel(d, A) · polygon(A, B, C) · distance(A, B) · angle(B, A, C) · axes off</string>
+    <string name="plot_geo_help">Geometry (drag the free points with the Plot tool): A = (0, 0) · B = (4, 1) · c = circle(A, B) · d = line(A, B) · P = intersect(c, d, 2) · M = midpoint(A, B) · m = bisector(A, B) · perpendicular(d, A) · parallel(d, A) · polygon(A, B, C) · distance(A, B) · angle(B, A, C) · axes off · constrain distance(A, B) = 5</string>
     <string name="cas_solve">Solve</string>
     <string name="cas_factor">Factor</string>
     <string name="cas_expand">Expand</string>

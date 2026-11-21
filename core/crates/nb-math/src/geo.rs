@@ -110,7 +110,7 @@ fn valid_name(n: &str) -> bool {
 }
 
 /// Split "f(a, b, c)" into the keyword and its arguments (top-level commas).
-fn call(s: &str) -> Option<(&str, Vec<&str>)> {
+pub(crate) fn call(s: &str) -> Option<(&str, Vec<&str>)> {
     let open = s.find('(')?;
     let inner = s[open + 1..].trim_end().strip_suffix(')')?;
     let mut args = vec![];
@@ -236,6 +236,77 @@ pub fn parse_line(line: &str, index: usize) -> Result<Option<(String, Def)>, Par
         }
     };
     Ok(Some((name, def)))
+}
+
+/// A `constrain …` line (E2.7): `constrain distance(A, B) = 5`, `angle(B, A, C) = 60`,
+/// `horizontal(A, B)`, `vertical(A, B)`, `parallel(A, B, C, D)`, `perpendicular(A, B, C, D)`,
+/// `equal(A, B, C, D)` (|AB| = |CD|). French: `contrainte` / `fixer`, `parallele`,
+/// `perpendiculaire`, `egal`. `Ok(None)`: not a constraint line.
+pub fn parse_constraint(line: &str) -> Result<Option<crate::solve::Constraint>, ParseError> {
+    use crate::solve::Constraint as C;
+    let s = line.trim();
+    let Some((first, rest)) = s.split_once(char::is_whitespace) else {
+        return Ok(None);
+    };
+    if !matches!(
+        first.to_lowercase().as_str(),
+        "constrain" | "constraint" | "contrainte" | "fixer" | "impose" | "imposer"
+    ) {
+        return Ok(None);
+    }
+    let (call_part, value) = match rest.rsplit_once('=') {
+        Some((c, v)) => (c.trim(), Some(parse_number(v)?)),
+        None => (rest.trim(), None),
+    };
+    let bad = || ParseError("write e.g. constrain distance(A, B) = 5".into());
+    let (k, args) = call(call_part).ok_or_else(bad)?;
+    if args.iter().any(|a| !valid_name(a)) {
+        return Err(bad());
+    }
+    let a: Vec<String> = args.iter().map(|x| x.to_string()).collect();
+    let k: String = k
+        .to_lowercase()
+        .chars()
+        .map(|c| if "éèê".contains(c) { 'e' } else { c })
+        .collect();
+    let need = |n: usize, v: bool| {
+        if a.len() == n && value.is_some() == v {
+            Ok(())
+        } else {
+            Err(bad())
+        }
+    };
+    Ok(Some(match k.as_str() {
+        "distance" | "length" | "longueur" => {
+            need(2, true)?;
+            C::Distance(a[0].clone(), a[1].clone(), value.unwrap())
+        }
+        "angle" => {
+            need(3, true)?;
+            C::Angle(a[0].clone(), a[1].clone(), a[2].clone(), value.unwrap())
+        }
+        "horizontal" | "horizontale" => {
+            need(2, false)?;
+            C::Horizontal(a[0].clone(), a[1].clone())
+        }
+        "vertical" | "verticale" => {
+            need(2, false)?;
+            C::Vertical(a[0].clone(), a[1].clone())
+        }
+        "parallel" | "parallele" | "paralleles" => {
+            need(4, false)?;
+            C::Parallel(a[0].clone(), a[1].clone(), a[2].clone(), a[3].clone())
+        }
+        "perpendicular" | "perpendiculaire" | "perpendiculaires" => {
+            need(4, false)?;
+            C::Perpendicular(a[0].clone(), a[1].clone(), a[2].clone(), a[3].clone())
+        }
+        "equal" | "egal" | "egales" | "equallength" => {
+            need(4, false)?;
+            C::EqualLength(a[0].clone(), a[1].clone(), a[2].clone(), a[3].clone())
+        }
+        _ => return Err(bad()),
+    }))
 }
 
 fn sub(a: P, b: P) -> P {

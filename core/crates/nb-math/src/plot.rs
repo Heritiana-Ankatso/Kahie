@@ -107,6 +107,8 @@ enum Line {
     Area(Fref, Option<Fref>, f64, f64),
     /// A construction object (see [`crate::geo`]): index into the evaluated values.
     Geo(String, Box<crate::geo::Def>),
+    /// A constraint on free points (E2.7), solved before the construction is evaluated.
+    Constraint(crate::solve::Constraint),
     AxesOff,
 }
 
@@ -186,6 +188,9 @@ fn parse_line(src: &str, index: usize) -> Result<Line, ParseError> {
         "axes off" | "no axes" | "sans axes" | "hide axes"
     ) {
         return Ok(Line::AxesOff);
+    }
+    if let Some(c) = crate::geo::parse_constraint(s)? {
+        return Ok(Line::Constraint(c));
     }
     if let Some((name, def)) = crate::geo::parse_line(s, index)? {
         return Ok(Line::Geo(name, Box::new(def)));
@@ -325,13 +330,41 @@ fn pt(x: f64, y: f64) -> String {
 pub fn render(lines: &[String], w: &Window) -> Rendered {
     let parsed: Vec<Result<Line, ParseError>> = lines.iter().enumerate().map(|(i, l)| parse_line(l, i)).collect();
     // Constructions are evaluated together, in order (each object uses earlier ones).
-    let geo_defs: Vec<(String, crate::geo::Def)> = parsed
+    let mut geo_defs: Vec<(String, crate::geo::Def)> = parsed
         .iter()
         .filter_map(|l| match l {
             Ok(Line::Geo(n, d)) => Some((n.clone(), (**d).clone())),
             _ => None,
         })
         .collect();
+    // Constraints move the free points (as little as possible) before evaluation.
+    let constraints: Vec<crate::solve::Constraint> = parsed
+        .iter()
+        .filter_map(|l| match l {
+            Ok(Line::Constraint(c)) => Some(c.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut conflicts = vec![];
+    if !constraints.is_empty() {
+        let free: Vec<(String, (f64, f64))> = geo_defs
+            .iter()
+            .filter_map(|(n, d)| match d {
+                crate::geo::Def::Free(x, y) => Some((n.clone(), (*x, *y))),
+                _ => None,
+            })
+            .collect();
+        let names: Vec<String> = free.iter().map(|f| f.0.clone()).collect();
+        let start: Vec<(f64, f64)> = free.iter().map(|f| f.1).collect();
+        let sol = crate::solve::solve(&names, &start, &constraints);
+        for (name, def) in geo_defs.iter_mut() {
+            if let Some(i) = names.iter().position(|n| n == name) {
+                *def = crate::geo::Def::Free(sol.points[i].0, sol.points[i].1);
+            }
+        }
+        conflicts = sol.conflicts;
+    }
+    let mut constraint_no = 0;
     let mut geo_values = crate::geo::evaluate(&geo_defs).into_iter();
     // Functions by name and by order.
     let funcs: Vec<(Option<String>, &Expr)> = parsed
@@ -366,6 +399,23 @@ pub fn render(lines: &[String], w: &Window) -> Rendered {
                 let r: Result<(), String> = (|| {
                     match line {
                         Line::AxesOff => out.axes = false,
+                        Line::Constraint(c) => {
+                            let k = constraint_no;
+                            constraint_no += 1;
+                            if conflicts.contains(&k) {
+                                let names = crate::solve::names(c);
+                                let known = names.iter().all(|n| {
+                                    geo_defs
+                                        .iter()
+                                        .any(|(g, d)| g == n && matches!(d, crate::geo::Def::Free(..)))
+                                });
+                                return Err(if known {
+                                    "cannot hold together with the other constraints".into()
+                                } else {
+                                    "constraints apply to free points (A = (x, y))".into()
+                                });
+                            }
+                        }
                         Line::Geo(name, def) => {
                             use crate::geo::Value;
                             let value = geo_values.next().expect("one value per construction")?;
@@ -873,5 +923,36 @@ mod tests {
             6.0,
         );
         assert!(tex.contains("axis lines=none") && tex.contains("black, thick"));
+    }
+
+    #[test]
+    fn constraints_move_free_points() {
+        let out = r(&[
+            "A = (0, 0)",
+            "B = (4, 0.5)",
+            "C = (1, 2)",
+            "T = polygon(A, B, C)",
+            "constrain distance(A, B) = 5",
+            "contrainte distance(A, C) = 3",
+            "constrain angle(B, A, C) = 60",
+            "distance(B, C)",
+        ]);
+        assert!(out.errors.iter().all(String::is_empty), "{:?}", out.errors);
+        let bc = out.markers.iter().find(|m| m.label.starts_with("BC = ")).unwrap();
+        assert_eq!(bc.label, "BC = 4.359", "√19 by the law of cosines");
+        let bad = r(&[
+            "A = (0, 0)",
+            "B = (1, 0)",
+            "constrain distance(A, B) = 2",
+            "constrain distance(A, B) = 3",
+            "constrain distance(A, Z) = 1",
+        ]);
+        assert!(
+            bad.errors[2].contains("cannot hold") || bad.errors[3].contains("cannot hold"),
+            "{:?}",
+            bad.errors
+        );
+        assert!(bad.errors[4].contains("free points"), "{:?}", bad.errors);
+        assert!(r(&["constrain distance(A, B)"]).errors[0].contains("constrain distance"));
     }
 }
