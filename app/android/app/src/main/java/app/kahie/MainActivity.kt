@@ -3,8 +3,6 @@ package app.kahie
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -12,8 +10,6 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
-import android.widget.HorizontalScrollView
-import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -38,17 +34,18 @@ import uniffi.nb_ffi.parseShareCode
 import uniffi.nb_ffi.ShareInfo
 import uniffi.nb_ffi.importKahie
 import uniffi.nb_ffi.PageDoc
+import uniffi.nb_ffi.PdfPageSize
+import uniffi.nb_ffi.pdfImport
 import java.io.File
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private lateinit var ink: InkView
-    private lateinit var pageLabel: TextView
-    private val toolButtons = HashMap<InkView.Tool, ImageButton>()
-    private val swatches = ArrayList<Pair<Int, View>>()
-    private lateinit var undoBtn: ImageButton
-    private lateinit var redoBtn: ImageButton
-    private lateinit var shapesBtn: ImageButton
+    /** Page toolbar (Toolbar.kt): simple/advanced, top/side, left-handed (P1-38, P1-41). */
+    private lateinit var toolbar: Toolbar
+    private val pageLabel: TextView get() = toolbar.pageLabel
+    /** One-time tips and the interactive tutorials (P1-40). */
+    private lateinit var coach: Coach
 
     private val io = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -58,7 +55,7 @@ class MainActivity : Activity() {
     /** One directory per notebook under `notebooks/`. */
     private val notebooksRoot by lazy { File(filesDir, "notebooks").apply { mkdirs() } }
     private lateinit var notebook: NotebookDoc
-    private var syncDot: TextView? = null
+    private val syncDot: TextView? get() = if (::toolbar.isInitialized) toolbar.syncDot else null
     private var mathRenderer: MathRenderer? = null
     private var pageIds: List<String> = emptyList()
     private var pageIndex = 0
@@ -66,8 +63,6 @@ class MainActivity : Activity() {
     /** Phase 1 editing UI: tools, insert, clipboard, groups, crop (EditingUi.kt). */
     private lateinit var editing: EditingUi
 
-    private val penColors = intArrayOf(0xFF1D1D1F.toInt(), 0xFF2B59C3.toInt(), 0xFFD1495B.toInt(), 0xFF2A9D8F.toInt(), 0xFFE09F3E.toInt())
-    private val highlighterColors = intArrayOf(0xFFFFE066.toInt(), 0xFF9BE564.toInt(), 0xFF7CC6FE.toInt(), 0xFFFF99C8.toInt(), 0xFFFFB86B.toInt())
     private val templates = listOf("lined", "grid", "dots", "graph", "cornell", "music", "blank")
 
     private val dp get() = resources.displayMetrics.density
@@ -91,10 +86,17 @@ class MainActivity : Activity() {
      * has no per-app language setting, and because Android offers no Malagasy system language.
      */
     override fun attachBaseContext(base: Context) {
-        val lang = base.getSharedPreferences("kahie", Context.MODE_PRIVATE).getString("language", "")!!
-        if (lang.isEmpty()) return super.attachBaseContext(base)
+        val p = base.getSharedPreferences("kahie", Context.MODE_PRIVATE)
+        val lang = p.getString("language", "")!!
+        // Theme chosen in Settings (P1-39): "" follows the system (dark mode).
+        val theme = p.getString(Settings.PREF_THEME, "")!!
+        if (lang.isEmpty() && theme.isEmpty()) return super.attachBaseContext(base)
         val config = android.content.res.Configuration(base.resources.configuration)
-        config.setLocale(java.util.Locale.forLanguageTag(lang))
+        if (lang.isNotEmpty()) config.setLocale(java.util.Locale.forLanguageTag(lang))
+        if (theme.isNotEmpty()) {
+            val night = if (theme == "dark") android.content.res.Configuration.UI_MODE_NIGHT_YES else android.content.res.Configuration.UI_MODE_NIGHT_NO
+            config.uiMode = (config.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK.inv()) or night
+        }
         super.attachBaseContext(base.createConfigurationContext(config))
     }
 
@@ -117,6 +119,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashReports.install(this) // records nothing unless the user opted in (D8)
         ink = InkView(this)
         ink.autoShapes = prefs.getBoolean("autoShapes", false)
         ink.onTextTap = { x, y, blockId -> editText(x, y, blockId) }
@@ -139,98 +142,18 @@ class MainActivity : Activity() {
             updateHistoryButtons()
             main.removeCallbacks(saveRunnable)
             main.postDelayed(saveRunnable, 400)
+            coach.event(Coach.Event.CHANGED)
         }
+        coach = Coach(this, prefs, ::coachState)
+        coach.importSample = { importSamplePdf() }
 
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(0xFFF6F4EF.toInt())
-            setPadding((6 * dp).toInt(), (4 * dp).toInt(), (6 * dp).toInt(), (4 * dp).toInt())
-        }
-        bar.addView(tool(InkView.Tool.PEN, R.drawable.ic_pen, R.string.pen))
-        bar.addView(tool(InkView.Tool.HIGHLIGHTER, R.drawable.ic_highlighter, R.string.highlighter))
-        bar.addView(tool(InkView.Tool.ERASER, R.drawable.ic_eraser, R.string.eraser))
-        bar.addView(divider())
-        for (i in penColors.indices) bar.addView(swatch(i))
-        bar.addView(divider())
-        bar.addView(textButton(R.string.tool_options) { editing.showToolOptions { updateToolbar() } })
-        bar.addView(divider())
-        undoBtn = iconButton(R.drawable.ic_undo, R.string.undo) { doc?.undo(); ink.refresh(); ink.onChanged() }
-        redoBtn = iconButton(R.drawable.ic_redo, R.string.redo) { doc?.redo(); ink.refresh(); ink.onChanged() }
-        bar.addView(undoBtn)
-        bar.addView(redoBtn)
-        shapesBtn = iconButton(R.drawable.ic_wand, R.string.shapes) {
-            ink.autoShapes = !ink.autoShapes
-            prefs.edit().putBoolean("autoShapes", ink.autoShapes).apply()
-            updateToolbar()
-            toast(getString(if (ink.autoShapes) R.string.shapes_on else R.string.shapes_off))
-        }
-        bar.addView(shapesBtn)
-        bar.addView(textButton(R.string.select_tool) {
-            ink.lasso = false
-            ink.tool = if (ink.tool == InkView.Tool.SELECT) InkView.Tool.PEN else InkView.Tool.SELECT
-            if (ink.tool != InkView.Tool.SELECT) ink.clearSelection()
-            updateToolbar()
-            if (ink.tool == InkView.Tool.SELECT) toast(getString(R.string.select_hint))
-        })
-        bar.addView(textButton(R.string.lasso_tool) {
-            ink.lasso = !(ink.tool == InkView.Tool.SELECT && ink.lasso)
-            ink.tool = if (ink.lasso) InkView.Tool.SELECT else InkView.Tool.PEN
-            if (!ink.lasso) ink.clearSelection()
-            updateToolbar()
-            if (ink.lasso) toast(getString(R.string.lasso_hint))
-        })
-        bar.addView(textButton(R.string.selection) { showSelectionActions() })
-        bar.addView(textButton(R.string.insert) { editing.showInsertMenu() })
-        bar.addView(textButton(R.string.plot_tool) {
-            ink.clearSelection()
-            ink.tool = if (ink.tool == InkView.Tool.PLOT) InkView.Tool.PEN else InkView.Tool.PLOT
-            updateToolbar()
-            if (ink.tool == InkView.Tool.PLOT) toast(getString(R.string.plot_tool_hint))
-        })
-        bar.addView(textButton(R.string.math_tool) {
-            ink.clearSelection()
-            ink.tool = if (ink.tool == InkView.Tool.MATH) InkView.Tool.PEN else InkView.Tool.MATH
-            updateToolbar()
-            if (ink.tool == InkView.Tool.MATH) toast(getString(R.string.math_tool_hint))
-        })
-        bar.addView(textButton(R.string.text_tool) {
-            ink.tool = if (ink.tool == InkView.Tool.TEXT) InkView.Tool.PEN else InkView.Tool.TEXT
-            updateToolbar()
-            if (ink.tool == InkView.Tool.TEXT) toast(getString(R.string.text_tool_hint))
-        })
-        bar.addView(textButton(R.string.paper) { cycleTemplate() })
-        bar.addView(textButton(R.string.notebooks) { showNotebooks() })
-        bar.addView(textButton(R.string.pages) { showPages() })
-        bar.addView(textButton(R.string.search) { showSearch() })
-        bar.addView(iconButton(R.drawable.ic_fit, R.string.fit) { ink.fit() })
-        bar.addView(iconButton(R.drawable.ic_trash, R.string.clear) { confirmClear() })
-        bar.addView(divider())
-        bar.addView(iconButton(R.drawable.ic_prev, R.string.prev_page) { goToPage(pageIndex - 1) })
-        pageLabel = TextView(this).apply {
-            setTextColor(0xFF6B6F78.toInt())
-            textSize = 14f
-            setPadding((4 * dp).toInt(), 0, (4 * dp).toInt(), 0)
-        }
-        bar.addView(pageLabel)
-        syncDot = TextView(this).apply {
-            text = "●"
-            textSize = 14f
-            visibility = View.GONE
-            setPadding((6 * dp).toInt(), 0, (6 * dp).toInt(), 0)
-            setOnClickListener { toast(syncState ?: getString(R.string.sync_online)) }
-        }
-        bar.addView(syncDot)
-        bar.addView(iconButton(R.drawable.ic_next, R.string.next_page) { goToPage(pageIndex + 1) })
-        bar.addView(iconButton(R.drawable.ic_plus, R.string.add_page) { addPage() })
-
-        val scroller = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            setBackgroundColor(0xFFF6F4EF.toInt())
-            addView(bar)
-        }
-        root.addView(scroller, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        toolbar = Toolbar(this, ink, prefs, toolbarActions())
+        val bar = toolbar.build()
+        // Top bar above the page, or a side rail (left; right when left-handed).
+        val root = LinearLayout(this).apply { orientation = if (toolbar.side) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL }
+        val barParams = if (toolbar.side) LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        if (!(toolbar.side && toolbar.leftHanded)) root.addView(bar, barParams)
         // Jetpack Ink draws the stroke in progress on top of the page (prototype, on by default).
         val page = android.widget.FrameLayout(this)
         page.addView(ink, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -239,14 +162,17 @@ class MainActivity : Activity() {
             ink.wetInk = wet
             page.addView(wet.view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
-        root.addView(page, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(page, if (toolbar.side) LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
+            else LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        if (toolbar.side && toolbar.leftHanded) root.addView(bar, barParams)
         root.setOnApplyWindowInsetsListener { v, insets ->
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            scroller.setPadding(0, 0, 0, 0)
             insets
         }
-        root.setBackgroundColor(0xFFF6F4EF.toInt())
+        root.setBackgroundColor(getColor(R.color.kahie_surface))
+        // Tips and tutorial steps float over the bottom of the page (never blocking it).
+        coach.attach(page)
         setContentView(root)
 
         // Before several notebooks existed, the only notebook lived in `notebook/`.
@@ -256,6 +182,11 @@ class MainActivity : Activity() {
         val current = prefs.getString("notebook", null)?.takeIf { library.isVisible(it) }?.let { File(notebooksRoot, it) }
             ?: libraryFirst() ?: File(notebooksRoot, nextNotebookName())
         openNotebook(current, prefs.getString("pageId", null))
+        // First run (P1-37): a blank page with the pen selected, no prompt of any kind.
+        if (!prefs.getBoolean("firstRunDone", false)) {
+            ink.tool = InkView.Tool.PEN
+            prefs.edit().putBoolean("firstRunDone", true).apply()
+        }
         updateToolbar()
         if (savedInstanceState == null) handleIncoming(intent)
     }
@@ -299,6 +230,8 @@ class MainActivity : Activity() {
         prefs.edit().putString("notebook", dir.name).apply()
         notebookDir = dir
         noteOpened(dir, folder)
+        PdfPages.reset()
+        PdfPages.notebookDir = dir.path
         // A notebook joined with a viewer's code is read-only: pan and zoom only.
         ink.readOnly = share()?.readOnly == true
         if (ink.readOnly) toast(getString(R.string.sync_read_only_notebook))
@@ -557,11 +490,19 @@ class MainActivity : Activity() {
                     val dot = syncDot ?: return@post
                     dot.visibility = View.VISIBLE
                     when (status) {
-                        is SyncStatus.Online -> { syncState = null; dot.setTextColor(0xFF2E9E5B.toInt()) }
-                        is SyncStatus.Connecting -> dot.setTextColor(0xFF9AA3B2.toInt())
+                        is SyncStatus.Online -> {
+                            syncState = null
+                            dot.setTextColor(getColor(R.color.kahie_ok))
+                            dot.stateDescription = getString(R.string.sync_online)
+                        }
+                        is SyncStatus.Connecting -> {
+                            dot.setTextColor(getColor(R.color.kahie_pending))
+                            dot.stateDescription = getString(R.string.sync_connecting)
+                        }
                         is SyncStatus.Offline -> {
                             syncState = getString(R.string.sync_offline, status.detail)
-                            dot.setTextColor(0xFFD0453A.toInt())
+                            dot.setTextColor(getColor(R.color.kahie_error))
+                            dot.stateDescription = syncState
                         }
                     }
                 }
@@ -591,13 +532,17 @@ class MainActivity : Activity() {
         if (url.isEmpty() || !backgroundSync.compareAndSet(false, true)) return
         val token = relayToken()
         val open = pageIds.getOrNull(pageIndex)
-        val targets = pageIds.filter { it != open }.map { it to notebook.pagePath(it) }
+        // Plus the notebook's asset store (PDFs kept once per notebook, sync id "assets").
+        val targets = pageIds.filter { it != open }.map { it to notebook.pagePath(it) } + ("assets" to notebook.pagePath("assets"))
         Thread {
             try {
                 for ((id, path) in targets) {
                     val n = runCatching { syncPageOnce(PageDoc.open(path), url, token, "${s.group}-$id", s.key, 1500u) }.getOrDefault(0u)
                     // The user may have opened this page meanwhile: reload it to show what arrived.
-                    if (n > 0u) main.post { if (pageIds.getOrNull(pageIndex) == id) goToPage(pageIndex) }
+                    if (n > 0u) main.post {
+                        if (id == "assets") { PdfPages.reset(); ink.invalidate() }
+                        else if (pageIds.getOrNull(pageIndex) == id) goToPage(pageIndex)
+                    }
                 }
             } finally {
                 backgroundSync.set(false)
@@ -1064,55 +1009,61 @@ class MainActivity : Activity() {
         startActivityForResult(intent, REQ_IMPORT_PDF)
     }
 
-    /** Each PDF page becomes a new page with the PDF page as its background (annotate on top). */
+    /**
+     * Each PDF page becomes a new page showing that PDF page under its content (annotate on
+     * top). The PDF is kept once per notebook and rendered on demand ([PdfPages], P1-21); the
+     * core also stores each page's text layer (P1-23).
+     */
     private fun importPdf(uri: android.net.Uri, onDone: () -> Unit = {}) {
         saveNow()
         toast(getString(R.string.importing_pdf))
         val after = pageIds.lastOrNull()
+        val nb = notebook
         io.execute {
+            val tmp = File(cacheDir, "import.pdf")
             val result = runCatching {
-                val fd = contentResolver.openFileDescriptor(uri, "r") ?: error("cannot open the file")
-                fd.use {
-                    android.graphics.pdf.PdfRenderer(it).use { pdf ->
-                        var anchor = after
-                        var first: String? = null
-                        for (i in 0 until pdf.pageCount) {
-                            var landscape = false
-                            val bytes = pdf.openPage(i).use { page ->
-                                landscape = page.width > page.height
-                                // 2× the longer page side in Kahie units, white under transparent PDFs.
-                                val w = (PageRenderer.PAGE_W * 2 * (if (landscape) 1123f / 794f else 1f)).toInt()
-                                val h = (w.toFloat() * page.height / page.width).toInt().coerceAtLeast(1)
-                                val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-                                bmp.eraseColor(android.graphics.Color.WHITE)
-                                page.render(bmp, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                val out = java.io.ByteArrayOutputStream()
-                                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, out)
-                                bmp.recycle()
-                                out.toByteArray()
-                            }
-                            val id = notebook.addPage(anchor)
-                            PageDoc.open(notebook.pagePath(id)).apply {
-                                setTemplate("blank")
-                                if (landscape) setPageSize("a4-landscape")
-                                setBackgroundImage(bytes)
-                            }
-                            anchor = id
-                            if (first == null) first = id
-                        }
-                        first
-                    }
-                }
+                contentResolver.openInputStream(uri)!!.use { inp -> tmp.outputStream().use { inp.copyTo(it) } }
+                // Page sizes as Android's renderer sees them (it draws the pages).
+                val sizes = PdfPages.pageSizes(tmp.path).map { (w, h) -> PdfPageSize(w.toDouble(), h.toDouble()) }
+                pdfImport(nb, after, tmp.path, sizes).firstOrNull()
             }
+            tmp.delete()
             main.post {
                 result.onSuccess { first ->
                     pageIds = notebook.pageIds()
                     first?.let { goToPage(pageIds.indexOf(it)) }
                     toast(getString(R.string.imported))
+                    coach.event(Coach.Event.PDF_IMPORTED)
                     onDone()
                 }.onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
             }
         }
+    }
+
+    /** The text of the PDF page under this page, selectable, with Copy all (P1-23). */
+    private fun showPdfText() {
+        val d = doc ?: return
+        if (d.pdfSource() == null) { toast(getString(R.string.pdf_text_none)); return }
+        val text = d.pdfText()
+        val box = TextView(this).apply {
+            this.text = text.ifEmpty { getString(R.string.pdf_text_empty) }
+            setTextIsSelectable(true)
+            textSize = 15f
+            val pad = (20 * dp).toInt()
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        val scroll = android.widget.ScrollView(this).apply { addView(box) }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.pdf_text)
+            .setView(scroll)
+            .setPositiveButton(R.string.copy_all) { _, _ ->
+                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                cm?.setPrimaryClip(android.content.ClipData.newPlainText(getString(R.string.pdf_text), text))
+                toast(getString(R.string.copied))
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+        coach.event(Coach.Event.PDF_TEXT_OPENED)
     }
 
     private fun startImport() {
@@ -1440,7 +1391,9 @@ class MainActivity : Activity() {
         ink.doc = doc
         restartPageSync()
         pageLabel.text = getString(R.string.page_count, i + 1, pageIds.size)
+        pageLabel.contentDescription = getString(R.string.page_of, i + 1, pageIds.size)
         updateHistoryButtons()
+        coach.event(Coach.Event.PAGE)
     }
 
     /** Insert a page after the current one, with the same paper. */
@@ -1858,110 +1811,98 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---------- toolbar ----------
+    // ---------- toolbar (built in Toolbar.kt) ----------
+
+    private fun toolbarActions() = Toolbar.Actions(
+        undo = { doc?.undo(); ink.refresh(); ink.onChanged(); coach.event(Coach.Event.UNDO) },
+        redo = { doc?.redo(); ink.refresh(); ink.onChanged() },
+        toolChosen = { coach.event(Coach.Event.TOOL) },
+        textTool = { toggleTool(InkView.Tool.TEXT, R.string.text_tool_hint) },
+        mathTool = { ink.clearSelection(); toggleTool(InkView.Tool.MATH, R.string.math_tool_hint) },
+        plotTool = { ink.clearSelection(); toggleTool(InkView.Tool.PLOT, R.string.plot_tool_hint) },
+        selectTool = {
+            ink.lasso = false
+            ink.tool = if (ink.tool == InkView.Tool.SELECT) InkView.Tool.PEN else InkView.Tool.SELECT
+            if (ink.tool != InkView.Tool.SELECT) ink.clearSelection()
+            updateToolbar()
+            if (ink.tool == InkView.Tool.SELECT) coach.tip(Coach.Tip.SELECT)
+        },
+        selection = { showSelectionActions() },
+        // Insert: photo (gallery or camera), clipboard, file attachment (P1-18/19).
+        image = { editing.showInsertMenu() },
+        paper = { cycleTemplate() },
+        notebooks = { showNotebooks() },
+        pages = { showPages(); coach.event(Coach.Event.PAGES_OPENED) },
+        fit = { ink.fit() },
+        clear = { confirmClear() },
+        prevPage = { goToPage(pageIndex - 1) },
+        nextPage = { goToPage(pageIndex + 1) },
+        addPage = { addPage() },
+        toggleShapes = {
+            ink.autoShapes = !ink.autoShapes
+            prefs.edit().putBoolean("autoShapes", ink.autoShapes).apply()
+            updateToolbar()
+            toast(getString(if (ink.autoShapes) R.string.shapes_on else R.string.shapes_off))
+        },
+        pdfText = { showPdfText() },
+        tutorials = { coach.chooseTutorial() },
+        settings = { Settings.show(this, prefs, ::recreate) },
+        syncStatus = { toast(syncState ?: getString(R.string.sync_online)) },
+        lasso = {
+            ink.lasso = !(ink.tool == InkView.Tool.SELECT && ink.lasso)
+            ink.tool = if (ink.lasso) InkView.Tool.SELECT else InkView.Tool.PEN
+            if (!ink.lasso) ink.clearSelection()
+            updateToolbar()
+            if (ink.lasso) toast(getString(R.string.lasso_hint))
+        },
+        toolOptions = { editing.showToolOptions { updateToolbar() } },
+        search = { showSearch() },
+    )
+
+    /** Switch to `t`, or back to the pen if `t` is already on; show its hint once. */
+    private fun toggleTool(t: InkView.Tool, hint: Int) {
+        ink.tool = if (ink.tool == t) InkView.Tool.PEN else t
+        updateToolbar()
+        if (ink.tool == t) toast(getString(hint))
+    }
+
+    /** What the tutorials look at to know a step is done. */
+    private fun coachState() = Coach.State(
+        items = doc?.itemCount()?.toInt() ?: 0,
+        tool = ink.tool,
+        pages = pageIds.size,
+        notebooks = notebookDirs().size,
+        pdfPage = doc?.pdfSource() != null,
+    )
+
+    /** A one-page worksheet PDF made on the device, for the "annotate a PDF" tutorial. */
+    private fun importSamplePdf() {
+        val f = File(cacheDir, "sample-worksheet.pdf")
+        val pdf = android.graphics.pdf.PdfDocument()
+        val page = pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(595, 842, 1).create())
+        val c = page.canvas
+        val title = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 22f; isFakeBoldText = true }
+        val body = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = 14f }
+        c.drawText(getString(R.string.sample_pdf_title), 60f, 90f, title)
+        var y = 140f
+        for (line in getString(R.string.sample_pdf_body).split('\n')) {
+            c.drawText(line, 60f, y, body)
+            y += 48f
+        }
+        pdf.finishPage(page)
+        runCatching { f.outputStream().use { pdf.writeTo(it) } }
+        pdf.close()
+        importPdf(android.net.Uri.fromFile(f))
+    }
 
     private fun updateToolbar() {
-        for ((t, b) in toolButtons) b.isSelected = t == ink.tool
-        for ((t, b) in toolButtons) styleSelected(b, t == ink.tool)
-        val palette = if (ink.tool == InkView.Tool.HIGHLIGHTER) highlighterColors else penColors
-        val current = if (ink.tool == InkView.Tool.HIGHLIGHTER) ink.highlighterColor else ink.penColor
-        for ((i, v) in swatches) {
-            val c = palette[i]
-            (v.background as GradientDrawable).apply {
-                setColor(c)
-                setStroke((if (c == current) 3 else 1).times(dp).toInt(), if (c == current) 0xFF2B59C3.toInt() else 0xFFDEDAD0.toInt())
-            }
-        }
-        styleSelected(shapesBtn, ink.autoShapes)
-        // Pencil and brush (chosen in the tool options) light up the pen button.
-        if (ink.tool == InkView.Tool.PENCIL || ink.tool == InkView.Tool.BRUSH) toolButtons[InkView.Tool.PEN]?.let { styleSelected(it, true) }
+        toolbar.update()
         updateHistoryButtons()
     }
 
     private fun updateHistoryButtons() {
         val d = doc
-        undoBtn.isEnabled = d?.canUndo() == true
-        redoBtn.isEnabled = d?.canRedo() == true
-        undoBtn.alpha = if (undoBtn.isEnabled) 1f else 0.35f
-        redoBtn.alpha = if (redoBtn.isEnabled) 1f else 0.35f
-    }
-
-    private fun styleSelected(b: View, on: Boolean) {
-        b.background = GradientDrawable().apply {
-            cornerRadius = 10 * dp
-            setColor(if (on) 0xFF2B59C3.toInt() else Color.TRANSPARENT)
-        }
-        (b as? ImageButton)?.setColorFilter(if (on) Color.WHITE else 0xFF1D1D1F.toInt())
-    }
-
-    private fun iconButton(icon: Int, label: Int, onClick: () -> Unit) = ImageButton(this).apply {
-        setImageResource(icon)
-        contentDescription = getString(label)
-        tooltipText = getString(label)
-        setColorFilter(0xFF1D1D1F.toInt())
-        background = null
-        val size = (44 * dp).toInt()
-        layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = (2 * dp).toInt() }
-        setOnClickListener { onClick() }
-    }
-
-    private fun tool(t: InkView.Tool, icon: Int, label: Int) = iconButton(icon, label) {
-        ink.clearSelection()
-        ink.tool = t
-        updateToolbar()
-    }.also { toolButtons[t] = it }
-
-    private fun swatch(i: Int): View {
-        val v = View(this).apply {
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL }
-            contentDescription = getString(R.string.color) + " " + (i + 1)
-            val size = (30 * dp).toInt()
-            layoutParams = LinearLayout.LayoutParams(size, size).apply { setMargins((4 * dp).toInt(), 0, (4 * dp).toInt(), 0) }
-            setOnClickListener {
-                if (ink.tool == InkView.Tool.HIGHLIGHTER) ink.highlighterColor = highlighterColors[i]
-                else { ink.penColor = penColors[i]; if (ink.tool == InkView.Tool.ERASER) ink.tool = InkView.Tool.PEN }
-                updateToolbar()
-            }
-        }
-        swatches.add(i to v)
-        return v
-    }
-
-    private fun widthButton(factor: Double, dotPx: Int) = View(this).apply {
-        contentDescription = getString(R.string.width)
-        val size = (40 * dp).toInt()
-        layoutParams = LinearLayout.LayoutParams(size, size)
-        val dot = (dotPx * dp)
-        background = object : android.graphics.drawable.Drawable() {
-            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1D1D1F.toInt() }
-            override fun draw(c: android.graphics.Canvas) {
-                c.drawCircle(bounds.exactCenterX(), bounds.exactCenterY(), dot / 2, paint)
-            }
-            override fun setAlpha(a: Int) {}
-            override fun setColorFilter(f: android.graphics.ColorFilter?) {}
-            @Deprecated("Deprecated in Java")
-            override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
-        }
-        setOnClickListener {
-            ink.penWidth = 3.0 * factor
-            ink.highlighterWidth = 20.0 * factor
-            ink.eraserRadius = 9.0 * factor
-        }
-    }
-
-    private fun textButton(label: Int, onClick: () -> Unit) = TextView(this).apply {
-        text = getString(label)
-        textSize = 14f
-        setTextColor(0xFF1D1D1F.toInt())
-        gravity = Gravity.CENTER
-        setPadding((10 * dp).toInt(), 0, (10 * dp).toInt(), 0)
-        minHeight = (44 * dp).toInt()
-        setOnClickListener { onClick() }
-    }
-
-    private fun divider() = View(this).apply {
-        setBackgroundColor(0xFFDEDAD0.toInt())
-        layoutParams = LinearLayout.LayoutParams((1 * dp).toInt(), (28 * dp).toInt()).apply { setMargins((6 * dp).toInt(), 0, (6 * dp).toInt(), 0) }
+        toolbar.updateHistory(d?.canUndo() == true, d?.canRedo() == true)
     }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()

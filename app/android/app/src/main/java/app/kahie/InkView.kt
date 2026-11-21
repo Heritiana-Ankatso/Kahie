@@ -279,7 +279,9 @@ class InkView(context: Context) : View(context) {
 
     init {
         isFocusable = true
-        setBackgroundColor(0xFFE6E3DC.toInt())
+        setBackgroundColor(context.getColor(R.color.kahie_desk))
+        // TalkBack: what this area is (P1-46); writing itself needs a stylus or a finger.
+        contentDescription = context.getString(R.string.page_canvas)
     }
 
     // ---------- core sync ----------
@@ -449,7 +451,7 @@ class InkView(context: Context) : View(context) {
             canvas.drawRect(0f, 0f, pageW, pageH, pagePaint)
             drawTemplate(canvas, doc?.template() ?: "lined")
         }
-        doc?.let { PageRenderer.drawBackground(canvas, it) }
+        doc?.let { PageRenderer.drawBackground(canvas, it, PageRenderer.Live(s, view) { invalidate() }) }
         val moving = (dragFrom != null || handle != 0) && selection.isNotEmpty()
         doc?.let { d ->
             for (img in images) { // under the ink, so it can be annotated

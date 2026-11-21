@@ -73,6 +73,12 @@ object SvgExport {
         out.append("<rect width=\"${n(w)}\" height=\"${n(h)}\" fill=\"#ffffff\"/>\n")
         val rec = Recorder(out)
         PageRenderer.drawPaper(rec, d.template(), 0.75f, w, h)
+        // A PDF page (kept once per notebook) is embedded as a 2× PNG of the page.
+        PdfPages.renderForExport(d, 2f)?.let { (bmp, place) ->
+            val png = java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            bmp.recycle()
+            out.append("<image x=\"${n(place.left)}\" y=\"${n(place.top)}\" width=\"${n(place.width())}\" height=\"${n(place.height())}\" href=\"data:image/png;base64,${b64(png)}\"/>\n")
+        }
         d.backgroundHash()?.let { hash ->
             val bytes = d.imageBytes(hash) ?: return@let
             val bmp = PageRenderer.bitmap(d, hash) ?: return@let

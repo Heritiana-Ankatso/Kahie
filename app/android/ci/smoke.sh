@@ -75,11 +75,17 @@ press() {
   fi
 }
 shot() { sleep "${2:-2}"; adb exec-out screencap -p > "$OUT/$1.png"; }
+# Simple mode (the default, P1-38) keeps Text, Maths, Plot and Pages under More (7-item bar);
+# Advanced mode has them on the bar. Use the bar when the label is there, else More.
+tool() {
+  dump
+  if python3 app/android/ci/ui.py "$OUT/ui.xml" "$1" >/dev/null; then tap "$1"; else tap "More"; sleep 1; press "$1"; fi
+}
 dump
 BAR_Y=$(python3 app/android/ci/ui.py "$OUT/ui.xml" "Pen" | cut -d' ' -f2) || { echo "toolbar (Pen) not found"; false; }
 
 # Text, and the CAS on its last line (the Compute button exists only in builds with the CAS).
-tap "Text"; adb shell input tap $((W / 2)) $((H / 4)); sleep 2
+tool "Text"; adb shell input tap $((W / 2)) $((H / 4)); sleep 2
 # No brackets: adb's text input reorders them on some images.
 adb shell "input text '2^100'"
 if press "Compute"; then
@@ -92,13 +98,13 @@ else
 fi
 shot text-dialog 0; press "OK"; shot text
 
-tap "Maths"; adb shell input tap $((W / 2)) $((H * 7 / 10)); sleep 2
+tool "Maths"; adb shell input tap $((W / 2)) $((H * 7 / 10)); sleep 2
 adb shell "input text 'x^2+1'"; press "OK"; shot maths 5
 
-tap "Plot"; adb shell input tap $((W / 4)) $((H * 4 / 5)); sleep 2
+tool "Plot"; adb shell input tap $((W / 4)) $((H * 4 / 5)); sleep 2
 press "OK"; shot plot 3
 
-tap "Pages"; shot pages; adb shell input keyevent 4; sleep 1
+tool "Pages"; shot pages; adb shell input keyevent 4; sleep 1
 
 adb logcat -d > "$OUT/logcat.txt"
 if grep -E "FATAL EXCEPTION|AndroidRuntime: .*Exception" "$OUT/logcat.txt"; then

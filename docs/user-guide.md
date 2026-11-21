@@ -2,11 +2,33 @@
 
 Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the tablet as you write; nothing leaves it unless you turn on sync with your own server.
 
+## First steps
+
+Kahie opens on a blank page with the pen selected: just write. Nothing to sign up for, nothing to allow.
+
+- **The toolbar** (Simple mode, the default) has seven buttons: pen, highlighter, eraser, select, undo, redo and *More* (⋯). Next to them: the page arrows, the page number and **+** (add a page after this one).
+- **Colour and thickness**: tap the pen (or highlighter) again when it is already selected.
+- **More** holds everything else: Text, Maths, Plot, Image, Selection, Paper, Pages, Notebooks, Fit, Clear page, *PDF text* (on a PDF page), *Tutorials* and *Settings*.
+- **Tips** appear once, at the bottom of the page, the first time they are useful; *Got it* closes them (they also go away by themselves). *Settings → Show the tips again* brings them back.
+- **Tutorials** (*More → Tutorials*), done on your real page, one step at a time: *Write and erase*, *Organise pages and notebooks*, *Annotate a PDF* (with a sample worksheet if you have no PDF at hand). *Stop* ends a tutorial at any time.
+
+## Settings (*More → Settings*)
+
+| Setting | What it does |
+|---|---|
+| Mode | *Simple* (essential tools) or *Advanced*: every tool on the bar, colour swatches and widths, and *Style…* (any pen colour as `#RRGGBB`, exact pen and highlighter thickness, eraser size, shape tidying). Switching never changes or hides what is on your pages |
+| Toolbar | At the top, or on the side |
+| Left-handed | The side toolbar goes to the right, and the top toolbar's order is mirrored, so the tools sit under your free hand |
+| Theme | Like the system, light, or dark. In dark mode the toolbars and the desk turn dark; the paper stays white so ink keeps its colours |
+| Crash reports | Off unless you turn it on. When on, Kahie keeps a log of crashes **on the tablet** with technical data only (app and Android versions, device model, where in the code it failed: never your notes). *Copy log* / *Share log* to send it to whoever helps you; *Delete* (or turning the option off) removes it |
+
+Kahie follows the system font size and works with TalkBack: every button is announced by name, colours by their name, and the page number when it changes.
+
 ## Writing
 
 | Tool | How |
 |---|---|
-| Pen, highlighter | Choose in the toolbar; pressure changes the width. Pick a colour next to them |
+| Pen, highlighter | Choose in the toolbar; pressure changes the width. Tap the selected tool again for its colours and widths (Advanced mode: swatches on the bar and *Style…*); *Tools* (in *More* in Simple mode) offers pencil, brush and all colours |
 | Tools | *Tools* chooses pen, pencil (lighter; tilting the stylus gives a broader, shading line), brush (very sensitive to pressure, wider when tilted) or highlighter, one of 12 colours or a custom colour (*Choose a colour… → Custom colour…*, e.g. `#2B59C3`), and one of 5 widths |
 | Eraser | Eraser tool, the stylus eraser end, or the stylus side button while drawing. By default it erases whole strokes; in *Tools* turn on *Partial eraser* to erase only the part you touch (the rest of the stroke stays; Undo brings the whole stroke back). *Tools* also sets what the eraser end and the side button do |
 | Tidy shapes | Hold the pen still at the end of a stroke: it becomes a clean line, circle, rectangle… Turn on *Shapes* to do it automatically |
@@ -35,7 +57,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 
 ## Sharing and backup
 
-- **Notebooks → More → Import a PDF** adds one page per PDF page, with the PDF as the page background: write on worksheets and exam papers, then *Export PDF* to hand them back.
+- **Notebooks → More → Import a PDF** adds one page per PDF page, each the size of its PDF page, with the PDF page under your writing: annotate worksheets and exam papers, then *Export PDF* to hand them back. The PDF is kept once in the notebook (not copied into every page) and drawn sharp at any zoom. **+** inserts a blank page after the current one, so you can add room between PDF pages; *Pages → More → New page from a template* inserts a lined, squared or other page there. **More → PDF text** shows the text of the PDF page: select any part to copy it, or *Copy all*. (Scanned PDFs have no text.) Shared notebooks send the PDF to the other devices once; PDFs larger than about 15 MB cannot go through the relay yet.
 - **Image** inserts a photo (resized automatically); images sit under the ink so you can annotate them.
 - **Selection** (after *Select*): copy (paste on any page or notebook from *Selection → Paste*), duplicate, delete, bring to front, send to back.
 - **Plot** draws, one per line, in a window you choose (tap a plot to edit it):

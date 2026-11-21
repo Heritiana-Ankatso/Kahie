@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark theme tokens (P1-39). The paper stays white: only the chrome and the desk darken. -->
+<resources>
+    <color name="kahie_surface">#1E1F22</color>
+    <color name="kahie_on_surface">#ECEAE5</color>
+    <color name="kahie_on_surface_muted">#B4B8C0</color>
+    <color name="kahie_divider">#3A3C41</color>
+    <color name="kahie_accent">#9DB8FF</color>
+    <color name="kahie_on_accent">#0E1424</color>
+    <color name="kahie_desk">#121315</color>
+    <color name="kahie_paper">#FFFFFF</color>
+    <color name="kahie_tip_bg">#E9EDF7</color>
+    <color name="kahie_tip_fg">#141A29</color>
+    <color name="kahie_tip_action">#1F4FBF</color>
+    <color name="kahie_ok">#5CC98A</color>
+    <color name="kahie_pending">#9AA1AD</color>
+    <color name="kahie_error">#FF7A6B</color>
+</resources>
