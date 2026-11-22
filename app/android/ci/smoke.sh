@@ -10,6 +10,12 @@ adb install -r "$APK"
 adb logcat -c
 adb shell am start -W -n app.kahie/.MainActivity
 sleep 6
+# Crash evidence (Java and native), printed last because the job-log API keeps only the end.
+crashlog() {
+  adb logcat -d > "$OUT/logcat.txt" || true
+  grep -nE "FATAL EXCEPTION|E AndroidRuntime|Fatal signal|Abort message|DEBUG +: +#[0-9]+ pc|backtrace:|has died|am_crash|ANR in|kahie" "$OUT/logcat.txt" | grep -vE "ActivityTaskManager: (START|Displayed)" | tail -60 || true
+}
+adb shell pidof app.kahie >/dev/null || { echo "app is not running right after launch"; crashlog; exit 1; }
 adb exec-out screencap -p > "$OUT/before.png"
 read -r W H < <(adb shell wm size | sed -E 's/.*: ([0-9]+)x([0-9]+).*/\1 \2/')
 x0=$((W / 4)); x1=$((W * 3 / 4)); y0=$((H / 2)); y1=$((H / 2 + H / 10))
@@ -19,9 +25,9 @@ sleep 2
 adb exec-out screencap -p > "$OUT/after.png"
 adb logcat -d > "$OUT/logcat.txt"
 if grep -E "FATAL EXCEPTION|AndroidRuntime: .*Exception" "$OUT/logcat.txt"; then
-  echo "app crashed"; exit 1
+  echo "app crashed"; crashlog; exit 1
 fi
-adb shell pidof app.kahie >/dev/null || { echo "app is not running"; exit 1; }
+adb shell pidof app.kahie >/dev/null || { echo "app is not running after drawing two strokes"; crashlog; exit 1; }
 python3 app/android/ci/ink_check.py "$OUT/before.png" "$OUT/after.png" "$x0" "$y0" "$x1" "$y1"
 
 # ---- tools ----
