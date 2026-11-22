@@ -38,6 +38,14 @@ jobs:
         env:
           KAHIE_REQUIRE_PDFLATEX: "1"
         run: cargo test --locked
+      # P1-44: images of failed golden-image tests (actual + diff).
+      - name: Upload golden-image failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-failures
+          path: core/target/golden-failures/
+          if-no-files-found: ignore
 
   deny:
     runs-on: ubuntu-latest
