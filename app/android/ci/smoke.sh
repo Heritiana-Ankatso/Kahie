@@ -91,6 +91,8 @@ shot() { sleep "${2:-2}"; adb exec-out screencap -p > "$OUT/$1.png"; }
 tool() {
   dump
   if python3 app/android/ci/ui.py "$OUT/ui.xml" "$1" >/dev/null; then tap "$1"; else tap "More"; sleep 1; press "$1"; fi
+  # Let the More menu (or the tool's hint) close: a tap sent while it closes is swallowed.
+  sleep 2
 }
 dump
 BAR_Y=$(python3 app/android/ci/ui.py "$OUT/ui.xml" "Pen" | cut -d' ' -f2) || { echo "toolbar (Pen) not found"; false; }
