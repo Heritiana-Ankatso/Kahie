@@ -213,4 +213,46 @@
     <string name="cas_antiderivative">∫ dx</string>
     <string name="cas_numeric">≈</string>
     <string name="math_preview">Topimaso ny raikipohy</string>
+
+    <!-- Phase 1 editing: tools, rich text, insert, selection (P1-06…P1-19) -->
+    <string name="format_bold">Matevina</string>
+    <string name="format_italic">Mitongilana</string>
+    <string name="format_underline">Misy tsipika ambany</string>
+    <string name="format_heading">Lohateny</string>
+    <string name="format_bullets">Lisitra misy teboka</string>
+    <string name="format_numbers">Lisitra misy laharana</string>
+    <string name="format_color">Lokon\'ny soratra</string>
+    <string name="format_clear">Esory ny endrika</string>
+    <string name="custom_color">Loko hafa…</string>
+    <string name="default_color">Mahazatra</string>
+    <string name="custom_color_bad">Soraty amin\'ny isa hexadécimal enina ny loko, ohatra #2B59C3</string>
+    <string name="tool">Fitaovana</string>
+    <string name="pencil">Pensilihazo</string>
+    <string name="brush">Borosy</string>
+    <string name="choose_color">Hifidy loko…</string>
+    <string name="partial_eraser">Famafana ampahany: ny ampahan\'ny tsipika kasihina ihany no voafafa</string>
+    <string name="eraser_end_partial">Mamafa ampahany ny lohan\'ny stylet famafana</string>
+    <string name="side_button">Bokotra eo anilan\'ny stylet</string>
+    <string name="side_button_erase">Famafana tsipika iray manontolo</string>
+    <string name="side_button_partial">Famafana ampahany</string>
+    <string name="side_button_none">Tsy misy (manohy manoratra)</string>
+    <string name="tool_options">Fitaovana</string>
+    <string name="insert">Ampidiro</string>
+    <string name="insert_photo_gallery">Sary avy amin\'ny galerie</string>
+    <string name="insert_camera">Sary avy amin\'ny fakan-tsary</string>
+    <string name="insert_clipboard">Soratra na sary avy amin\'ny presse-papiers</string>
+    <string name="insert_file">Rakitra (fanampiny)</string>
+    <string name="clipboard_empty">Foana ny presse-papiers</string>
+    <string name="no_camera">Tsy misy rindrankajy fakan-tsary</string>
+    <string name="attachment_too_large">Lehibe loatra ity rakitra ity (mihoatra ny %1$d Mo)</string>
+    <string name="no_app_for_file">Tsy misy rindrankajy mahasokatra ity rakitra ity</string>
+    <string name="group">Atambaro</string>
+    <string name="ungroup">Saraho</string>
+    <string name="crop_rotate">Hetezo / ahodino ny sary</string>
+    <string name="open_attachment">Sokafy ny rakitra</string>
+    <string name="rotate_90">Ahodino 90°</string>
+    <string name="lasso_tool">Lasso</string>
+    <string name="lasso_hint">Lasso: hodidino izay tianao hofidiana</string>
+    <string name="paste">Apetaho</string>
+    <string name="paper_infinite">Takelaka tsy misy farany</string>
 </resources>

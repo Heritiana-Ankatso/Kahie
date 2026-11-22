@@ -122,13 +122,38 @@ object SvgExport {
                 for (seg in segments) polyline(out, seg.toFloatArray(), color, width, extra)
             }
         }
+        for (a in d.attachmentBlocks()) {
+            out.append("<rect x=\"${n(a.x)}\" y=\"${n(a.y)}\" width=\"${n(a.width)}\" height=\"${n(a.height)}\" rx=\"6\" fill=\"#f1f4fa\" stroke=\"#8ea2c8\"/>\n")
+            out.append("<text x=\"${n(a.x + a.height * 0.7f)}\" y=\"${n(a.y + a.height * 0.45f)}\" font-family=\"sans-serif\" font-size=\"${n(a.height * 0.3f)}\" fill=\"#1d1d1f\">${esc(a.name)}</text>\n")
+            out.append("<text x=\"${n(a.x + a.height * 0.7f)}\" y=\"${n(a.y + a.height * 0.8f)}\" font-family=\"sans-serif\" font-size=\"${n(a.height * 0.22f)}\" fill=\"#6b6f78\">${esc(Attachments.kind(a))}</text>\n")
+        }
         for (b in d.textBlocks()) {
-            val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = b.size }
-            val layout = StaticLayout.Builder.obtain(b.text, 0, b.text.length, tp, b.width.toInt().coerceAtLeast(20)).build()
+            val layout = RichText.layout(b.text, b.spans, b.width, b.size, b.color)
             out.append("<text font-family=\"sans-serif\" font-size=\"${n(b.size)}\" fill=\"${hex(b.color.toInt())}\">")
             for (line in 0 until layout.lineCount) {
-                val s = b.text.substring(layout.getLineStart(line), layout.getLineEnd(line)).trimEnd('\n')
-                out.append("<tspan x=\"${n(b.x)}\" y=\"${n(b.y + layout.getLineBaseline(line))}\" xml:space=\"preserve\">${esc(s)}</tspan>")
+                val ls = layout.getLineStart(line)
+                val le = layout.getLineEnd(line)
+                out.append("<tspan x=\"${n(b.x + layout.getLineLeft(line))}\" y=\"${n(b.y + layout.getLineBaseline(line))}\" xml:space=\"preserve\">")
+                // Rich text runs (P1-17): one tspan per run of the same formatting.
+                val lineSpans = b.spans.filter { it.start.toInt() < le && it.end.toInt() > ls }
+                val cuts = sortedSetOf(ls, le)
+                for (sp in lineSpans) { cuts.add(sp.start.toInt().coerceIn(ls, le)); cuts.add(sp.end.toInt().coerceIn(ls, le)) }
+                val c = cuts.toList()
+                for (i in 0 until c.size - 1) {
+                    val run = b.text.substring(c[i], c[i + 1]).trimEnd('\n')
+                    if (run.isEmpty()) continue
+                    val sp = lineSpans.lastOrNull { it.start.toInt() <= c[i] && it.end.toInt() >= c[i + 1] }
+                    if (sp == null) { out.append(esc(run)); continue }
+                    val attrs = StringBuilder()
+                    if (sp.bold || sp.heading.toInt() > 0) attrs.append(" font-weight=\"bold\"")
+                    if (sp.italic) attrs.append(" font-style=\"italic\"")
+                    if (sp.underline) attrs.append(" text-decoration=\"underline\"")
+                    sp.color?.let { attrs.append(" fill=\"${hex(it.toInt())}\"") }
+                    if (sp.heading.toInt() > 0) attrs.append(" font-size=\"${n(b.size * when (sp.heading.toInt()) { 1 -> 1.6f; 2 -> 1.35f; else -> 1.15f })}\"")
+                    val bullet = if (sp.list.toInt() == 1 && c[i] == ls && (ls == 0 || b.text[ls - 1] == '\n')) "• " else ""
+                    out.append("<tspan$attrs>${esc(bullet + run)}</tspan>")
+                }
+                out.append("</tspan>")
             }
             out.append("</text>\n")
         }

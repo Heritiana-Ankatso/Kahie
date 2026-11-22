@@ -264,9 +264,9 @@ object PageRenderer {
             canvas.drawPath(inkPath(g), inkPaint(g))
         }
         for (p in d.plotBlocks()) drawPlot(canvas, p, 0.75f)
+        for (a in d.attachmentBlocks()) Attachments.draw(canvas, a, 0.75f)
         for (b in d.textBlocks()) {
-            val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = b.size; color = opaque(b.color) }
-            val layout = StaticLayout.Builder.obtain(b.text, 0, b.text.length, tp, b.width.toInt().coerceAtLeast(20)).build()
+            val layout = RichText.layout(b.text, b.spans, b.width, b.size, b.color)
             canvas.save()
             canvas.translate(b.x, b.y)
             layout.draw(canvas)

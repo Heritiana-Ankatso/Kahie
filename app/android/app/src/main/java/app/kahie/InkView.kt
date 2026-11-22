@@ -23,7 +23,7 @@ import kotlin.math.min
 
 /** Page canvas: stylus/touch/mouse input, pan and zoom, and drawing of the core's geometry. */
 class InkView(context: Context) : View(context) {
-    enum class Tool { PEN, HIGHLIGHTER, ERASER, TEXT, SELECT, MATH, PLOT }
+    enum class Tool { PEN, PENCIL, BRUSH, HIGHLIGHTER, ERASER, TEXT, SELECT, MATH, PLOT }
 
     /** Optional low-latency renderer for the stroke in progress (see [JetpackWetInk]). */
     interface WetInk {
@@ -66,6 +66,16 @@ class InkView(context: Context) : View(context) {
     var eraserRadius = 9.0
     var autoShapes = false
     var fingerDraws = true
+    /** Eraser tool erases only what it touches (P1-11) instead of whole strokes. */
+    var partialEraser = false
+    /** The stylus eraser end erases partially (else whole strokes). */
+    var eraserEndPartial = false
+    /** Stylus side button held: 0 stroke eraser, 1 partial eraser, 2 nothing (draw). */
+    var sideButton = 0
+    /** Select tool draws a free-form lasso instead of a rectangle (P1-14). */
+    var lasso = false
+    /** Tap on an attached file with the Select tool (P1-19). */
+    var onAttachmentTap: (id: String) -> Unit = {}
 
     /** Called after every committed change (stroke, erase, undo…). */
     var onChanged: () -> Unit = {}
@@ -77,9 +87,17 @@ class InkView(context: Context) : View(context) {
     var onSelectionChanged: (Int) -> Unit = {}
     private var selBounds: RectF? = null
     private var band: RectF? = null          // rubber band in page coordinates
+    private var lassoPts: ArrayList<Float>? = null // lasso path in page coordinates
     private var dragFrom: FloatArray? = null // page point where a move started
     private var dragDx = 0f
     private var dragDy = 0f
+    /** Handle being dragged: 0 none (move), 1 scale, 2 rotate (P1-15). */
+    private var handle = 0
+    private var tfScale = 1f
+    private var tfAngle = 0f
+    /** Preview transform of the selection while it is moved, scaled or rotated. */
+    private val selMatrix = Matrix()
+    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2F5BD3.toInt() }
     private val bandPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = 0xFF2F5BD3.toInt()
@@ -87,10 +105,11 @@ class InkView(context: Context) : View(context) {
     }
 
     fun clearSelection() {
-        if (selection.isEmpty() && band == null) return
+        if (selection.isEmpty() && band == null && lassoPts == null) return
         selection = emptyList()
         selBounds = null
         band = null
+        lassoPts = null
         onSelectionChanged(0)
         invalidate()
     }
@@ -178,6 +197,7 @@ class InkView(context: Context) : View(context) {
         }
     }
     private var images: List<uniffi.nb_ffi.ImageBlock> = emptyList()
+    private var attachments: List<uniffi.nb_ffi.AttachmentBlock> = emptyList()
 
     /** Plot tool tap at page coordinates, with the id of the plot there (if any). */
     var onPlotTap: (x: Float, y: Float, blockId: String?) -> Unit = { _, _, _ -> }
@@ -196,6 +216,8 @@ class InkView(context: Context) : View(context) {
     /** Page size in page units, from the page (A4 portrait until a page is set). */
     private var pageW = 794f
     private var pageH = 1123f
+    /** Infinite canvas page (P1-06): no paper edges, zoom 5 %–3 200 %. */
+    private var infinite = false
     private val density = resources.displayMetrics.density
 
     // View transform: screen = page * s + (ox, oy)
@@ -205,13 +227,19 @@ class InkView(context: Context) : View(context) {
     private var fitted = false
     private var stylusSeen = false
 
-    private class CachedPath(val path: Path, val paint: Paint)
+    private class CachedPath(val path: Path, val paint: Paint) {
+        val bounds = RectF().also { path.computeBounds(it, true) }
+    }
+    /** What is left of strokes under the partial eraser, drawn while erasing. */
+    private var erasePreview: List<CachedPath> = emptyList()
+    private var partialErasing = false
     private val paths = HashMap<String, CachedPath>()
     private var order: List<String> = emptyList()
     private var hidden: Set<String> = emptySet()
 
     // Wet ink
-    private val wet = ArrayList<FloatArray>() // x, y, pressure (page coords)
+    private val wet = ArrayList<FloatArray>() // x, y, pressure, tilt (page coords)
+    private var wetTool = Tool.PEN
     private var snapPreview: CachedPath? = null
     private var drawing = false
     private var fastWet = false // the current stroke is drawn by [wetInk]
@@ -259,12 +287,18 @@ class InkView(context: Context) : View(context) {
     /** Re-read the item list from the core and build paths for new keys. */
     fun refresh() {
         val d = doc ?: return
+        val inf = d.isInfinite()
+        if (inf != infinite) {
+            infinite = inf
+            if (width > 0) fit()
+        }
         val dims = d.pageDims()
-        if (dims[0] != pageW || dims[1] != pageH) {
+        if (!infinite && (dims[0] != pageW || dims[1] != pageH)) {
             pageW = dims[0]
             pageH = dims[1]
             if (width > 0) fit()
         }
+        attachments = d.attachmentBlocks()
         order = d.layout()
         val live = order.toHashSet()
         paths.keys.retainAll(live)
@@ -274,7 +308,7 @@ class InkView(context: Context) : View(context) {
         images = d.imageBlocks()
         val blocks = d.textBlocks()
         textLayouts.keys.retainAll(blocks.map { it.key }.toSet())
-        texts = blocks.map { b -> textLayouts.getOrPut(b.key) { CachedText(b, layoutText(b.text, b.width, b.size, b.color)) } }
+        texts = blocks.map { b -> textLayouts.getOrPut(b.key) { CachedText(b, RichText.layout(b.text, b.spans, b.width, b.size, b.color)) } }
         invalidate()
     }
 
@@ -288,6 +322,10 @@ class InkView(context: Context) : View(context) {
 
     /** Height in page units that `text` takes when wrapped to `width` (for new and edited blocks). */
     fun measureText(text: String, width: Float, size: Float): Float = layoutText(text, width, size, 0u).height.toFloat()
+
+    /** Height of a rich text block (P1-17). */
+    fun measureRich(text: String, spans: List<uniffi.nb_ffi.RichSpan>, width: Float, size: Float): Float =
+        RichText.height(text, spans, width, size)
 
     private fun toPath(g: RenderItem): CachedPath {
         val c = g.coords
@@ -318,6 +356,15 @@ class InkView(context: Context) : View(context) {
 
     fun fit() {
         if (width == 0) return
+        if (infinite) {
+            // Zoom to fit the content (or an A4 sheet at the origin when empty).
+            val e = doc?.pageExtent() ?: return
+            s = min(width / e[2], height / e[3]).coerceIn(minZoom(), min(maxZoom(), 1.5f * density))
+            ox = (width - e[2] * s) / 2 - e[0] * s
+            oy = (height - e[3] * s) / 2 - e[1] * s
+            invalidate()
+            return
+        }
         s = min((width - 32 * density) / pageW, 1.5f * density)
         if (horizontal) s = min(s, (height - 32 * density) / pageH)
         ox = (width - pageW * s) / 2
@@ -363,8 +410,14 @@ class InkView(context: Context) : View(context) {
         }
     }
 
+    private fun minZoom() = if (infinite) 0.05f * density else 0.15f * density
+    private fun maxZoom() = if (infinite) 32f * density else 8f * density
+
+    /** Current zoom in percent (100 = page units at 1 dp). */
+    fun zoomPercent(): Int = (s / density * 100).toInt()
+
     private fun zoomAt(fx: Float, fy: Float, factor: Float) {
-        val ns = (s * factor).coerceIn(0.15f * density, 8f * density)
+        val ns = (s * factor).coerceIn(minZoom(), maxZoom())
         val wx = (fx - ox) / s
         val wy = (fy - oy) / s
         s = ns
@@ -384,38 +437,58 @@ class InkView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         canvas.save()
+        if (infinite) canvas.drawColor(Color.WHITE)
         canvas.translate(ox, oy)
         canvas.scale(s, s)
-        canvas.drawRect(RectF(2f, 4f, pageW + 2f, pageH + 4f), shadowPaint)
-        canvas.drawRect(0f, 0f, pageW, pageH, pagePaint)
-        drawTemplate(canvas, doc?.template() ?: "lined")
+        // Visible area in page units, to skip what is off screen.
+        val view = RectF(toPageX(0f), toPageY(0f), toPageX(width.toFloat()), toPageY(height.toFloat()))
+        if (infinite) {
+            drawInfiniteTemplate(canvas, doc?.template() ?: "blank", view)
+        } else {
+            canvas.drawRect(RectF(2f, 4f, pageW + 2f, pageH + 4f), shadowPaint)
+            canvas.drawRect(0f, 0f, pageW, pageH, pagePaint)
+            drawTemplate(canvas, doc?.template() ?: "lined")
+        }
         doc?.let { PageRenderer.drawBackground(canvas, it) }
-        val moving = dragFrom != null && selection.isNotEmpty()
+        val moving = (dragFrom != null || handle != 0) && selection.isNotEmpty()
         doc?.let { d ->
             for (img in images) { // under the ink, so it can be annotated
                 if (img.key in hidden) continue
                 canvas.save()
-                if (moving && img.id in selection) canvas.translate(dragDx, dragDy)
+                if (moving && img.id in selection) canvas.concat(selMatrix)
                 PageRenderer.drawImage(canvas, d, img)
                 canvas.restore()
             }
         }
+        // Strokes smaller than about a pixel on screen are skipped when zoomed far out.
+        val tiny = 0.6f / s
         for (key in order) {
             if (key in hidden) continue
             val p = paths[key] ?: continue
             if (moving && key.substringBefore(':') in selection) {
                 canvas.save()
-                canvas.translate(dragDx, dragDy)
+                canvas.concat(selMatrix)
                 canvas.drawPath(p.path, p.paint)
                 canvas.restore()
             } else {
+                val b = p.bounds
+                if (!RectF.intersects(b, view) && !(b.isEmpty && view.contains(b.left, b.top))) continue
+                if (b.width() < tiny && b.height() < tiny) continue
                 canvas.drawPath(p.path, p.paint)
             }
+        }
+        for (p in erasePreview) canvas.drawPath(p.path, p.paint)
+        for (a in attachments) {
+            if (a.key in hidden) continue
+            canvas.save()
+            if (moving && a.id in selection) canvas.concat(selMatrix)
+            Attachments.draw(canvas, a, density / s)
+            canvas.restore()
         }
         for (t in texts) {
             if (t.block.key in hidden) continue
             canvas.save()
-            if (moving && t.block.id in selection) canvas.translate(dragDx, dragDy)
+            if (moving && t.block.id in selection) canvas.concat(selMatrix)
             canvas.translate(t.block.x, t.block.y)
             t.layout.draw(canvas)
             canvas.restore()
@@ -423,14 +496,14 @@ class InkView(context: Context) : View(context) {
         for (p in plots) {
             if (p.key in hidden) continue
             canvas.save()
-            if (moving && p.id in selection) canvas.translate(dragDx, dragDy)
+            if (moving && p.id in selection) canvas.concat(selMatrix)
             PageRenderer.drawPlot(canvas, p, 1f / s * density)
             canvas.restore()
         }
         for (m in maths) {
             if (m.key in hidden) continue
             canvas.save()
-            if (moving && m.id in selection) canvas.translate(dragDx, dragDy)
+            if (moving && m.id in selection) canvas.concat(selMatrix)
             canvas.translate(m.x, m.y)
             val r = math?.get(m.latex, m.size, (m.color.toInt() and 0xFFFFFF) or (0xFF shl 24))
             val pic = r?.picture
@@ -447,9 +520,29 @@ class InkView(context: Context) : View(context) {
         drawWet(canvas)
         bandPaint.strokeWidth = 1.5f * density / s
         band?.let { canvas.drawRect(it, bandPaint) }
+        lassoPts?.let { pts ->
+            if (pts.size >= 4) {
+                val path = Path()
+                path.moveTo(pts[0], pts[1])
+                var i = 2
+                while (i + 1 < pts.size) { path.lineTo(pts[i], pts[i + 1]); i += 2 }
+                canvas.drawPath(path, bandPaint)
+            }
+        }
         selBounds?.let {
             val pad = 6f / s * density
-            canvas.drawRect(it.left - pad + dragDx, it.top - pad + dragDy, it.right + pad + dragDx, it.bottom + pad + dragDy, bandPaint)
+            canvas.save()
+            canvas.concat(selMatrix)
+            canvas.drawRect(it.left - pad, it.top - pad, it.right + pad, it.bottom + pad, bandPaint)
+            if (tool == Tool.SELECT && !readOnly) {
+                // Handles: scale at the bottom-right corner, rotate above the top edge.
+                val r = 7f / s * density
+                canvas.drawRect(it.right + pad - r, it.bottom + pad - r, it.right + pad + r, it.bottom + pad + r, handlePaint)
+                val (hx, hy) = rotateHandle(it)
+                canvas.drawLine(hx, it.top - pad, hx, hy, bandPaint)
+                canvas.drawCircle(hx, hy, r, handlePaint)
+            }
+            canvas.restore()
         }
         canvas.restore()
         eraserCursor?.let { canvas.drawCircle(it[0], it[1], eraserRadius.toFloat() * density, eraserPaint) }
@@ -519,29 +612,78 @@ class InkView(context: Context) : View(context) {
     private fun drawWet(canvas: Canvas) {
         snapPreview?.let { canvas.drawPath(it.path, it.paint); return }
         if (wet.isEmpty() || fastWet) return
-        val hl = tool == Tool.HIGHLIGHTER
+        val hl = wetTool == Tool.HIGHLIGHTER
         wetPaint.color = if (hl) highlighterColor else penColor
-        wetPaint.alpha = if (hl) 90 else 255
-        val w = if (hl) highlighterWidth else penWidth
+        wetPaint.alpha = when (wetTool) { Tool.HIGHLIGHTER -> 90; Tool.PENCIL -> 204; else -> 255 }
+        val w = widthFor(wetTool)
         if (wet.size == 1) {
-            wetPaint.strokeWidth = radius(w, wet[0][2], hl) * 2
+            wetPaint.strokeWidth = radius(wetTool, w, wet[0][2], wet[0][3]) * 2
             canvas.drawPoint(wet[0][0], wet[0][1], wetPaint)
             return
         }
         for (i in 1 until wet.size) {
             val a = wet[i - 1]
             val b = wet[i]
-            wetPaint.strokeWidth = radius(w, a[2], hl) + radius(w, b[2], hl)
+            wetPaint.strokeWidth = radius(wetTool, w, a[2], a[3]) + radius(wetTool, w, b[2], b[3])
             canvas.drawLine(a[0], a[1], b[0], b[1], wetPaint)
         }
     }
 
-    /** Same pressure curve as nb_ink::radius_at. */
-    private fun radius(width: Double, p: Float, highlighter: Boolean): Float {
-        if (highlighter) return (width / 2).toFloat()
-        val pr = if (p == 0f) 0.5f else p
-        return (width / 2 * (0.45 + 0.9 * pr)).toFloat()
+    /** Same response curves as nb_ink::nib_radius (pressure `p`, tilt `t` in radians). */
+    private fun radius(tool: Tool, width: Double, p: Float, t: Float): Float {
+        val pr = if (p <= 0f) 0.5 else min(p, 1f).toDouble()
+        val tilt = kotlin.math.sin(t.toDouble().coerceIn(0.0, Math.PI / 2))
+        val half = width / 2
+        return when (tool) {
+            Tool.HIGHLIGHTER -> half
+            Tool.PENCIL -> half * (0.55 + 0.45 * pr) * (1 + 1.2 * tilt)
+            Tool.BRUSH -> half * (0.12 + 1.6 * Math.pow(pr, 1.6)) * (1 + 0.8 * tilt)
+            else -> half * (0.45 + 0.9 * pr)
+        }.toFloat()
     }
+
+    /** Base width of an ink tool (pencil and brush follow the pen's width preset). */
+    private fun widthFor(t: Tool): Double = when (t) {
+        Tool.HIGHLIGHTER -> highlighterWidth
+        Tool.BRUSH -> penWidth * 2.5
+        Tool.PENCIL -> penWidth * 0.8
+        else -> penWidth
+    }
+
+    private fun inkToolOf(t: Tool): InkTool = when (t) {
+        Tool.HIGHLIGHTER -> InkTool.HIGHLIGHTER
+        Tool.PENCIL -> InkTool.PENCIL
+        Tool.BRUSH -> InkTool.BRUSH
+        else -> InkTool.PEN
+    }
+
+    /** Paper pattern of an infinite canvas, drawn only where visible (none when far out). */
+    private fun drawInfiniteTemplate(canvas: Canvas, template: String, v: RectF) {
+        val step = when (template) { "grid", "dots" -> 24f; "graph" -> 794f / 210f * 10f; "lined" -> 32f; else -> return }
+        if (step * s < 6f) return
+        rulePaint.strokeWidth = 1f / s * density
+        rulePaint.color = if (template == "lined") 0xFFC9D8F0.toInt() else 0xFFDDE3EE.toInt()
+        val x0 = kotlin.math.floor(v.left / step) * step
+        val y0 = kotlin.math.floor(v.top / step) * step
+        if (template == "dots") {
+            rulePaint.color = 0xFFB8C0CC.toInt()
+            var x = x0
+            while (x <= v.right) {
+                var y = y0
+                while (y <= v.bottom) { canvas.drawCircle(x, y, 1.3f, rulePaint); y += step }
+                x += step
+            }
+            return
+        }
+        var y = y0
+        while (y <= v.bottom) { canvas.drawLine(v.left, y, v.right, y, rulePaint); y += step }
+        if (template == "lined") return
+        var x = x0
+        while (x <= v.right) { canvas.drawLine(x, v.top, x, v.bottom, rulePaint); x += step }
+    }
+
+    private fun rotateHandle(b: RectF): Pair<Float, Float> =
+        b.centerX() to b.top - 6f / s * density - 28f / s * density
 
     // ---------- input ----------
 
@@ -591,9 +733,14 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 requestUnbufferedDispatch(e)
                 activePointer = e.getPointerId(0)
-                val eraser = tool == Tool.ERASER || toolType == MotionEvent.TOOL_TYPE_ERASER ||
-                    (e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
-                if (eraser) startErase(e.x, e.y) else startInk(e)
+                // Stylus eraser end and side button (P1-11): mapped in the tool options.
+                val side = (e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0
+                when {
+                    tool == Tool.ERASER -> startErase(e.x, e.y, partialEraser)
+                    toolType == MotionEvent.TOOL_TYPE_ERASER -> startErase(e.x, e.y, eraserEndPartial)
+                    side && sideButton != 2 -> startErase(e.x, e.y, sideButton == 1)
+                    else -> startInk(e)
+                }
             }
             MotionEvent.ACTION_MOVE -> {
                 val idx = e.findPointerIndex(activePointer)
@@ -614,48 +761,117 @@ class InkView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 val b = selBounds
                 val pad = 12f / s * density
-                if (b != null && x >= b.left - pad && x <= b.right + pad && y >= b.top - pad && y <= b.bottom + pad) {
+                val grab = 16f / s * density
+                handle = 0
+                tfScale = 1f
+                tfAngle = 0f
+                selMatrix.reset()
+                val rh = b?.let { rotateHandle(it) }
+                if (b != null && !readOnly && hypot(x - b.right - pad / 2, y - b.bottom - pad / 2) <= grab) {
+                    handle = 1
+                    dragFrom = floatArrayOf(x, y)
+                } else if (b != null && rh != null && !readOnly && hypot(x - rh.first, y - rh.second) <= grab) {
+                    handle = 2
+                    dragFrom = floatArrayOf(x, y)
+                } else if (b != null && x >= b.left - pad && x <= b.right + pad && y >= b.top - pad && y <= b.bottom + pad) {
                     dragFrom = floatArrayOf(x, y)
                     dragDx = 0f
                     dragDy = 0f
                 } else {
-                    band = RectF(x, y, x, y)
+                    if (lasso) lassoPts = arrayListOf(x, y) else band = RectF(x, y, x, y)
                     selection = emptyList()
                     selBounds = null
                 }
             }
             MotionEvent.ACTION_MOVE -> {
-                dragFrom?.let { dragDx = x - it[0]; dragDy = y - it[1] }
+                val from = dragFrom
+                val b = selBounds
+                if (from != null && b != null) {
+                    val cx = b.centerX()
+                    val cy = b.centerY()
+                    when (handle) {
+                        1 -> {
+                            val d0 = hypot(from[0] - cx, from[1] - cy).coerceAtLeast(1f)
+                            tfScale = (hypot(x - cx, y - cy) / d0).coerceIn(0.05f, 20f)
+                            selMatrix.setScale(tfScale, tfScale, cx, cy)
+                        }
+                        2 -> {
+                            val a0 = kotlin.math.atan2(from[1] - cy, from[0] - cx)
+                            var a = kotlin.math.atan2(y - cy, x - cx) - a0
+                            // Snap to multiples of 15° within 3°.
+                            val deg = Math.toDegrees(a.toDouble())
+                            val snap = Math.round(deg / 15.0) * 15.0
+                            if (kotlin.math.abs(deg - snap) < 3) a = Math.toRadians(snap).toFloat()
+                            tfAngle = a
+                            selMatrix.setRotate(Math.toDegrees(a.toDouble()).toFloat(), cx, cy)
+                        }
+                        else -> {
+                            dragDx = x - from[0]
+                            dragDy = y - from[1]
+                            selMatrix.setTranslate(dragDx, dragDy)
+                        }
+                    }
+                }
                 band?.let { it.right = x; it.bottom = y }
+                lassoPts?.let { it.add(x); it.add(y) }
             }
             MotionEvent.ACTION_UP -> {
-                if (dragFrom != null) {
+                val b = selBounds
+                if (dragFrom != null && handle != 0 && b != null) {
+                    if (tfScale != 1f || tfAngle != 0f) {
+                        d.transformItems(selection, b.centerX().toDouble(), b.centerY().toDouble(), tfScale.toDouble(), tfAngle.toDouble(), 0.0, 0.0)
+                        refresh()
+                        onChanged()
+                    }
+                    endDrag()
+                } else if (dragFrom != null) {
                     if (dragDx != 0f || dragDy != 0f) {
                         d.moveItems(selection, dragDx.toDouble(), dragDy.toDouble())
                         refresh()
                         onChanged()
+                    } else if (selection.size == 1) {
+                        d.attachmentAt(x.toDouble(), y.toDouble())?.let { onAttachmentTap(it) }
                     }
-                    dragFrom = null
-                    dragDx = 0f
-                    dragDy = 0f
-                    updateSelBounds()
+                    endDrag()
                 } else {
-                    band?.let { r ->
+                    val pts = lassoPts
+                    val r = band
+                    if (pts != null && pts.size >= 6) {
+                        selection = d.selectLasso(pts.map { it.toDouble() })
+                    } else if (r != null) {
+                        if (kotlin.math.abs(r.width()) < 4f / s * density && kotlin.math.abs(r.height()) < 4f / s * density) {
+                            // A tap: open an attached file there, else select what is under it.
+                            val att = d.attachmentAt(x.toDouble(), y.toDouble())
+                            if (att != null) onAttachmentTap(att)
+                        }
                         selection = d.selectRect(r.left.toDouble(), r.top.toDouble(), r.right.toDouble(), r.bottom.toDouble())
+                    }
+                    if (pts != null || r != null) {
                         updateSelBounds()
                         onSelectionChanged(selection.size)
                     }
                     band = null
+                    lassoPts = null
                 }
             }
             MotionEvent.ACTION_CANCEL -> {
-                dragFrom = null
-                dragDx = 0f
-                dragDy = 0f
+                endDrag()
                 band = null
+                lassoPts = null
             }
         }
         invalidate()
+    }
+
+    private fun endDrag() {
+        dragFrom = null
+        dragDx = 0f
+        dragDy = 0f
+        handle = 0
+        tfScale = 1f
+        tfAngle = 0f
+        selMatrix.reset()
+        updateSelBounds()
     }
 
     /** Quick two-finger tap: undo; three-finger tap: redo (P1-25). */
@@ -721,23 +937,32 @@ class InkView(context: Context) : View(context) {
         return if (hist >= 0) e.getHistoricalPressure(idx, hist) else e.getPressure(idx)
     }
 
+    /** Pen tilt in radians from perpendicular (`AXIS_TILT`), 0 when not reported. */
+    private fun tiltOf(e: MotionEvent, idx: Int, hist: Int = -1): Float {
+        if (e.getToolType(idx) != MotionEvent.TOOL_TYPE_STYLUS) return 0f
+        val t = if (hist >= 0) e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, idx, hist) else e.getAxisValue(MotionEvent.AXIS_TILT, idx)
+        return if (t.isNaN()) 0f else t.coerceIn(0f, (Math.PI / 2).toFloat())
+    }
+
     private fun startInk(e: MotionEvent) {
         val d = doc ?: return
         val x = toPageX(e.x)
         val y = toPageY(e.y)
         val p = pressureOf(e, 0)
-        val hl = tool == Tool.HIGHLIGHTER
-        d.beginStroke(
-            if (hl) InkTool.HIGHLIGHTER else InkTool.PEN,
+        val t = tiltOf(e, 0)
+        wetTool = if (tool in listOf(Tool.PEN, Tool.PENCIL, Tool.BRUSH, Tool.HIGHLIGHTER)) tool else Tool.PEN
+        val hl = wetTool == Tool.HIGHLIGHTER
+        d.beginStrokeTilt(
+            inkToolOf(wetTool),
             ((if (hl) highlighterColor else penColor) and 0xFFFFFF).toUInt(),
-            if (hl) highlighterWidth else penWidth, x.toDouble(), y.toDouble(), p.toDouble(),
+            widthFor(wetTool), x.toDouble(), y.toDouble(), p.toDouble(), t.toDouble(),
         )
         wet.clear()
-        wet.add(floatArrayOf(x, y, p))
+        wet.add(floatArrayOf(x, y, p, t))
         snapPreview = null
         drawing = true
         val color = if (hl) (highlighterColor and 0xFFFFFF) or (90 shl 24) else penColor
-        val sizePx = ((if (hl) highlighterWidth else penWidth) * s).toFloat()
+        val sizePx = (widthFor(wetTool) * s).toFloat()
         fastWet = wetInk?.start(e, activePointer, hl, color, sizePx) ?: false
         holdX = e.x; holdY = e.y
         armHold()
@@ -748,20 +973,22 @@ class InkView(context: Context) : View(context) {
         val d = doc ?: return
         // One FFI call per input event: historical samples plus the current one.
         val n = e.historySize + 1
-        val xyp = ArrayList<Double>(n * 3)
+        val xypt = ArrayList<Double>(n * 4)
         for (h in 0 until e.historySize) {
-            xyp.add(toPageX(e.getHistoricalX(idx, h)).toDouble())
-            xyp.add(toPageY(e.getHistoricalY(idx, h)).toDouble())
-            xyp.add(pressureOf(e, idx, h).toDouble())
+            xypt.add(toPageX(e.getHistoricalX(idx, h)).toDouble())
+            xypt.add(toPageY(e.getHistoricalY(idx, h)).toDouble())
+            xypt.add(pressureOf(e, idx, h).toDouble())
+            xypt.add(tiltOf(e, idx, h).toDouble())
         }
-        xyp.add(toPageX(e.getX(idx)).toDouble())
-        xyp.add(toPageY(e.getY(idx)).toDouble())
-        xyp.add(pressureOf(e, idx).toDouble())
-        val accepted = d.addPoints(xyp)
+        xypt.add(toPageX(e.getX(idx)).toDouble())
+        xypt.add(toPageY(e.getY(idx)).toDouble())
+        xypt.add(pressureOf(e, idx).toDouble())
+        xypt.add(tiltOf(e, idx).toDouble())
+        val accepted = d.addPointsTilt(xypt)
         var i = 0
-        while (i + 2 < accepted.size) {
-            wet.add(floatArrayOf(accepted[i], accepted[i + 1], accepted[i + 2]))
-            i += 3
+        while (i + 3 < accepted.size) {
+            wet.add(floatArrayOf(accepted[i], accepted[i + 1], accepted[i + 2], accepted[i + 3]))
+            i += 4
         }
         if (fastWet) wetInk?.add(e, activePointer)
         if (hypot(e.getX(idx) - holdX, e.getY(idx) - holdY) > 4 * density) {
@@ -808,13 +1035,15 @@ class InkView(context: Context) : View(context) {
         wet.clear()
         snapPreview = null
         hidden = emptySet()
+        erasePreview = emptyList()
         eraserCursor = null
         refresh()
     }
 
-    private fun startErase(sx: Float, sy: Float) {
+    private fun startErase(sx: Float, sy: Float, partial: Boolean) {
         val d = doc ?: return
-        d.beginErase()
+        if (partial) d.beginPartialErase() else d.beginErase()
+        partialErasing = partial
         erasing = true
         lastErase = floatArrayOf(toPageX(sx), toPageY(sy))
         eraseTo(sx, sy)
@@ -833,6 +1062,8 @@ class InkView(context: Context) : View(context) {
         if (d.eraseSegment(a[0].toDouble(), a[1].toDouble(), bx.toDouble(), by.toDouble(), (eraserRadius * density / s))) {
             hidden = d.erasingKeys().toHashSet()
         }
+        // Partial eraser: show what will be left of the strokes being cut.
+        if (partialErasing && hidden.isNotEmpty()) erasePreview = d.erasePreview().map { toPath(it) }
         lastErase = floatArrayOf(bx, by)
         eraserCursor = floatArrayOf(sx, sy)
         invalidate()
@@ -842,6 +1073,7 @@ class InkView(context: Context) : View(context) {
         erasing = false
         val changed = doc?.endErase() ?: false
         hidden = emptySet()
+        erasePreview = emptyList()
         eraserCursor = null
         refresh()
         if (changed) onChanged()

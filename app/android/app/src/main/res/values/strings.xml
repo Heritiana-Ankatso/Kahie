@@ -214,4 +214,46 @@
     <string name="cas_antiderivative">∫ dx</string>
     <string name="cas_numeric">≈</string>
     <string name="math_preview">Preview of the formula</string>
+
+    <!-- Phase 1 editing: tools, rich text, insert, selection (P1-06…P1-19) -->
+    <string name="format_bold">Bold</string>
+    <string name="format_italic">Italic</string>
+    <string name="format_underline">Underline</string>
+    <string name="format_heading">Heading</string>
+    <string name="format_bullets">Bulleted list</string>
+    <string name="format_numbers">Numbered list</string>
+    <string name="format_color">Text colour</string>
+    <string name="format_clear">Clear formatting</string>
+    <string name="custom_color">Custom colour…</string>
+    <string name="default_color">Default</string>
+    <string name="custom_color_bad">Enter a colour as six hexadecimal digits, e.g. #2B59C3</string>
+    <string name="tool">Tool</string>
+    <string name="pencil">Pencil</string>
+    <string name="brush">Brush</string>
+    <string name="choose_color">Choose a colour…</string>
+    <string name="partial_eraser">Partial eraser: erase only the part of a stroke you touch</string>
+    <string name="eraser_end_partial">Stylus eraser end erases partially</string>
+    <string name="side_button">Stylus side button</string>
+    <string name="side_button_erase">Stroke eraser</string>
+    <string name="side_button_partial">Partial eraser</string>
+    <string name="side_button_none">Nothing (keep drawing)</string>
+    <string name="tool_options">Tools</string>
+    <string name="insert">Insert</string>
+    <string name="insert_photo_gallery">Photo from the gallery</string>
+    <string name="insert_camera">Photo from the camera</string>
+    <string name="insert_clipboard">Text or image from the clipboard</string>
+    <string name="insert_file">File (attachment)</string>
+    <string name="clipboard_empty">The clipboard is empty</string>
+    <string name="no_camera">No camera app found</string>
+    <string name="attachment_too_large">This file is too large (more than %1$d MB)</string>
+    <string name="no_app_for_file">No app can open this file</string>
+    <string name="group">Group</string>
+    <string name="ungroup">Ungroup</string>
+    <string name="crop_rotate">Crop / rotate image</string>
+    <string name="open_attachment">Open file</string>
+    <string name="rotate_90">Rotate 90°</string>
+    <string name="lasso_tool">Lasso</string>
+    <string name="lasso_hint">Lasso: draw around what you want to select</string>
+    <string name="paste">Paste</string>
+    <string name="paper_infinite">Infinite canvas</string>
 </resources>

@@ -212,4 +212,46 @@
     <string name="cas_antiderivative">∫ dx</string>
     <string name="cas_numeric">≈</string>
     <string name="math_preview">Aperçu de la formule</string>
+
+    <!-- Phase 1 editing: tools, rich text, insert, selection (P1-06…P1-19) -->
+    <string name="format_bold">Gras</string>
+    <string name="format_italic">Italique</string>
+    <string name="format_underline">Souligné</string>
+    <string name="format_heading">Titre</string>
+    <string name="format_bullets">Liste à puces</string>
+    <string name="format_numbers">Liste numérotée</string>
+    <string name="format_color">Couleur du texte</string>
+    <string name="format_clear">Effacer la mise en forme</string>
+    <string name="custom_color">Couleur personnalisée…</string>
+    <string name="default_color">Par défaut</string>
+    <string name="custom_color_bad">Saisissez une couleur en six chiffres hexadécimaux, p. ex. #2B59C3</string>
+    <string name="tool">Outil</string>
+    <string name="pencil">Crayon</string>
+    <string name="brush">Pinceau</string>
+    <string name="choose_color">Choisir une couleur…</string>
+    <string name="partial_eraser">Gomme partielle : n\'efface que la partie du trait touchée</string>
+    <string name="eraser_end_partial">Le bout gomme du stylet efface partiellement</string>
+    <string name="side_button">Bouton latéral du stylet</string>
+    <string name="side_button_erase">Gomme à traits</string>
+    <string name="side_button_partial">Gomme partielle</string>
+    <string name="side_button_none">Rien (continuer à écrire)</string>
+    <string name="tool_options">Outils</string>
+    <string name="insert">Insérer</string>
+    <string name="insert_photo_gallery">Photo de la galerie</string>
+    <string name="insert_camera">Photo de l\'appareil photo</string>
+    <string name="insert_clipboard">Texte ou image du presse-papiers</string>
+    <string name="insert_file">Fichier (pièce jointe)</string>
+    <string name="clipboard_empty">Le presse-papiers est vide</string>
+    <string name="no_camera">Aucune application d\'appareil photo</string>
+    <string name="attachment_too_large">Ce fichier est trop volumineux (plus de %1$d Mo)</string>
+    <string name="no_app_for_file">Aucune application ne peut ouvrir ce fichier</string>
+    <string name="group">Grouper</string>
+    <string name="ungroup">Dissocier</string>
+    <string name="crop_rotate">Rogner / pivoter l\'image</string>
+    <string name="open_attachment">Ouvrir le fichier</string>
+    <string name="rotate_90">Pivoter de 90°</string>
+    <string name="lasso_tool">Lasso</string>
+    <string name="lasso_hint">Lasso : entourez ce que vous voulez sélectionner</string>
+    <string name="paste">Coller</string>
+    <string name="paper_infinite">Canevas infini</string>
 </resources>

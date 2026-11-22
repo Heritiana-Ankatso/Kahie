@@ -63,6 +63,8 @@ class MainActivity : Activity() {
     private var pageIds: List<String> = emptyList()
     private var pageIndex = 0
     private var doc: PageDoc? = null
+    /** Phase 1 editing UI: tools, insert, clipboard, groups, crop (EditingUi.kt). */
+    private lateinit var editing: EditingUi
 
     private val penColors = intArrayOf(0xFF1D1D1F.toInt(), 0xFF2B59C3.toInt(), 0xFFD1495B.toInt(), 0xFF2A9D8F.toInt(), 0xFFE09F3E.toInt())
     private val highlighterColors = intArrayOf(0xFFFFE066.toInt(), 0xFF9BE564.toInt(), 0xFF7CC6FE.toInt(), 0xFFFF99C8.toInt(), 0xFFFFB86B.toInt())
@@ -125,6 +127,9 @@ class MainActivity : Activity() {
         ink.math = renderer
         ink.onMathTap = { x, y, blockId -> editMath(x, y, blockId) }
         ink.onPlotTap = { x, y, blockId -> editPlot(x, y, blockId) }
+        editing = EditingUi(this, ink, { doc }, io)
+        editing.restore()
+        ink.onAttachmentTap = { editing.openAttachment(it) }
         ink.horizontal = prefs.getBoolean("horizontalPages", false)
         ink.onPageTurn = { dir ->
             val next = pageIndex + dir
@@ -149,9 +154,7 @@ class MainActivity : Activity() {
         bar.addView(divider())
         for (i in penColors.indices) bar.addView(swatch(i))
         bar.addView(divider())
-        bar.addView(widthButton(0.6, 7))
-        bar.addView(widthButton(1.0, 11))
-        bar.addView(widthButton(2.0, 16))
+        bar.addView(textButton(R.string.tool_options) { editing.showToolOptions { updateToolbar() } })
         bar.addView(divider())
         undoBtn = iconButton(R.drawable.ic_undo, R.string.undo) { doc?.undo(); ink.refresh(); ink.onChanged() }
         redoBtn = iconButton(R.drawable.ic_redo, R.string.redo) { doc?.redo(); ink.refresh(); ink.onChanged() }
@@ -165,18 +168,21 @@ class MainActivity : Activity() {
         }
         bar.addView(shapesBtn)
         bar.addView(textButton(R.string.select_tool) {
+            ink.lasso = false
             ink.tool = if (ink.tool == InkView.Tool.SELECT) InkView.Tool.PEN else InkView.Tool.SELECT
             if (ink.tool != InkView.Tool.SELECT) ink.clearSelection()
             updateToolbar()
             if (ink.tool == InkView.Tool.SELECT) toast(getString(R.string.select_hint))
         })
-        bar.addView(textButton(R.string.selection) { showSelectionActions() })
-        bar.addView(textButton(R.string.image_tool) {
-            val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
-                .addCategory(android.content.Intent.CATEGORY_OPENABLE)
-                .setType("image/*")
-            startActivityForResult(intent, REQ_IMAGE)
+        bar.addView(textButton(R.string.lasso_tool) {
+            ink.lasso = !(ink.tool == InkView.Tool.SELECT && ink.lasso)
+            ink.tool = if (ink.lasso) InkView.Tool.SELECT else InkView.Tool.PEN
+            if (!ink.lasso) ink.clearSelection()
+            updateToolbar()
+            if (ink.lasso) toast(getString(R.string.lasso_hint))
         })
+        bar.addView(textButton(R.string.selection) { showSelectionActions() })
+        bar.addView(textButton(R.string.insert) { editing.showInsertMenu() })
         bar.addView(textButton(R.string.plot_tool) {
             ink.clearSelection()
             ink.tool = if (ink.tool == InkView.Tool.PLOT) InkView.Tool.PEN else InkView.Tool.PLOT
@@ -1119,6 +1125,7 @@ class MainActivity : Activity() {
     @Deprecated("Platform Activity API; this app does not use AndroidX Activity")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (editing.onResult(requestCode, resultCode, data)) return
         val uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
         if (requestCode == REQ_EXPORT_PDF) { exportPdf(uri); return }
@@ -1287,6 +1294,8 @@ class MainActivity : Activity() {
     private var copiedFrom: String? = null
 
     private fun paste() {
+        // Something copied in another app since the last copy in Kahie wins (P1-15).
+        if (editing.pasteFromSystem()) return
         val d = doc ?: return
         val here = pageIds.getOrNull(pageIndex)
         val off = if (here == copiedFrom) 24.0 else 0.0
@@ -1300,26 +1309,33 @@ class MainActivity : Activity() {
         val d = doc ?: return
         if (sel.isEmpty()) {
             val n = clipboardCount().toInt()
-            if (n == 0) { toast(getString(R.string.nothing_selected)); return }
+            val system = editing.systemClipAvailable()
+            if (n == 0 && !system) { toast(getString(R.string.nothing_selected)); return }
+            val label = if (system) getString(R.string.paste) else resources.getQuantityString(R.plurals.paste_items, n, n)
             AlertDialog.Builder(this)
                 .setTitle(R.string.nothing_selected)
-                .setItems(arrayOf(resources.getQuantityString(R.plurals.paste_items, n, n))) { _, _ -> paste() }
+                .setItems(arrayOf(label)) { _, _ -> paste() }
                 .show()
             return
         }
+        val extras = editing.selectionExtras(sel)
         AlertDialog.Builder(this)
             .setTitle(resources.getQuantityString(R.plurals.selected_items, sel.size, sel.size))
             .setItems(arrayOf(
                 getString(R.string.copy), getString(R.string.duplicate), getString(R.string.delete),
                 getString(R.string.bring_to_front), getString(R.string.send_to_back), getString(R.string.deselect),
-            )) { _, which ->
+            ) + extras.map { it.first }) { _, which ->
                 when (which) {
-                    0 -> { d.copyItems(sel); copiedFrom = pageIds.getOrNull(pageIndex); toast(getString(R.string.copied)) }
+                    0 -> {
+                        d.copyItems(sel); editing.copyToSystem(sel)
+                        copiedFrom = pageIds.getOrNull(pageIndex); toast(getString(R.string.copied))
+                    }
                     1 -> ink.select(d.duplicateItems(sel, 24.0, 24.0))
                     2 -> { d.deleteItems(sel); ink.select(emptyList()) }
                     3 -> d.reorderItems(sel, true)
                     4 -> d.reorderItems(sel, false)
-                    else -> ink.clearSelection()
+                    5 -> ink.clearSelection()
+                    else -> extras.getOrNull(which - 6)?.second?.invoke()
                 }
                 ink.refresh()
                 ink.onChanged()
@@ -1331,56 +1347,39 @@ class MainActivity : Activity() {
     private fun editText(x: Float, y: Float, blockId: String?) {
         val d = doc ?: return
         val existing = blockId?.let { id -> d.textBlocks().firstOrNull { it.id == id } }
-        val input = android.widget.EditText(this).apply {
-            setText(existing?.text ?: "")
-            minLines = 3
-            gravity = Gravity.TOP
-            setSelection(text.length)
-        }
-        val builder = AlertDialog.Builder(this)
-            .setTitle(if (existing == null) R.string.add_text else R.string.edit_text)
-            .setView(withCasTools(input))
-            .setNegativeButton(android.R.string.cancel, null)
-        if (casAvailable()) {
-            // Evaluate the last line with the CAS and append "= result" to the text.
-            builder.setNeutralButton(R.string.compute) { _, _ -> }
-        }
-        val dialog = builder
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val text = input.text.toString()
-                if (existing != null) {
-                    d.setText(existing.id, text, ink.measureText(text, existing.width, existing.size).toDouble())
-                } else if (text.isNotBlank()) {
-                    val width = 420f
-                    val size = 20f
-                    d.addText(x.toDouble(), y.toDouble(), width.toDouble(), ink.measureText(text, width, size).toDouble(), text, size.toDouble(), (penColor() and 0xFFFFFF).toUInt())
-                }
-                ink.refresh()
-                ink.onChanged()
-            }
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
-                val line = input.text.toString().trimEnd().lines().lastOrNull()?.trim().orEmpty()
-                if (line.isEmpty()) return@setOnClickListener
-                io.execute {
-                    val result = runCatching { casEval(line).text }
-                    main.post {
-                        result.onSuccess { input.append("\n= $it"); input.setSelection(input.text.length) }
-                            .onFailure { toast(getString(R.string.compute_failed, it.message ?: "")) }
-                    }
+        // Evaluate the last line with the CAS and append "= result" to the text.
+        val compute: ((String, (String) -> Unit) -> Unit)? = if (!casAvailable()) null else { line, append ->
+            io.execute {
+                val result = runCatching { casEval(line).text }
+                main.post {
+                    result.onSuccess { append(it) }
+                        .onFailure { toast(getString(R.string.compute_failed, it.message ?: "")) }
                 }
             }
         }
-        dialog.show()
+        RichText.edit(
+            this, if (existing == null) R.string.add_text else R.string.edit_text,
+            existing?.text ?: "", existing?.spans ?: emptyList(), existing?.size ?: 20f,
+            EditingUi.penPalette, compute, extra = { casOpsRow(it) },
+        ) { text, spans ->
+            if (existing != null) {
+                d.setRichText(existing.id, text, spans, ink.measureRich(text, spans, existing.width, existing.size).toDouble())
+            } else if (text.isNotBlank()) {
+                val width = 420f
+                val size = 20f
+                d.addRichText(x.toDouble(), y.toDouble(), width.toDouble(), ink.measureRich(text, spans, width, size).toDouble(), text, spans, size.toDouble(), (penColor() and 0xFFFFFF).toUInt())
+            }
+            ink.refresh()
+            ink.onChanged()
+        }
     }
 
     /**
-     * The text field plus a row of CAS operations (E2.3) when this build has the CAS: each
+     * A row of CAS operations (E2.3) under the text field, when this build has the CAS: each
      * applies to the last line and appends "= result" (exact unless "≈" is chosen).
      */
-    private fun withCasTools(input: android.widget.EditText): android.view.View {
-        if (!casAvailable()) return input
+    private fun casOpsRow(input: android.widget.EditText): android.view.View? {
+        if (!casAvailable()) return null
         val ops = listOf(
             R.string.cas_solve to uniffi.nb_ffi.CasOp.SOLVE, R.string.cas_factor to uniffi.nb_ffi.CasOp.FACTOR,
             R.string.cas_expand to uniffi.nb_ffi.CasOp.EXPAND, R.string.cas_simplify to uniffi.nb_ffi.CasOp.SIMPLIFY,
@@ -1406,11 +1405,7 @@ class MainActivity : Activity() {
                 }
             })
         }
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(input)
-            addView(android.widget.HorizontalScrollView(this@MainActivity).apply { addView(row) })
-        }
+        return android.widget.HorizontalScrollView(this).apply { addView(row) }
     }
 
     private fun penColor(): Int = ink.penColor
@@ -1701,12 +1696,20 @@ class MainActivity : Activity() {
             val base = sz.substringBefore('-').let { if (it == "letter") "Letter" else it.uppercase() }
             "$base — " + if (sz.endsWith("landscape")) landscape else portrait
         } + (customMm?.let { getString(R.string.paper_custom_current, mm(it[0]), mm(it[1])) } ?: getString(R.string.paper_custom))
-        val checked = if (customMm != null) sizes.size else sizes.indexOf(current).coerceAtLeast(0)
+        val checked = when {
+            current == "infinite" -> sizes.size + 1
+            customMm != null -> sizes.size
+            else -> sizes.indexOf(current).coerceAtLeast(0)
+        }
         AlertDialog.Builder(this)
             .setTitle(R.string.paper_size)
-            .setSingleChoiceItems(names.toTypedArray(), checked) { dlg, which ->
+            .setSingleChoiceItems((names + getString(R.string.paper_infinite)).toTypedArray(), checked) { dlg, which ->
                 dlg.dismiss()
-                if (which == sizes.size) chooseCustomSize(d, customMm) else applyPageSize(d, sizes[which])
+                when (which) {
+                    sizes.size -> chooseCustomSize(d, customMm)
+                    sizes.size + 1 -> applyPageSize(d, "infinite") // P1-06 infinite canvas
+                    else -> applyPageSize(d, sizes[which])
+                }
             }
             .show()
     }
@@ -1870,6 +1873,8 @@ class MainActivity : Activity() {
             }
         }
         styleSelected(shapesBtn, ink.autoShapes)
+        // Pencil and brush (chosen in the tool options) light up the pen button.
+        if (ink.tool == InkView.Tool.PENCIL || ink.tool == InkView.Tool.BRUSH) toolButtons[InkView.Tool.PEN]?.let { styleSelected(it, true) }
         updateHistoryButtons()
     }
 
