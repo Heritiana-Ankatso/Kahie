@@ -92,7 +92,7 @@ How to iterate without the Android SDK here: generate bindings and compile them 
 
 1. (Done: CAS 11.0 MB arm64.) Further CAS savings only if APK size becomes a problem: drop unused Giac modules in `prepare-giac.py`.
 2. Phase 1 in parallel branches (2026-11-21): organisation & search merged (`8b77c90`, `9911acd`). Editing tools (P1-06/10/11/14–19, local branch `p1-editing` in worktree `.claude/worktrees/agent-a9b21831301086d01`) and PDF/UI/quality (P1-20–24, 37–41, 43–46, branch `p1-pdf-ui-quality`) were in progress; cherry-pick their commits (based on `c57d3d7`, same files as `920e87d`). Earlier P1 items that need no device. (Done: P1-05 incl. custom sizes, horizontal scrolling, P1-08 page + notebook templates, P1-34 SVG export, P1-15 copy/paste, P1-16 z-order, P1-28 page versions, P1-27 backup, P1-36 share, E2E encryption of sync.)
-3. E2E follow-ups: encrypted logs are never compacted (they grow); a client-side compaction (an editor uploads a sealed snapshot that replaces the log) would bound them. Horizontal scrolling shows one page at a time (no neighbour preview); refine after device testing.
+3. (Done: client-side compaction of encrypted logs, `KHC1` frames, `Store::compact_upto`.) Horizontal scrolling shows one page at a time (no neighbour preview); refine after device testing.
 4. P0-05 Android tile cache using `nb-render` display lists (needs device fps to justify).
 5. Handwriting recognition (D2 pending P0-06 corpus).
 

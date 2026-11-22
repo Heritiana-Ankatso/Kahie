@@ -137,7 +137,10 @@ fn tokens(src: &str, latex: bool) -> Vec<Tok> {
     // {2} → 2: a group around a single number or letter is just that token.
     let mut k = 0;
     while k + 2 < out.len() {
-        if out[k] == Tok::Open && matches!(out[k + 1], Tok::Num(_) | Tok::Name(_) | Tok::Any) && out[k + 2] == Tok::Close {
+        if out[k] == Tok::Open
+            && matches!(out[k + 1], Tok::Num(_) | Tok::Name(_) | Tok::Any)
+            && out[k + 2] == Tok::Close
+        {
             let keep_group = k > 0 && matches!(&out[k - 1], Tok::Name(n) if is_function(n));
             if !keep_group {
                 out.remove(k + 2);

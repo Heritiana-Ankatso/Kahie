@@ -143,6 +143,26 @@ impl Store {
         Ok(())
     }
 
+    /// Replace the log up to `seq` by `snapshot` (a client-made snapshot covering every update
+    /// ≤ `seq`, e.g. an end-to-end encrypted one the relay cannot make itself). Ignored (false)
+    /// unless `seq` is newer than the current snapshot and not beyond the last update.
+    pub fn compact_upto(&mut self, snapshot: &[u8], seq: i64) -> Result<bool> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let last: i64 = tx.query_row("SELECT COALESCE(MAX(seq), 0) FROM updates", [], |r| r.get(0))?;
+        let prev: i64 = tx.query_row("SELECT COALESCE(MAX(seq), 0) FROM snapshots", [], |r| r.get(0))?;
+        if seq <= prev || seq > last {
+            return Ok(false);
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO snapshots (seq, bytes) VALUES (?1, ?2)",
+            params![seq, snapshot],
+        )?;
+        tx.execute("DELETE FROM snapshots WHERE seq < ?1", params![seq])?;
+        tx.execute("DELETE FROM updates WHERE seq <= ?1", params![seq])?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Latest snapshot and the sequence number it covers (every update ≤ that seq).
     pub fn latest_snapshot(&self) -> Result<Option<(i64, Vec<u8>)>> {
         Ok(self
@@ -212,6 +232,28 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_snapshot_replaces_the_log_up_to_its_seq() {
+        let mut s = Store::open_in_memory().unwrap();
+        for i in 0..5u8 {
+            s.append_update(&[i]).unwrap();
+        }
+        assert!(!s.compact_upto(b"snap", 9).unwrap(), "beyond the last update");
+        assert!(!s.compact_upto(b"snap", 0).unwrap());
+        assert!(s.compact_upto(b"snap3", 3).unwrap());
+        assert_eq!(s.latest_snapshot().unwrap(), Some((3, b"snap3".to_vec())));
+        assert_eq!(
+            s.updates_after(0).unwrap().iter().map(|(q, _)| *q).collect::<Vec<_>>(),
+            [4, 5]
+        );
+        assert!(
+            !s.compact_upto(b"old", 2).unwrap(),
+            "not older than the current snapshot"
+        );
+        assert!(s.compact_upto(b"snap5", 5).unwrap());
+        assert_eq!(s.pending_updates().unwrap(), 0);
+    }
 
     #[test]
     fn append_load_compact() {
