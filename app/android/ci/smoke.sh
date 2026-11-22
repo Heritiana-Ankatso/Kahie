@@ -12,8 +12,10 @@ adb shell am start -W -n app.kahie/.MainActivity
 sleep 6
 # Crash evidence (Java and native), printed last because the job-log API keeps only the end.
 crashlog() {
-  adb logcat -d > "$OUT/logcat.txt" || true
-  grep -nE "FATAL EXCEPTION|E AndroidRuntime|Fatal signal|Abort message|DEBUG +: +#[0-9]+ pc|backtrace:|has died|am_crash|ANR in|kahie" "$OUT/logcat.txt" | grep -vE "ActivityTaskManager: (START|Displayed)" | tail -60 || true
+  adb logcat -d -b all > "$OUT/logcat.txt" || true
+  grep -nE "FATAL EXCEPTION|E AndroidRuntime|Fatal signal|Abort message|DEBUG +: +#[0-9]+ pc|backtrace:|has died|am_crash|am_kill|ANR in|lowmemory|lmkd|Killing|kahie" "$OUT/logcat.txt" | grep -vE "ActivityTaskManager: (START|Displayed)" | tail -50 || true
+  # Why the process ended, as Android recorded it (reason, status, description).
+  adb shell dumpsys activity exit-info app.kahie 2>/dev/null | grep -E "reason=|status=|description=|importance=|pss=|rss=" | head -12 || true
 }
 adb shell pidof app.kahie >/dev/null || { echo "app is not running right after launch"; crashlog; exit 1; }
 adb exec-out screencap -p > "$OUT/before.png"
@@ -33,7 +35,7 @@ python3 app/android/ci/ink_check.py "$OUT/before.png" "$OUT/after.png" "$x0" "$y
 # ---- tools ----
 # On any failure, print what is needed to diagnose it, last (the job-log API returns only the end).
 diag() {
-  adb logcat -d | grep -E "FATAL EXCEPTION|E AndroidRuntime|Fatal signal|DEBUG   : +#[0-9]+ pc|Abort message" | tail -20 || true
+  crashlog
   adb shell pidof app.kahie >/dev/null && echo "app is running" || echo "app is NOT running"
   if adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1; then
     echo "visible: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --labels || true)"
