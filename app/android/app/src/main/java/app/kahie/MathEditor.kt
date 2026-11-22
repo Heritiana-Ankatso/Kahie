@@ -82,6 +82,8 @@ object MathEditor {
             addView(line)
         }
         update()
+        // Typing goes to the LaTeX field, not to the palettes.
+        input.post { input.requestFocus() }
         return LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)

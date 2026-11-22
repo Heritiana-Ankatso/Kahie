@@ -291,6 +291,8 @@ object RichText {
         if (compute != null) builder.setNeutralButton(R.string.compute) { _, _ -> }
         val dialog = builder.create()
         dialog.setOnShowListener {
+            // The formatting bar comes first; typing must still go to the text.
+            input.requestFocus()
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
                 val line = input.text.toString().trimEnd().lines().lastOrNull()?.trim().orEmpty()
                 if (line.isNotEmpty()) compute?.invoke(line) { result -> input.append("\n= $result"); input.setSelection(input.text.length) }
