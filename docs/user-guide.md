@@ -13,7 +13,7 @@ Kahie is a notebook for stylus, finger and keyboard. Everything is saved on the 
 | Compute | In the text dialog, *Compute* evaluates the last line (e.g. `factor(x^2-5*x+6)`, `solve(x^2=2,x)`). The buttons under the text apply an operation to the last line without typing the command: *Solve* (`x^2 = 2`, or an expression = 0), *Factor*, *Expand*, *Simplify*, *d/dx*, *∫ dx*, *≈* (decimal value). Results are exact unless you choose ≈. In builds that include the maths engine |
 | Undo / redo | Arrows in the toolbar, or tap with two fingers (undo) / three fingers (redo) |
 | Select | *Select*, drag a rectangle; drag the selection to move it; *Selection* → duplicate, delete |
-| Maths | *Maths*, tap the page and type LaTeX (e.g. `\frac{a}{b}`); tap a formula to edit it |
+| Maths | *Maths*, tap the page and type LaTeX (e.g. `\frac{a}{b}`), or use the buttons under the field (fraction, root, power, index, integral, sum, limit, vector, cases, matrix, symbols and Greek letters): the cursor lands in the first empty slot. The formula is previewed as you type. Tap a formula to edit it |
 | Navigate | With a stylus, fingers scroll and zoom (two fingers to zoom); *Fit* shows the whole page |
 
 ## Pages and notebooks

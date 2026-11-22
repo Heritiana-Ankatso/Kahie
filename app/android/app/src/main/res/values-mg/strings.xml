@@ -212,4 +212,5 @@
     <string name="cas_derivative">d/dx</string>
     <string name="cas_antiderivative">∫ dx</string>
     <string name="cas_numeric">≈</string>
+    <string name="math_preview">Topimaso ny raikipohy</string>
 </resources>

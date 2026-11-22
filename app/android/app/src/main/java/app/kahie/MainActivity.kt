@@ -1175,9 +1175,10 @@ class MainActivity : Activity() {
             hint = "\\frac{a}{b} + \\sqrt{x}"
             setSelection(text.length)
         }
+        val previewColor = ((existing?.color ?: (ink.penColor and 0xFFFFFF).toUInt()).toInt() and 0xFFFFFF) or (0xFF shl 24)
         AlertDialog.Builder(this)
             .setTitle(if (existing == null) R.string.add_math else R.string.edit_math)
-            .setView(input)
+            .setView(MathEditor.view(this, input, renderer, existing?.size ?: 24f, previewColor))
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val latex = input.text.toString().trim()
