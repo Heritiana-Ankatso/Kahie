@@ -1,0 +1,18 @@
+[package]
+name = "nb-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Performance budgets of the core measured on the desktop, with regression check (P1-43)."
+
+[dependencies]
+nb-ink = { path = "../nb-ink" }
+nb-recog = { path = "../nb-recog" }
+nb-render = { path = "../nb-render" }
+nb-pdf = { path = "../nb-pdf" }
+nb-ffi = { path = "../nb-ffi" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,50 @@
+{
+  "calibration_ms": 3.979334,
+  "metrics": {
+    "commit_stroke_durable": {
+      "budget_ms": 1000.0,
+      "median_ms": 0.264308,
+      "normalised": 0.06435016336607147,
+      "what": "pen-up of a 200-point stroke until it is written to the page database"
+    },
+    "open_page_2000_strokes": {
+      "budget_ms": 400.0,
+      "median_ms": 12.834043,
+      "normalised": 3.2251736094532397,
+      "what": "open a stored page with 2 000 strokes and build the geometry of every stroke"
+    },
+    "pdf_300_pages_first_page": {
+      "budget_ms": 2000.0,
+      "median_ms": 0.919799,
+      "normalised": 0.2311439552447721,
+      "what": "parse a 300-page PDF, size its first page and read its text layer"
+    },
+    "pdf_first_page_shown": {
+      "budget_ms": 2000.0,
+      "median_ms": 9.407829,
+      "normalised": 2.3641717433118203,
+      "what": "300-page PDF: import its first page (the app shows it, then imports the rest)"
+    },
+    "pdf_import_300_pages": {
+      "budget_ms": 60000.0,
+      "median_ms": 1195.024076,
+      "normalised": 290.94841819766566,
+      "what": "import a 300-page PDF into a notebook (store once, 300 pages, text layers)"
+    },
+    "shape_recognition": {
+      "budget_ms": 50.0,
+      "median_ms": 0.022166,
+      "normalised": 0.005396680089790474,
+      "what": "recognise a hand-drawn circle (300 points) on pen-up"
+    },
+    "tile_50k_strokes_p95": {
+      "budget_ms": 18.0,
+      "median_ms": 2.39973,
+      "normalised": 0.6030481482579748,
+      "what": "p95 time of one 512 px tile display list, geometry cached, 50 000-stroke canvas (zooms 4 … 0.05)"
+    }
+  },
+  "note": "normalised = median_ms / calibration_ms; regenerate with --write-baseline on the CI runner type",
+  "reps": 21,
+  "runner": "dev-container"
+}

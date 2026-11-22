@@ -41,6 +41,10 @@
 
 - Benchmarks for every budget in [overview §6](../architecture/overview.md#6-performance-budgets) (criterion for Rust; macrobenchmark for Android).
 - CI fails on > 10 % regression versus `main` baseline; nightly runs on physical reference devices.
+- **Implemented (P1-43):** `core/crates/nb-bench` (`cargo run --release -p nb-bench -- --check`), CI job `bench`. Desktop-measurable budgets: open a 2 000-stroke page (≤ 400 ms), cached tile p95 on a 50 000-stroke canvas (≤ 18 ms), durable stroke commit (≤ 1 s), shape recognition (≤ 50 ms), 300-page PDF parse + first page text and first page imported (≤ 2 s); full 300-page import tracked for regressions. Not measurable here: wet-ink latency, cold start, fps on device, HWR (not built), constraint solving (not built), search (other work stream), APK size (android job).
+- Noise handling: medians of 5–21 repetitions, 3 interleaved rounds (best kept), values normalised by a calibration workload of the same round, failing metrics re-measured twice. Metrics dominated by disk flushes or tail percentiles (`commit_stroke_durable`, `tile_50k_strokes_p95`, PDF imports) use a 35 % band: identical runs vary by up to ±30 % on a shared machine.
+- The baseline (`nb-bench/baseline.json`) is compared only when it was recorded on the same runner type (`KAHIE_BENCH_RUNNER`; CI sets `github-ubuntu-latest`). To (re)arm the check after an intended change or a runner change: take the `bench` artifact of a green CI run on `main` and commit its `bench.json` as `baseline.json`. Until then CI checks the absolute budgets only.
+- Golden images (P1-44): `core/crates/nb-render/tests/golden.rs` rasterises display lists (tiny-skia) and compares PNG + SVG goldens; `UPDATE_GOLDEN=1` regenerates them; failures upload actual and diff images (`golden-failures` artifact). Device screenshot goldens need the device lab (P0-15).
 
 ## 6. Rust ↔ Kotlin FFI guidelines
 

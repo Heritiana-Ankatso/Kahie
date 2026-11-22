@@ -153,14 +153,19 @@ fn decode_words(json: &str) -> Vec<PdfWord> {
 /// assets, and one page per PDF page is inserted after `after_page_id` (at the end when
 /// `None`), each sized like its PDF page, blank paper, showing the PDF page under its
 /// content and carrying its text layer. `sizes` are the page sizes from the platform
-/// renderer (authoritative for drawing); when empty, they are read from the PDF. Returns the
-/// new page ids in order.
+/// renderer (authoritative for drawing) of the PDF pages `first_index`, `first_index + 1`…;
+/// when empty, every page from `first_index` on is imported with sizes read from the PDF.
+/// Returns the new page ids in order.
+///
+/// To show a long PDF quickly (P1-21: first page of 300 within 2 s), the app imports page 0
+/// alone, opens it, then imports the rest after it with `first_index = 1`.
 #[uniffi::export]
 pub fn pdf_import(
     notebook: Arc<NotebookDoc>,
     after_page_id: Option<String>,
     pdf_path: String,
     sizes: Vec<PdfPageSize>,
+    first_index: u32,
 ) -> Result<Vec<String>, CoreError> {
     let bytes = std::fs::read(&pdf_path).map_err(io)?;
     let hash = sha256_hex(&bytes);
@@ -171,7 +176,7 @@ pub fn pdf_import(
         let pdf = parsed
             .as_ref()
             .map_err(|e| CoreError::Format { detail: e.to_string() })?;
-        (0..pdf.page_count())
+        (first_index as usize..pdf.page_count())
             .filter_map(|i| pdf.page_info(i))
             .map(|p| PdfPageSize {
                 width_pt: p.width_pt,
@@ -189,7 +194,8 @@ pub fn pdf_import(
     }
     let mut ids = Vec::with_capacity(sizes.len());
     let mut anchor = after_page_id;
-    for (i, size) in sizes.iter().enumerate() {
+    for (k, size) in sizes.iter().enumerate() {
+        let i = first_index as usize + k;
         let id = notebook.add_page(anchor.clone());
         let page = PageDoc::open(notebook.page_path(id.clone()))?;
         {
@@ -334,6 +340,7 @@ mod tests {
             Some(first.clone()),
             pdf_path.to_string_lossy().into(),
             vec![],
+            0,
         )
         .unwrap();
         assert_eq!(ids.len(), 3);
@@ -365,7 +372,7 @@ mod tests {
         assert_eq!(pdf_file(dir, "00".repeat(32)), None);
 
         // Importing the same PDF again reuses the stored asset.
-        pdf_import(nb.clone(), None, pdf_path.to_string_lossy().into(), vec![]).unwrap();
+        pdf_import(nb.clone(), None, pdf_path.to_string_lossy().into(), vec![], 0).unwrap();
         assert_eq!(notebook_assets(&base.join("nb")).len(), 1);
         assert_eq!(nb.page_ids().len(), 7);
         std::fs::remove_dir_all(base).unwrap();
@@ -378,7 +385,7 @@ mod tests {
         std::fs::write(&pdf_path, generate(&Spec::simple("kahie", 2))).unwrap();
         let src_dir = base.join("nb");
         let nb = NotebookDoc::open(src_dir.to_string_lossy().into(), "T".into()).unwrap();
-        let ids = pdf_import(nb.clone(), None, pdf_path.to_string_lossy().into(), vec![]).unwrap();
+        let ids = pdf_import(nb.clone(), None, pdf_path.to_string_lossy().into(), vec![], 0).unwrap();
         let hash = PageDoc::open(nb.page_path(ids[0].clone()))
             .unwrap()
             .pdf_source()
@@ -424,14 +431,14 @@ mod tests {
         let nb = NotebookDoc::open(base.join("nb").to_string_lossy().into(), "T".into()).unwrap();
         let path: String = pdf_path.to_string_lossy().into();
         assert!(
-            pdf_import(nb.clone(), None, path.clone(), vec![]).is_err(),
+            pdf_import(nb.clone(), None, path.clone(), vec![], 0).is_err(),
             "no sizes, unreadable"
         );
         let sizes = vec![PdfPageSize {
             width_pt: 842.0,
             height_pt: 595.0,
         }];
-        let ids = pdf_import(nb.clone(), None, path, sizes).unwrap();
+        let ids = pdf_import(nb.clone(), None, path, sizes, 0).unwrap();
         let page = PageDoc::open(nb.page_path(ids[0].clone())).unwrap();
         assert_eq!(page.page_size(), "a4-landscape");
         assert!(page.pdf_words().is_empty() && page.pdf_text().is_empty());
@@ -449,10 +456,31 @@ mod tests {
         std::fs::write(&pdf_path, generate(&Spec::simple("big", 300))).unwrap();
         let nb = NotebookDoc::open(base.join("nb").to_string_lossy().into(), "T".into()).unwrap();
         let t = std::time::Instant::now();
-        let ids = pdf_import(nb.clone(), None, pdf_path.to_string_lossy().into(), vec![]).unwrap();
+        let ids = pdf_import(nb.clone(), None, pdf_path.to_string_lossy().into(), vec![], 0).unwrap();
         let secs = t.elapsed().as_secs_f64();
         assert_eq!(ids.len(), 300);
         assert!(secs < 60.0, "{secs} s");
+
+        // Two-step import: the first page alone, then the rest after it.
+        let nb2 = NotebookDoc::open(base.join("nb2").to_string_lossy().into(), "T".into()).unwrap();
+        let path: String = pdf_path.to_string_lossy().into();
+        let first = pdf_import(
+            nb2.clone(),
+            None,
+            path.clone(),
+            vec![PdfPageSize {
+                width_pt: 595.0,
+                height_pt: 842.0,
+            }],
+            0,
+        )
+        .unwrap();
+        let rest = pdf_import(nb2.clone(), Some(first[0].clone()), path, vec![], 1).unwrap();
+        assert_eq!(rest.len(), 299);
+        let last = PageDoc::open(nb2.page_path(rest[298].clone())).unwrap();
+        assert_eq!(last.pdf_source().unwrap().page_index, 299);
+        assert!(last.pdf_text().contains("page 300"));
+        assert_eq!(nb2.page_ids()[1], first[0]);
         std::fs::remove_dir_all(base).unwrap();
     }
 }

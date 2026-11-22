@@ -1025,13 +1025,21 @@ class MainActivity : Activity() {
                 contentResolver.openInputStream(uri)!!.use { inp -> tmp.outputStream().use { inp.copyTo(it) } }
                 // Page sizes as Android's renderer sees them (it draws the pages).
                 val sizes = PdfPages.pageSizes(tmp.path).map { (w, h) -> PdfPageSize(w.toDouble(), h.toDouble()) }
-                pdfImport(nb, after, tmp.path, sizes).firstOrNull()
+                // First page alone, shown at once (P1-21: ≤ 2 s even for 300 pages)…
+                val first = pdfImport(nb, after, tmp.path, sizes.take(1), 0u).firstOrNull()
+                main.post {
+                    pageIds = notebook.pageIds()
+                    first?.let { goToPage(pageIds.indexOf(it)) }
+                }
+                // …then the other pages after it, while the user can already write.
+                if (first != null && sizes.size > 1) pdfImport(nb, first, tmp.path, sizes.drop(1), 1u)
+                first
             }
             tmp.delete()
             main.post {
-                result.onSuccess { first ->
+                result.onSuccess {
                     pageIds = notebook.pageIds()
-                    first?.let { goToPage(pageIds.indexOf(it)) }
+                    if (pageIndex >= 0) pageLabel.text = getString(R.string.page_count, pageIndex + 1, pageIds.size)
                     toast(getString(R.string.imported))
                     coach.event(Coach.Event.PDF_IMPORTED)
                     onDone()

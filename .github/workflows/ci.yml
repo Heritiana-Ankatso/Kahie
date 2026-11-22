@@ -47,6 +47,28 @@ jobs:
           path: core/target/golden-failures/
           if-no-files-found: ignore
 
+  # P1-43: performance budgets measurable on the desktop, and > 10 % regressions against
+  # core/crates/nb-bench/baseline.json (compared only when that baseline was recorded on this
+  # runner type: download the bench.json artifact and commit it as baseline.json to enable).
+  bench:
+    runs-on: ubuntu-latest
+    env:
+      KAHIE_BENCH_RUNNER: github-ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Benchmarks
+        run: cargo run --release --locked -p nb-bench -- --check --json bench.json
+      - name: Upload results (candidate baseline)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: core/bench.json
+          if-no-files-found: ignore
+
   deny:
     runs-on: ubuntu-latest
     steps:
