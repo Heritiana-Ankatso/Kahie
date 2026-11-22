@@ -20,12 +20,23 @@ Revisit when the minimum SDK reaches 35 (platform text APIs) or if `PdfRenderer`
 
 - The original PDF is kept **once per notebook**: bytes in the notebook's asset store `assets.kpage` (a page database with only an `assets` map: saved, synced with the relay under the id `assets`, exported), plus a plain copy `pdf/<sha256>.pdf` for `PdfRenderer` (rebuilt from the store on demand, e.g. on a device that received the notebook by sync).
 - Each notebook page that shows a PDF page stores `pdf_source` (`asset` = SHA-256, `page_index`) and its text layer in its own CRDT (`meta.pdf_asset`, `meta.pdf_page`, `meta.pdf_text`). `document.json` has the optional `pdf` field; `.kahie` files carry the PDF once as `assets/<sha256>`.
+- Import runs in two steps (first page, then the rest) so a long PDF opens at once.
 - Pages are sized like the PDF page (A4/A5/Letter when within 2 mm, else a custom size, scaled into 50–1000 mm when needed); the PDF page is fitted and centred.
 - Pages imported before this change (raster background per page) keep working unchanged.
 
 ## Rendering on demand (P1-21)
 
 `PdfPages.kt` renders on a background thread: a whole-page bitmap at the zoom in use (bucketed by powers of √2, at most 2048 px on the long side), and, when zoomed in further, a **detail tile** of the visible region only, at screen resolution. Bitmaps live in an LRU cache (1/8 of the heap). Until a render is ready the previous resolution (or a light placeholder) is drawn. Exports render each page synchronously at 2×.
+
+## Measurements (desktop, release build, `nb-bench`)
+
+| Step | Time |
+|---|---|
+| Parse a generated 300-page PDF, size and text of its first page | ~0.9 ms |
+| Import its first page into a notebook (store the PDF once, create the page with its text layer) | ~10 ms |
+| Import all 300 pages | ~1.2 s (done in the background after the first page is shown) |
+
+The app imports page 1 alone, opens it, then imports the other pages after it, so the first page of a long PDF is writable almost at once; its rendering time on a device (budget 250 ms per A4 page) needs P0-15.
 
 ## Text layer (P1-23)
 
