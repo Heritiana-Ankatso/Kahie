@@ -10,10 +10,12 @@ adb install -r "$APK"
 adb logcat -c
 adb shell am start -W -n app.kahie/.MainActivity
 sleep 6
+# Step trail, printed again at the end of a failure.
+step() { echo "step: $*" | tee -a "$OUT/steps.txt"; }
 # Crash evidence (Java and native), printed last because the job-log API keeps only the end.
 crashlog() {
   adb logcat -d -b all > "$OUT/logcat.txt" || true
-  grep -nE "FATAL EXCEPTION|E AndroidRuntime|Fatal signal|Abort message|DEBUG +: +#[0-9]+ pc|backtrace:|has died|am_crash|am_kill|ANR in|lowmemory|lmkd|Killing|kahie" "$OUT/logcat.txt" | grep -vE "ActivityTaskManager: (START|Displayed)" | tail -50 || true
+  grep -nE "FATAL EXCEPTION|E AndroidRuntime|Fatal signal|Abort message|DEBUG +: +#[0-9]+ pc|backtrace:|has died|am_crash|am_kill|ANR in|lowmemory|lmkd|Killing|kahie" "$OUT/logcat.txt" | grep -vE "ActivityTaskManager: (START|Displayed)|AccessibilityNodeInfoDumper|AppsFilter|AccessibilityNodeInfo" | tail -30 || true
   # Why the process ended, as Android recorded it (reason, status, description).
   adb shell dumpsys activity exit-info app.kahie 2>/dev/null | grep -E "reason=|status=|description=|importance=|pss=|rss=" | head -12 || true
 }
@@ -36,6 +38,7 @@ python3 app/android/ci/ink_check.py "$OUT/before.png" "$OUT/after.png" "$x0" "$y
 # On any failure, print what is needed to diagnose it, last (the job-log API returns only the end).
 diag() {
   crashlog
+  echo "--- steps so far:"; cat "$OUT/steps.txt" 2>/dev/null || true
   adb shell pidof app.kahie >/dev/null && echo "app is running" || echo "app is NOT running"
   if adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1; then
     echo "visible: $(python3 app/android/ci/ui.py "$OUT/ui.xml" --labels || true)"
@@ -93,26 +96,28 @@ dump
 BAR_Y=$(python3 app/android/ci/ui.py "$OUT/ui.xml" "Pen" | cut -d' ' -f2) || { echo "toolbar (Pen) not found"; false; }
 
 # Text, and the CAS on its last line (the Compute button exists only in builds with the CAS).
-tool "Text"; adb shell input tap $((W / 2)) $((H / 4)); sleep 2
+step text; tool "Text"; adb shell input tap $((W / 2)) $((H / 4)); sleep 2
 # No brackets: adb's text input reorders them on some images.
 adb shell "input text '2^100'"
+step "typed 2^100"
 if press "Compute"; then
+  step "compute pressed"
   sleep 5; dump
   cas=$(python3 app/android/ci/ui.py "$OUT/ui.xml" --edit | tr '\n' ' ') || { echo "no text field after Compute (dialog gone: crash?)"; false; }
-  echo "CAS: $cas" | tee "$OUT/cas.txt"
+  echo "CAS: $cas" | tee "$OUT/cas.txt"; step "cas read: $cas"
   [[ $cas == *1267650600228229401496703205376* ]] || { echo "CAS gave a wrong answer"; exit 1; }
 else
-  echo "CAS: not in this build" | tee "$OUT/cas.txt"
+  echo "CAS: not in this build" | tee "$OUT/cas.txt"; step "compute button not found"
 fi
-shot text-dialog 0; press "OK"; shot text
+shot text-dialog 0; step "text dialog OK"; press "OK"; shot text
 
-tool "Maths"; adb shell input tap $((W / 2)) $((H * 7 / 10)); sleep 2
+step maths; tool "Maths"; adb shell input tap $((W / 2)) $((H * 7 / 10)); sleep 2
 adb shell "input text 'x^2+1'"; press "OK"; shot maths 5
 
-tool "Plot"; adb shell input tap $((W / 4)) $((H * 4 / 5)); sleep 2
+step plot; tool "Plot"; adb shell input tap $((W / 4)) $((H * 4 / 5)); sleep 2
 press "OK"; shot plot 3
 
-tool "Pages"; shot pages; adb shell input keyevent 4; sleep 1
+step pages; tool "Pages"; shot pages; adb shell input keyevent 4; sleep 1
 
 adb logcat -d > "$OUT/logcat.txt"
 if grep -E "FATAL EXCEPTION|AndroidRuntime: .*Exception" "$OUT/logcat.txt"; then
