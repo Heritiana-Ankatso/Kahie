@@ -436,6 +436,11 @@ fn custom_page_sizes() {
     let (w, h) = page_dims("210x297mm");
     assert!((w - 794.0).abs() <= 1.0 && (h - 1123.0).abs() <= 1.0, "{w}x{h}");
     assert!(valid_size("a4") && valid_size("100x100mm") && !valid_size("1x1mm"));
+    // A3 (297 × 420 mm) matches its custom-size equivalent, in both orientations.
+    let (w, h) = page_dims("297x420mm");
+    assert_eq!(page_dims("a3"), (w, h));
+    assert_eq!(page_dims("a3-landscape"), (h, w));
+    assert!(valid_size("a3") && valid_size("a3-landscape"));
 
     let mut p = CrdtPage::new("p", 1);
     p.set_size("250x120mm");

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Malagasy draft (no native-speaker review yet). -->
+<resources>
+    <string name="search">Hikaroka</string>
+    <string name="lib_up">Hiakatra</string>
+    <string name="lib_back">Hiverina</string>
+    <string name="lib_new_folder">Lahatahiry vaovao</string>
+    <string name="lib_grid">Takelaka</string>
+    <string name="lib_list">Lisitra</string>
+    <string name="lib_folder">Lahatahiry</string>
+    <string name="lib_folder_empty">Mbola tsy misy na inona na inona eto. Mamorona kahie na lahatahiry.</string>
+    <string name="lib_open_now">Misokatra</string>
+    <string name="lib_move_to_folder">Afindra ao anaty lahatahiry</string>
+    <string name="lib_delete">Fafana</string>
+    <string name="lib_moved_to_trash">Nafindra tany amin\'ny fako</string>
+    <string name="lib_cannot_move">Tsy afaka miditra ao anatiny ny lahatahiry iray.</string>
+    <string name="lib_restore">Averina</string>
+    <string name="lib_trash_note">Mijanona eto mandritra ny 30 andro ny kahie sy lahatahiry voafafa, avy eo voafafa tanteraka.</string>
+    <string name="lib_empty_trash_confirm">Hofafana tanteraka ve ny kahie sy lahatahiry rehetra ao amin\'ny fako? Tsy azo averina izany.</string>
+    <plurals name="lib_items">
+        <item quantity="one">%d zavatra</item>
+        <item quantity="other">%d zavatra</item>
+    </plurals>
+    <plurals name="lib_days_left">
+        <item quantity="one">Ho voafafa tanteraka afaka %d andro</item>
+        <item quantity="other">Ho voafafa tanteraka afaka %d andro</item>
+    </plurals>
+    <string name="pages_drag_hint">Tsindrio ela ny pejy na fizarana iray, ary tariho mba hamindrana azy.</string>
+    <string name="pages_cannot_move">Tsy afaka miditra ao anatiny ny fizarana iray.</string>
+    <string name="search_hint">Lohateny, soratra, matematika, fiolahana…</string>
+    <string name="search_all">Kahie rehetra</string>
+    <string name="search_this_notebook">Ity kahie ity</string>
+    <plurals name="search_results">
+        <item quantity="one">Valiny %d</item>
+        <item quantity="other">Valiny %d</item>
+    </plurals>
+    <string name="search_kind_notebook">Kahie</string>
+    <string name="search_kind_section">Fizarana</string>
+    <string name="search_kind_page">Lohatenin\'ny pejy</string>
+    <string name="search_kind_text">Soratra</string>
+    <string name="search_kind_math">Matematika</string>
+    <string name="search_kind_plot">Fiolahana</string>
+    <string name="pdf_all_pages">Pejy rehetra (%1$d)</string>
+    <string name="pdf_current_page">Ity pejy ity (%1$d)</string>
+    <string name="pdf_page_range">Pejy… (oh. 1-3, 5)</string>
+    <string name="pdf_bad_range">Tsy mety ny pejy (pejy 1 ka hatramin\'ny %1$d), oh. 1-3, 5</string>
+    <string name="backup_restore">Averina</string>
+    <string name="backup_none">Tsy misy tahiry ao amin\'ny lahatahiry fitahirizana.</string>
+    <string name="backup_restore_confirm">Haverina ho kahie vaovao ve ny “%1$s”? Tsy miova ny kahie anananao ankehitriny.</string>
+</resources>

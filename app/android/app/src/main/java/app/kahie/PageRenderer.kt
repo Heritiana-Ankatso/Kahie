@@ -126,27 +126,51 @@ object PageRenderer {
         canvas.clipRect(l, t, r, b)
         canvas.drawColor(Color.WHITE)
         var gx = kotlin.math.ceil(p.x0 / p.xStep) * p.xStep
+        if (!p.axes) gx = Double.MAX_VALUE // "axes off": no grid, axes or tick labels
         while (gx <= p.x1) { canvas.drawLine(px(gx), t, px(gx), b, grid); gx += p.xStep }
         var gy = kotlin.math.ceil(p.y0 / p.yStep) * p.yStep
+        if (!p.axes) gy = Double.MAX_VALUE
         while (gy <= p.y1) { canvas.drawLine(l, py(gy), r, py(gy), grid); gy += p.yStep }
-        val ax = if (0.0 in p.x0..p.x1) px(0.0) else null
-        val ay = if (0.0 in p.y0..p.y1) py(0.0) else null
+        val ax = if (p.axes && 0.0 in p.x0..p.x1) px(0.0) else null
+        val ay = if (p.axes && 0.0 in p.y0..p.y1) py(0.0) else null
         ay?.let { canvas.drawLine(l, it, r, it, axis) }
         ax?.let { canvas.drawLine(it, t, it, b, axis) }
         fun fmt(v: Double) = if (kotlin.math.abs(v - Math.rint(v)) < 1e-9) Math.rint(v).toLong().toString() else "%.2f".format(v).trimEnd('0').trimEnd('.')
         val labelY = (ay ?: b) - 3f
-        gx = kotlin.math.ceil(p.x0 / p.xStep) * p.xStep
+        gx = if (p.axes) kotlin.math.ceil(p.x0 / p.xStep) * p.xStep else Double.MAX_VALUE
         while (gx <= p.x1) { if (kotlin.math.abs(gx) > 1e-12) canvas.drawText(fmt(gx), px(gx) + 2f, labelY, label); gx += p.xStep }
         val labelX = (ax ?: l) + 3f
-        gy = kotlin.math.ceil(p.y0 / p.yStep) * p.yStep
+        gy = if (p.axes) kotlin.math.ceil(p.y0 / p.yStep) * p.yStep else Double.MAX_VALUE
         while (gy <= p.y1) { if (kotlin.math.abs(gy) > 1e-12) canvas.drawText(fmt(gy), labelX, py(gy) - 2f, label); gy += p.yStep }
+        // Shaded areas first (under the curves), with their value.
+        val shadeFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0x332F5BD3 }
+        val valueText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1D1D1F.toInt(); textSize = 12f; textAlign = Paint.Align.CENTER }
+        for (sh in p.shades) {
+            val pts = sh.points
+            if (pts.size < 6) continue
+            val path = Path()
+            path.moveTo(pts[0], pts[1])
+            var k = 2
+            while (k + 1 < pts.size) { path.lineTo(pts[k], pts[k + 1]); k += 2 }
+            path.close()
+            canvas.drawPath(path, shadeFill)
+            canvas.drawText(sh.label, sh.labelX, sh.labelY, valueText)
+        }
         p.curves.forEachIndexed { i, segments ->
+            val dashed = p.dashed.getOrElse(i) { false }
             val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                color = curveColors[i % curveColors.size]
-                strokeWidth = 2f
+                val custom = p.colors.getOrElse(i) { 0u }.toInt()
+                val width = p.widths.getOrElse(i) { 0f }
+                color = when {
+                    custom != 0 -> custom
+                    dashed -> 0xFF6B6F78.toInt()
+                    else -> curveColors[i % curveColors.size]
+                }
+                strokeWidth = if (width > 0f) width else if (dashed) 1.3f else 2f
                 strokeJoin = Paint.Join.ROUND
                 strokeCap = Paint.Cap.ROUND
+                if (dashed) pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f, 4f), 0f)
             }
             for (seg in segments) {
                 if (seg.size < 4) continue
@@ -157,8 +181,36 @@ object PageRenderer {
                 canvas.drawPath(path, paint)
             }
         }
+        // Analysis markers (roots, extrema, …) with their coordinates.
+        val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        val markText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1D1D1F.toInt(); textSize = 10.5f }
+        for (m in p.markers) {
+            if (m.kind == "free") {
+                // Draggable point: a larger ring, so it reads as a handle.
+                dot.color = markerColor(m.kind)
+                canvas.drawCircle(m.x, m.y, 4.5f, dot)
+                dot.color = Color.WHITE
+                canvas.drawCircle(m.x, m.y, 2.2f, dot)
+            } else if (m.kind != "label") {
+                dot.color = markerColor(m.kind)
+                canvas.drawCircle(m.x, m.y, 3f, dot)
+            }
+            // Keep labels inside the box.
+            val w = markText.measureText(m.label)
+            val tx = (m.x + 5f).coerceAtMost(r - w - 2f).coerceAtLeast(l + 2f)
+            val ty = (m.y - 5f).coerceAtLeast(t + 12f)
+            canvas.drawText(m.label, tx, ty, markText)
+        }
         canvas.restore()
         canvas.drawRect(l, t, r, b, frame)
+    }
+
+    fun markerColor(kind: String): Int = when (kind) {
+        "root" -> 0xFF1D1D1F.toInt()
+        "max", "min" -> 0xFFD0453A.toInt()
+        "inflection" -> 0xFF8E44AD.toInt()
+        "intersection" -> 0xFF2E9E5B.toInt()
+        else -> 0xFF2F5BD3.toInt()
     }
 
     /** Decoded images by hash (shared by screen and export; images are immutable). */

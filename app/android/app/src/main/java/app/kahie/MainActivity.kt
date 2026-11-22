@@ -18,6 +18,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import uniffi.nb_ffi.CoreException
+import uniffi.nb_ffi.LibraryDoc
+import uniffi.nb_ffi.SearchIndex
+import uniffi.nb_ffi.parsePageRange
 import uniffi.nb_ffi.NotebookDoc
 import uniffi.nb_ffi.OutlineKind
 import uniffi.nb_ffi.SyncListener
@@ -76,6 +79,8 @@ class MainActivity : Activity() {
         const val REQ_IMPORT_PDF = 46
         const val REQ_BACKUP_DIR = 47
         const val REQ_EXPORT_SVG = 48
+        const val REQ_EXPORT_MD = 49
+        const val REQ_EXPORT_TEX = 50
         const val BACKUP_EVERY_MS = 24 * 3600 * 1000L
     }
 
@@ -192,6 +197,7 @@ class MainActivity : Activity() {
         bar.addView(textButton(R.string.paper) { cycleTemplate() })
         bar.addView(textButton(R.string.notebooks) { showNotebooks() })
         bar.addView(textButton(R.string.pages) { showPages() })
+        bar.addView(textButton(R.string.search) { showSearch() })
         bar.addView(iconButton(R.drawable.ic_fit, R.string.fit) { ink.fit() })
         bar.addView(iconButton(R.drawable.ic_trash, R.string.clear) { confirmClear() })
         bar.addView(divider())
@@ -240,9 +246,9 @@ class MainActivity : Activity() {
         // Before several notebooks existed, the only notebook lived in `notebook/`.
         val legacy = File(filesDir, "notebook")
         if (legacy.isDirectory && notebooksRoot.list().isNullOrEmpty()) legacy.renameTo(File(notebooksRoot, "nb-0001"))
-        val dirs = notebookDirs()
-        val current = prefs.getString("notebook", null)?.let { File(notebooksRoot, it) }?.takeIf { it.isDirectory }
-            ?: dirs.firstOrNull() ?: File(notebooksRoot, "nb-0001")
+        purgeOldTrash()
+        val current = prefs.getString("notebook", null)?.takeIf { library.isVisible(it) }?.let { File(notebooksRoot, it) }
+            ?: libraryFirst() ?: File(notebooksRoot, nextNotebookName())
         openNotebook(current, prefs.getString("pageId", null))
         updateToolbar()
         if (savedInstanceState == null) handleIncoming(intent)
@@ -270,7 +276,8 @@ class MainActivity : Activity() {
 
     private var notebookDir: File? = null
 
-    private fun openNotebook(dir: File, pageId: String? = null) {
+    /** `folder`: library folder a new notebook is filed in (P1-01). */
+    private fun openNotebook(dir: File, pageId: String? = null, folder: String? = null) {
         if (::notebook.isInitialized) {
             main.removeCallbacks(saveRunnable)
             saveNow()
@@ -285,6 +292,7 @@ class MainActivity : Activity() {
         }
         prefs.edit().putString("notebook", dir.name).apply()
         notebookDir = dir
+        noteOpened(dir, folder)
         // A notebook joined with a viewer's code is read-only: pan and zoom only.
         ink.readOnly = share()?.readOnly == true
         if (ink.readOnly) toast(getString(R.string.sync_read_only_notebook))
@@ -294,30 +302,87 @@ class MainActivity : Activity() {
         goToPage(pageIds.indexOf(pageId).takeIf { it >= 0 } ?: 0)
     }
 
-    /** All notebooks: tap to open, or create a new one. */
-    private fun showNotebooks() {
-        val dirs = notebookDirs()
-        val titles = dirs.map { d ->
-            val t = if (d.name == prefs.getString("notebook", null)) notebook.title()
-            else runCatching { NotebookDoc.open(d.path, "").title() }.getOrDefault(d.name)
-            t.ifEmpty { getString(R.string.untitled) }
+    // ---------- library, trash, search (P1-01, P1-02, P1-04, P1-32) ----------
+
+    /** Folders and notebooks of `notebooks/` (`library.db`). */
+    private val library by lazy {
+        // An unreadable library only loses the folders: set it aside and start a new one.
+        runCatching { LibraryDoc.open(notebooksRoot.path) }.getOrElse {
+            File(notebooksRoot, "library.db").renameTo(File(notebooksRoot, "library.db.broken-${System.currentTimeMillis()}"))
+            LibraryDoc.open(notebooksRoot.path)
         }
-        val current = dirs.indexOfFirst { it.name == prefs.getString("notebook", null) }
-        val labels = titles.mapIndexed { i, t -> if (i == current) "• $t" else t }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle(R.string.notebooks)
-            .setItems(labels) { _, which -> if (which != current) openNotebook(dirs[which]) }
-            .setPositiveButton(R.string.new_notebook) { _, _ ->
+    }
+    /** Search index, cached in the cache directory (rebuilt if it is cleared). */
+    private val searchIndex by lazy { SearchIndex.open(notebooksRoot.path, File(cacheDir, "search-index.json").path) }
+
+    private fun nextNotebookName() =
+        "nb-%04d".format((notebookDirs().mapNotNull { it.name.removePrefix("nb-").toIntOrNull() }.maxOrNull() ?: 0) + 1)
+
+    /** The most recently opened notebook not in the trash. */
+    private fun libraryFirst(): File? = library.recent().firstNotNullOfOrNull { e -> e.dir?.let { File(notebooksRoot, it) } }
+
+    /** A notebook was opened: record it in the library and purge its pages trashed 30+ days ago. */
+    private fun noteOpened(dir: File, folder: String?) {
+        runCatching { library.noteOpened(dir.name, notebook.title(), folder) }
+        runCatching { notebook.purgeExpired(30u) }
+    }
+
+    /** Things in a trash for 30 days are deleted for good (library, and the open notebook's pages). */
+    private fun purgeOldTrash() {
+        runCatching { library.purgeExpired(30u) }
+        Thumbnails.trimDiskCache(this)
+    }
+
+    /** The library: all notebooks in folders, with covers (replaces the old notebook list). */
+    private fun showNotebooks() {
+        saveNow()
+        runCatching { library.rescan() }
+        notebookDir?.let { library.setNotebookTitle(it.name, notebook.title()) }
+        LibraryScreen(this, notebooksRoot, library, object : LibraryScreen.Host {
+            override fun currentDir() = notebookDir?.name
+            override fun open(dir: File) { if (dir.name != notebookDir?.name) openNotebook(dir) }
+            override fun newNotebook(folder: String?) {
                 askText(R.string.new_notebook, "") { title ->
-                    val next = (dirs.mapNotNull { it.name.removePrefix("nb-").toIntOrNull() }.maxOrNull() ?: 0) + 1
-                    val dir = File(notebooksRoot, "nb-%04d".format(next))
-                    openNotebook(dir)
-                    notebook.setTitle(title.ifBlank { getString(R.string.untitled) })
+                    openNotebook(File(notebooksRoot, nextNotebookName()), folder = folder)
+                    setNotebookTitle(title.ifBlank { getString(R.string.untitled) })
                 }
             }
-            .setNeutralButton(R.string.more) { _, _ -> showNotebookActions() }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            override fun renameNotebook(dir: String, title: String) {
+                if (dir == notebookDir?.name) setNotebookTitle(title)
+                else runCatching {
+                    NotebookDoc.open(File(notebooksRoot, dir).path, "").setTitle(title)
+                    library.setNotebookTitle(dir, title)
+                }
+            }
+            override fun deleted(dirs: List<String>) {
+                if (notebookDir?.name !in dirs) return
+                openNotebook(libraryFirst() ?: File(notebooksRoot, nextNotebookName()))
+            }
+            override fun more() = showNotebookActions()
+            override fun search() = showSearch()
+        }).show()
+        io.execute { runCatching { library.refreshTitles() } }
+    }
+
+    private fun setNotebookTitle(title: String) {
+        notebook.setTitle(title)
+        notebookDir?.let { library.setNotebookTitle(it.name, title) }
+    }
+
+    /** Search the open notebook or all notebooks; a result opens its page and highlights the block. */
+    private fun showSearch() {
+        saveNow()
+        SearchScreen(this, searchIndex, notebookDir?.name, { library.recent().mapNotNull { it.dir } }) { hit ->
+            if (hit.notebookDir != notebookDir?.name) openNotebook(File(notebooksRoot, hit.notebookDir), hit.pageId)
+            else hit.pageId?.let { id -> pageIds.indexOf(id).takeIf { it >= 0 }?.let { if (it != pageIndex) goToPage(it) } }
+            val block = hit.blockId ?: return@SearchScreen
+            ink.post {
+                ink.reveal(hit.x, hit.y, hit.width, hit.height)
+                ink.select(listOf(block))
+                // The highlight goes away after a while unless the user started selecting.
+                main.postDelayed({ if (ink.tool != InkView.Tool.SELECT && ink.selection == listOf(block)) ink.clearSelection() }, 4000)
+            }
+        }.show()
     }
 
     private fun showNotebookActions() {
@@ -327,11 +392,12 @@ class MainActivity : Activity() {
             getString(R.string.sync_share), getString(R.string.sync_join), getString(R.string.sync_settings),
             getString(R.string.language), getString(R.string.backup), getString(R.string.page_scrolling),
             getString(R.string.new_notebook_from_template), getString(R.string.save_notebook_as_template),
+            getString(R.string.export_markdown), getString(R.string.export_latex),
         )
         AlertDialog.Builder(this)
             .setItems(actions) { _, which ->
                 when (which) {
-                    0 -> askText(R.string.rename, notebook.title()) { notebook.setTitle(it) }
+                    0 -> askText(R.string.rename, notebook.title()) { setNotebookTitle(it) }
                     1 -> startExport()
                     2 -> startImport()
                     3 -> startPdfExport()
@@ -344,6 +410,8 @@ class MainActivity : Activity() {
                     10 -> if (prefs.getString("backupTree", null) == null) chooseBackupFolder() else showBackup()
                     11 -> choosePageScrolling()
                     12 -> newNotebookFromTemplate()
+                    14 -> startDocExport(REQ_EXPORT_MD, "-markdown.zip")
+                    15 -> startDocExport(REQ_EXPORT_TEX, "-latex.zip")
                     13 -> askText(R.string.template_name, notebook.title()) { name ->
                         saveNow()
                         val nb = notebook
@@ -563,24 +631,76 @@ class MainActivity : Activity() {
         startActivityForResult(intent, REQ_EXPORT)
     }
 
+    /** Pages (0-based indices) chosen for the PDF being exported; null for all (P1-33). */
+    private var pdfPages: List<Int>? = null
+
     private fun startPdfExport() {
+        saveNow()
+        choosePdfPages { pages ->
+            pdfPages = pages
+            val name = notebook.title().ifBlank { getString(R.string.untitled) }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            val suffix = if (pages == null) "" else if (pages.size == 1) "-${pages[0] + 1}" else "-${pages.first() + 1}-${pages.last() + 1}"
+            val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                .setType("application/pdf")
+                .putExtra(android.content.Intent.EXTRA_TITLE, "$name$suffix.pdf")
+            startActivityForResult(intent, REQ_EXPORT_PDF)
+        }
+    }
+
+    /** All pages, the open page, or a range typed like "1-3, 5" (parsed in the core). */
+    private fun choosePdfPages(onChosen: (List<Int>?) -> Unit) {
+        val choices = arrayOf(
+            getString(R.string.pdf_all_pages, pageIds.size),
+            getString(R.string.pdf_current_page, pageIndex + 1),
+            getString(R.string.pdf_page_range),
+        )
+        AlertDialog.Builder(this)
+            .setTitle(R.string.export_pdf)
+            .setItems(choices) { _, which ->
+                when (which) {
+                    0 -> onChosen(null)
+                    1 -> onChosen(listOf(pageIndex))
+                    else -> askText(R.string.pdf_page_range, "1-${pageIds.size}") { text ->
+                        val pages = parsePageRange(text, pageIds.size.toUInt())
+                        if (pages == null) toast(getString(R.string.pdf_bad_range, pageIds.size))
+                        else onChosen(pages.map { it.toInt() })
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Markdown or LaTeX of the notebook with its pictures, as a ZIP (E2.12). */
+    private fun startDocExport(req: Int, suffix: String) {
         saveNow()
         val name = notebook.title().ifBlank { getString(R.string.untitled) }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
         val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(android.content.Intent.CATEGORY_OPENABLE)
-            .setType("application/pdf")
-            .putExtra(android.content.Intent.EXTRA_TITLE, "$name.pdf")
-        startActivityForResult(intent, REQ_EXPORT_PDF)
+            .setType("application/zip")
+            .putExtra(android.content.Intent.EXTRA_TITLE, "$name$suffix")
+        startActivityForResult(intent, req)
+    }
+
+    private fun exportDocument(uri: android.net.Uri, format: uniffi.nb_ffi.DocFormat) {
+        val nb = notebook
+        val currentId = pageIds.getOrNull(pageIndex)
+        val open = { id: String -> if (id == currentId && doc != null) doc!! else PageDoc.open(nb.pagePath(id)) }
+        val result = runCatching { contentResolver.openOutputStream(uri)!!.use { DocExport.write(nb, format, open, it) } }
+        result.onSuccess { toast(getString(R.string.exported)) }
+            .onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
     }
 
     private fun exportPdf(uri: android.net.Uri) =
-        exportPdf({ contentResolver.openOutputStream(uri)!! }) { toast(getString(R.string.exported)) }
+        exportPdf({ contentResolver.openOutputStream(uri)!! }, pdfPages) { toast(getString(R.string.exported)) }
 
-    /** Vector PDF of every page (A4), after all formulas are rendered. */
-    private fun exportPdf(open: () -> java.io.OutputStream, done: () -> Unit) {
+    /** Vector PDF of every page (or of the pages `only`), each at its size, after all formulas are rendered. */
+    private fun exportPdf(open: () -> java.io.OutputStream, only: List<Int>? = null, done: () -> Unit) {
         val renderer = mathRenderer
         val currentId = pageIds.getOrNull(pageIndex)
-        val pages = pageIds.map { id -> if (id == currentId && doc != null) doc!! else PageDoc.open(notebook.pagePath(id)) }
+        val ids = only?.mapNotNull { pageIds.getOrNull(it) } ?: pageIds
+        val pages = ids.map { id -> if (id == currentId && doc != null) doc!! else PageDoc.open(notebook.pagePath(id)) }
         val requests = pages.flatMap { PageRenderer.mathRequests(it) }.distinct()
         var remaining = requests.size
         fun write() {
@@ -621,9 +741,66 @@ class MainActivity : Activity() {
             .setTitle(R.string.backup)
             .setMessage(msg)
             .setPositiveButton(R.string.backup_now) { _, _ -> runBackup(quiet = false) }
-            .setNeutralButton(R.string.backup_folder) { _, _ -> chooseBackupFolder() }
-            .setNegativeButton(R.string.backup_off) { _, _ -> prefs.edit().remove("backupTree").apply() }
+            .setNeutralButton(R.string.backup_restore) { _, _ -> restoreFromBackup() }
+            .setNegativeButton(R.string.more) { _, _ ->
+                AlertDialog.Builder(this)
+                    .setItems(arrayOf(getString(R.string.backup_folder), getString(R.string.backup_off))) { _, which ->
+                        if (which == 0) chooseBackupFolder() else prefs.edit().remove("backupTree").apply()
+                    }
+                    .show()
+            }
             .show()
+    }
+
+    /**
+     * Restore a notebook from the backup folder (P1-27): list the `.kahie` copies there, and
+     * import the chosen one as a new notebook (the current notebooks are left untouched).
+     */
+    private fun restoreFromBackup() {
+        val tree = prefs.getString("backupTree", null)?.let { android.net.Uri.parse(it) } ?: return chooseBackupFolder()
+        io.execute {
+            val found = runCatching {
+                val children = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(
+                    tree, android.provider.DocumentsContract.getTreeDocumentId(tree),
+                )
+                val out = ArrayList<Triple<String, Long, android.net.Uri>>()
+                contentResolver.query(children, arrayOf(
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+                ), null, null, null)?.use { c ->
+                    while (c.moveToNext()) {
+                        val name = c.getString(1) ?: continue
+                        if (!name.endsWith(".kahie")) continue
+                        out += Triple(name, c.getLong(2), android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0)))
+                    }
+                }
+                out.sortedByDescending { it.second }
+            }
+            main.post {
+                found.onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
+                val files = found.getOrNull() ?: return@post
+                if (files.isEmpty()) { toast(getString(R.string.backup_none)); return@post }
+                val labels = files.map { (name, time, _) ->
+                    val date = android.text.format.DateUtils.formatDateTime(
+                        this, time, android.text.format.DateUtils.FORMAT_SHOW_DATE or android.text.format.DateUtils.FORMAT_SHOW_TIME,
+                    )
+                    "${name.removeSuffix(".kahie")}\n$date"
+                }
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.backup_restore)
+                    .setItems(labels.toTypedArray()) { _, which ->
+                        val (name, _, uri) = files[which]
+                        AlertDialog.Builder(this)
+                            .setMessage(getString(R.string.backup_restore_confirm, name.removeSuffix(".kahie")))
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .setPositiveButton(R.string.backup_restore) { _, _ -> importKahieUri(uri) }
+                            .show()
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+        }
     }
 
     private fun chooseBackupFolder() {
@@ -945,6 +1122,10 @@ class MainActivity : Activity() {
         val uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
         if (requestCode == REQ_EXPORT_PDF) { exportPdf(uri); return }
+        if (requestCode == REQ_EXPORT_MD || requestCode == REQ_EXPORT_TEX) {
+            exportDocument(uri, if (requestCode == REQ_EXPORT_TEX) uniffi.nb_ffi.DocFormat.LATEX else uniffi.nb_ffi.DocFormat.MARKDOWN)
+            return
+        }
         if (requestCode == REQ_EXPORT_PNG) { exportPng(uri); return }
         if (requestCode == REQ_EXPORT_SVG) { exportSvg(uri); return }
         if (requestCode == REQ_IMAGE) { insertImage(uri); return }
@@ -1040,9 +1221,19 @@ class MainActivity : Activity() {
         }
         val x0 = num("x min", existing?.x0 ?: -5.0)
         val x1 = num("x max", existing?.x1 ?: 5.0)
-        val y0 = num("y min", existing?.y0 ?: -5.0)
-        val y1 = num("y max", existing?.y1 ?: 5.0)
+        // Same scale on both axes by default (the box is 4:3), so circles look round.
+        val y0 = num("y min", existing?.y0 ?: -3.75)
+        val y1 = num("y max", existing?.y1 ?: 3.75)
         box.addView(exprs)
+        box.addView(TextView(this).apply {
+            text = getString(R.string.plot_syntax_help) + "\n" + getString(R.string.plot_geo_help)
+            textSize = 12f
+            setTextIsSelectable(true)
+        })
+        box.addView(android.widget.Button(this).apply {
+            text = getString(R.string.plot_analyse)
+            setOnClickListener { addPlotAnalysis(exprs) }
+        })
         box.addView(LinearLayout(this).apply { addView(x0); addView(x1) })
         box.addView(LinearLayout(this).apply { addView(y0); addView(y1) })
         AlertDialog.Builder(this)
@@ -1065,6 +1256,27 @@ class MainActivity : Activity() {
                 d.plotBlocks().firstOrNull { it.id == plotId }?.errors?.firstOrNull { it.isNotEmpty() }?.let { toast(it) }
                 ink.refresh()
                 ink.onChanged()
+            }
+            .show()
+    }
+
+    /** Append an analysis line (E2.5) for function 1 to the plot's text; the teacher can edit it. */
+    private fun addPlotAnalysis(field: android.widget.EditText) {
+        val items = arrayOf(
+            getString(R.string.plot_an_roots), getString(R.string.plot_an_extrema), getString(R.string.plot_an_inflections),
+            getString(R.string.plot_an_asymptotes), getString(R.string.plot_an_intersections), getString(R.string.plot_an_tangent),
+            getString(R.string.plot_an_area),
+        )
+        val lines = arrayOf(
+            R.string.plot_line_roots, R.string.plot_line_extrema, R.string.plot_line_inflections, R.string.plot_line_asymptotes,
+            R.string.plot_line_intersections, R.string.plot_line_tangent, R.string.plot_line_area,
+        )
+        AlertDialog.Builder(this)
+            .setTitle(R.string.plot_analyse)
+            .setItems(items) { _, which ->
+                val cur = field.text.toString().trimEnd()
+                field.setText(if (cur.isEmpty()) getString(lines[which]) else cur + "\n" + getString(lines[which]))
+                field.setSelection(field.text.length)
             }
             .show()
     }
@@ -1126,7 +1338,7 @@ class MainActivity : Activity() {
         }
         val builder = AlertDialog.Builder(this)
             .setTitle(if (existing == null) R.string.add_text else R.string.edit_text)
-            .setView(input)
+            .setView(withCasTools(input))
             .setNegativeButton(android.R.string.cancel, null)
         if (casAvailable()) {
             // Evaluate the last line with the CAS and append "= result" to the text.
@@ -1160,6 +1372,44 @@ class MainActivity : Activity() {
             }
         }
         dialog.show()
+    }
+
+    /**
+     * The text field plus a row of CAS operations (E2.3) when this build has the CAS: each
+     * applies to the last line and appends "= result" (exact unless "≈" is chosen).
+     */
+    private fun withCasTools(input: android.widget.EditText): android.view.View {
+        if (!casAvailable()) return input
+        val ops = listOf(
+            R.string.cas_solve to uniffi.nb_ffi.CasOp.SOLVE, R.string.cas_factor to uniffi.nb_ffi.CasOp.FACTOR,
+            R.string.cas_expand to uniffi.nb_ffi.CasOp.EXPAND, R.string.cas_simplify to uniffi.nb_ffi.CasOp.SIMPLIFY,
+            R.string.cas_derivative to uniffi.nb_ffi.CasOp.DERIVATIVE, R.string.cas_antiderivative to uniffi.nb_ffi.CasOp.ANTIDERIVATIVE,
+            R.string.cas_numeric to uniffi.nb_ffi.CasOp.NUMERIC,
+        )
+        val row = LinearLayout(this)
+        for ((label, op) in ops) {
+            row.addView(android.widget.Button(this, null, android.R.attr.buttonStyleSmall).apply {
+                text = getString(label)
+                isAllCaps = false
+                setOnClickListener {
+                    val line = input.text.toString().trimEnd().lines().lastOrNull()?.trim().orEmpty()
+                    if (line.isEmpty()) return@setOnClickListener
+                    val command = uniffi.nb_ffi.casCommand(op, line)
+                    io.execute {
+                        val result = runCatching { casEval(command).text }
+                        main.post {
+                            result.onSuccess { input.append("\n= $it"); input.setSelection(input.text.length) }
+                                .onFailure { toast(getString(R.string.compute_failed, it.message ?: "")) }
+                        }
+                    }
+                }
+            })
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(input)
+            addView(android.widget.HorizontalScrollView(this@MainActivity).apply { addView(row) })
+        }
     }
 
     private fun penColor(): Int = ink.penColor
@@ -1207,31 +1457,32 @@ class MainActivity : Activity() {
         ink.invalidate()
     }
 
-    /** Outline of the notebook: tap a page to open it, a section to rename or delete it. */
+    /**
+     * Page list with thumbnails (P1-03): tap a page to open it, a section to rename or delete
+     * it, long-press and drag to reorder.
+     */
     private fun showPages() {
-        val entries = notebook.outline()
-        val labels = entries.map { e ->
-            val indent = "    ".repeat(e.depth.toInt())
-            when (e.kind) {
-                OutlineKind.SECTION -> indent + "▸ " + e.title.ifEmpty { getString(R.string.new_section) }
-                OutlineKind.PAGE -> {
-                    val n = pageIds.indexOf(e.pageId) + 1
-                    val name = e.title.ifEmpty { getString(R.string.page_n, n) }
-                    indent + (if (e.pageId == pageIds.getOrNull(pageIndex)) "• " else "") + name
-                }
+        saveNow()
+        PagesScreen(this, notebook, pageIds.getOrNull(pageIndex), doc, object : PagesScreen.Host {
+            override fun openPage(pageId: String) {
+                pageIds.indexOf(pageId).takeIf { it >= 0 }?.let { goToPage(it) }
             }
-        }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle(R.string.pages)
-            .setItems(labels) { _, which ->
-                val e = entries[which]
-                when (e.kind) {
-                    OutlineKind.PAGE -> e.pageId?.let { id -> goToPage(pageIds.indexOf(id)) }
-                    OutlineKind.SECTION -> showSectionActions(entries, which)
-                }
+            override fun addPage() = this@MainActivity.addPage()
+            override fun more() = showPageActions()
+            override fun search() = showSearch()
+            override fun section(entries: List<uniffi.nb_ffi.OutlineEntry>, index: Int) = showSectionActions(entries, index)
+            override fun reordered() {
+                val current = pageIds.getOrNull(pageIndex)
+                pageIds = notebook.pageIds()
+                pageIndex = pageIds.indexOf(current).coerceAtLeast(0)
+                pageLabel.text = getString(R.string.page_count, pageIndex + 1, pageIds.size)
             }
-            .setPositiveButton(R.string.add_page) { _, _ -> addPage() }
-            .setNeutralButton(R.string.more) { _, _ ->
+        }).show()
+    }
+
+    /** "More" actions of the page list, on the open page. */
+    private fun showPageActions() {
+            run {
                 val actions = arrayOf(
                     getString(R.string.rename_page),
                     getString(R.string.move_page_up),
@@ -1282,8 +1533,6 @@ class MainActivity : Activity() {
                     }
                     .show()
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
     }
 
     private fun currentPageNode() =
@@ -1442,7 +1691,7 @@ class MainActivity : Activity() {
     /** Paper size of the open page (P1-05): a named size or a custom one in millimetres. */
     private fun choosePageSize() {
         val d = doc ?: return
-        val sizes = listOf("a4", "a4-landscape", "a5", "a5-landscape", "letter", "letter-landscape")
+        val sizes = listOf("a3", "a3-landscape", "a4", "a4-landscape", "a5", "a5-landscape", "letter", "letter-landscape")
         val portrait = getString(R.string.portrait)
         val landscape = getString(R.string.landscape)
         val current = d.pageSize()

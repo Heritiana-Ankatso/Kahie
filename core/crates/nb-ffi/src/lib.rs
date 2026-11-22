@@ -17,12 +17,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 uniffi::setup_scaffolding!();
 
 mod cas;
+mod docexport;
 mod kahie_file;
+mod library;
 mod notebook;
+mod search;
 mod sync;
-pub use cas::{cas_available, cas_eval, CasAnswer};
+pub use cas::{cas_available, cas_command, cas_eval, CasAnswer, CasOp};
 pub use kahie_file::{export_kahie, import_kahie};
+pub use library::{LibraryDoc, LibraryEntry, LibraryKind};
 pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
+pub use search::{parse_page_range, HitKind, SearchHit, SearchIndex};
 pub use sync::{sync_page_once, SyncListener, SyncSession, SyncStatus};
 
 #[derive(Debug, uniffi::Error)]
@@ -84,7 +89,28 @@ pub struct MathBlock {
     pub color: u32,
 }
 
-/// A function plot: expressions of x drawn in a window, inside a box on the page.
+/// A point on a plot, in page coordinates, with its label (e.g. `max (1, -2)`).
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct PlotMarker {
+    pub x: f32,
+    pub y: f32,
+    /// `root`, `max`, `min`, `inflection`, `intersection`, `point`, `free` (a construction's
+    /// free point: draggable, see `PageDoc::move_plot_point`) or `label` (text only).
+    pub kind: String,
+    pub label: String,
+}
+
+/// A shaded area of a plot: polygon in page coordinates (x0, y0, x1, y1, …) and its value.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct PlotShade {
+    pub points: Vec<f32>,
+    pub label: String,
+    pub label_x: f32,
+    pub label_y: f32,
+}
+
+/// A plot: functions of x, parametric and polar curves, points and analysis lines (roots,
+/// extrema, tangents, areas…; syntax in `nb_math::plot`) drawn in a window, inside a box.
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct PlotBlock {
     pub key: String,
@@ -101,7 +127,18 @@ pub struct PlotBlock {
     /// One entry per expression: polylines in page coordinates (x0, y0, x1, y1, …), split at
     /// poles and undefined points. Empty when the expression does not parse.
     pub curves: Vec<Vec<Vec<f32>>>,
-    /// Expressions that do not parse, with the reason (same order as `exprs`, empty if fine).
+    /// Per line: draw dashed (tangents, normals, asymptotes, `[dashed]`).
+    pub dashed: Vec<bool>,
+    /// Per line: ARGB colour from a style suffix (0: default palette) and width (0: default).
+    pub colors: Vec<u32>,
+    pub widths: Vec<f32>,
+    /// Points found by analysis lines (roots, extrema, …) and point lines, inside the window.
+    pub markers: Vec<PlotMarker>,
+    /// Shaded areas (`area f from a to b`, polygons).
+    pub shades: Vec<PlotShade>,
+    /// Draw axes and grid (false after an `axes off` line).
+    pub axes: bool,
+    /// Lines that are invalid, with the reason (same order as `exprs`, empty if fine).
     pub errors: Vec<String>,
     /// Tick spacing on each axis, in window units.
     pub x_step: f64,
@@ -124,26 +161,49 @@ fn plot_block(it: &Item) -> Option<PlotBlock> {
     let sx = rect.w / (x1 - x0);
     let sy = rect.h / (y1 - y0);
     let to_page = |(x, y): (f64, f64)| [(rect.x + (x - x0) * sx) as f32, (rect.y + (y1 - y) * sy) as f32];
-    let mut curves = Vec::with_capacity(exprs.len());
-    let mut errors = Vec::with_capacity(exprs.len());
-    for e in exprs {
-        match nb_math::parse(e) {
-            Ok(f) => {
-                let n = (rect.w as usize).clamp(64, 2000);
-                curves.push(
-                    nb_math::sample(&f, *x0, *x1, *y0, *y1, n)
-                        .into_iter()
-                        .map(|seg| seg.into_iter().flat_map(to_page).collect())
-                        .collect(),
-                );
-                errors.push(String::new());
+    let window = nb_math::plot::Window {
+        x0: *x0,
+        x1: *x1,
+        y0: *y0,
+        y1: *y1,
+    };
+    let r = nb_math::plot::render(exprs, &window);
+    let curves = r
+        .curves
+        .into_iter()
+        .map(|segs| {
+            segs.into_iter()
+                .map(|seg| seg.into_iter().flat_map(to_page).collect())
+                .collect()
+        })
+        .collect();
+    let markers = r
+        .markers
+        .into_iter()
+        .map(|m| {
+            let [x, y] = to_page((m.x, m.y));
+            PlotMarker {
+                x,
+                y,
+                kind: format!("{:?}", m.kind).to_lowercase(),
+                label: m.label,
             }
-            Err(err) => {
-                curves.push(vec![]);
-                errors.push(err.0);
+        })
+        .collect();
+    let shades = r
+        .shades
+        .into_iter()
+        .map(|sh| {
+            let [lx, ly] = to_page(sh.at);
+            PlotShade {
+                points: sh.polygon.into_iter().flat_map(to_page).collect(),
+                label: sh.label,
+                label_x: lx,
+                label_y: ly,
             }
-        }
-    }
+        })
+        .collect();
+    let (dashed, errors, axes, colors, widths) = (r.dashed, r.errors, r.axes, r.colors, r.widths);
     Some(PlotBlock {
         key: item_key(it),
         id: it.id.clone(),
@@ -157,6 +217,12 @@ fn plot_block(it: &Item) -> Option<PlotBlock> {
         y0: *y0,
         y1: *y1,
         curves,
+        dashed,
+        colors,
+        widths,
+        markers,
+        shades,
+        axes,
         errors,
         x_step: nb_math::tick_step(x1 - x0, 8.0),
         y_step: nb_math::tick_step(y1 - y0, 8.0),
@@ -537,7 +603,7 @@ impl PageDoc {
         Ok(changed)
     }
 
-    /// Paper size name (`a4`, `a4-landscape`, `a5`, `a5-landscape`, `letter`, `letter-landscape`,
+    /// Paper size name (`a3`, `a3-landscape`, `a4`, `a4-landscape`, `a5`, `a5-landscape`, `letter`, `letter-landscape`,
     /// or a custom `<w>x<h>mm` from [`custom_page_size`]).
     pub fn page_size(&self) -> String {
         self.state.lock().unwrap().doc.size().to_string()
@@ -1135,6 +1201,54 @@ impl PageDoc {
         Ok(st.commit(op))
     }
 
+    /// The lines of plot `id` with free point `name` moved to page position (x, y), snapped
+    /// to `snap` window units (0: no snapping). `None` if there is no such plot or point.
+    /// Use with `preview_plot` while dragging and `set_plot` on release (one undo step).
+    pub fn move_plot_point(&self, id: String, name: String, x: f64, y: f64, snap: f64) -> Option<Vec<String>> {
+        let st = self.state.lock().unwrap();
+        let it = st.doc.page().items.iter().find(|i| i.id == id)?;
+        let Content::Plot {
+            rect,
+            exprs,
+            x0,
+            x1,
+            y0,
+            y1,
+        } = &it.content
+        else {
+            return None;
+        };
+        let mut wx = x0 + (x - rect.x) / rect.w * (x1 - x0);
+        let mut wy = y1 - (y - rect.y) / rect.h * (y1 - y0);
+        if snap > 0.0 {
+            wx = (wx / snap).round() * snap;
+            wy = (wy / snap).round() * snap;
+        }
+        let mut lines = exprs.clone();
+        let line = lines.iter_mut().enumerate().find(|(i, l)| {
+            let base = nb_math::plot::split_style_suffix(l).0;
+            matches!(nb_math::geo::parse_line(&base, *i), Ok(Some((n, nb_math::geo::Def::Free(..)))) if n == name)
+        })?;
+        // Keep the point's style suffix ([red], …).
+        let suffix = nb_math::plot::split_style_suffix(line.1).1;
+        *line.1 = format!(
+            "{name} = ({}, {}){suffix}",
+            nb_math::analysis::fmt_num(wx),
+            nb_math::analysis::fmt_num(wy)
+        );
+        Some(lines)
+    }
+
+    /// Plot `id` drawn with `exprs` instead of its stored lines (not saved): for previews.
+    pub fn preview_plot(&self, id: String, exprs: Vec<String>) -> Option<PlotBlock> {
+        let st = self.state.lock().unwrap();
+        let mut it = st.doc.page().items.iter().find(|i| i.id == id)?.clone();
+        if let Content::Plot { exprs: e, .. } = &mut it.content {
+            *e = exprs;
+        }
+        plot_block(&it)
+    }
+
     /// Topmost plot containing (x, y), if any.
     pub fn plot_at(&self, x: f64, y: f64) -> Option<String> {
         let st = self.state.lock().unwrap();
@@ -1500,6 +1614,79 @@ mod tests {
         );
         assert!(doc.set_math(id, "".into(), 0.0, 0.0));
         assert!(doc.math_blocks().is_empty());
+    }
+
+    #[test]
+    fn drag_a_free_point_of_a_construction() {
+        let doc = PageDoc::new_in_memory();
+        let lines: Vec<String> = ["A = (0, 0)", "B = (2, 0) [red]", "M = midpoint(A, B)"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        // Box 0..100 for window −5..5: 10 px per unit, y up.
+        let id = doc
+            .add_plot(0.0, 0.0, 100.0, 100.0, lines, -5.0, 5.0, -5.0, 5.0)
+            .unwrap();
+        assert!(doc.plot_blocks()[0].markers.iter().filter(|m| m.kind == "free").count() == 2);
+        let moved = doc.move_plot_point(id.clone(), "B".into(), 91.0, 29.0, 0.5).unwrap();
+        assert_eq!(moved[1], "B = (4, 2) [red]", "style kept");
+        let preview = doc.preview_plot(id.clone(), moved.clone()).unwrap();
+        let m = preview.markers.iter().find(|m| m.label == "M").unwrap();
+        assert!(
+            (m.x - 70.0).abs() < 1e-3 && (m.y - 40.0).abs() < 1e-3,
+            "M = (2, 1) → page (70, 40)"
+        );
+        assert_eq!(
+            doc.plot_blocks()[0].exprs[1],
+            "B = (2, 0) [red]",
+            "preview does not save"
+        );
+        assert!(
+            doc.move_plot_point(id.clone(), "M".into(), 0.0, 0.0, 0.0).is_none(),
+            "M is not free"
+        );
+        doc.set_plot(id, moved, -5.0, 5.0, -5.0, 5.0).unwrap();
+        assert_eq!(doc.plot_blocks()[0].exprs[1], "B = (4, 2) [red]");
+    }
+
+    #[test]
+    fn plot_analysis_markers_and_areas_in_page_coordinates() {
+        let doc = PageDoc::new_in_memory();
+        let lines = [
+            "f(x) = x^2 - 1",
+            "roots f",
+            "area f from -1 to 1",
+            "tangent f at 1",
+            "(cos t, sin t)",
+        ];
+        doc.add_plot(
+            100.0,
+            100.0,
+            200.0,
+            200.0,
+            lines.iter().map(|s| s.to_string()).collect(),
+            -2.0,
+            2.0,
+            -2.0,
+            2.0,
+        )
+        .unwrap();
+        let p = &doc.plot_blocks()[0];
+        assert!(p.errors.iter().all(String::is_empty), "{:?}", p.errors);
+        let roots: Vec<(f32, f32)> = p
+            .markers
+            .iter()
+            .filter(|m| m.kind == "root")
+            .map(|m| (m.x, m.y))
+            .collect();
+        // x = ±1, y = 0 → page (150, 200) and (250, 200).
+        assert_eq!(roots.len(), 2);
+        assert!((roots[0].0 - 150.0).abs() < 0.01 && (roots[0].1 - 200.0).abs() < 0.01);
+        assert_eq!(p.shades.len(), 1);
+        assert_eq!(p.shades[0].label, "∫ = -1.333");
+        assert_eq!(p.dashed, [false, false, false, true, false]);
+        assert!(p.markers.iter().any(|m| m.label == "y = 2x − 2"));
+        assert!(!p.curves[4].is_empty(), "parametric circle drawn");
     }
 
     #[test]

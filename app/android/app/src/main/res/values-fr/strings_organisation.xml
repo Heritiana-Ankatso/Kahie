@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search">Rechercher</string>
+    <string name="lib_up">Remonter</string>
+    <string name="lib_back">Retour</string>
+    <string name="lib_new_folder">Nouveau dossier</string>
+    <string name="lib_grid">Grille</string>
+    <string name="lib_list">Liste</string>
+    <string name="lib_folder">Dossier</string>
+    <string name="lib_folder_empty">Rien ici pour l\'instant. Créez un cahier ou un dossier.</string>
+    <string name="lib_open_now">Ouvert</string>
+    <string name="lib_move_to_folder">Déplacer dans un dossier</string>
+    <string name="lib_delete">Supprimer</string>
+    <string name="lib_moved_to_trash">Mis à la corbeille</string>
+    <string name="lib_cannot_move">Un dossier ne peut pas aller dans lui-même.</string>
+    <string name="lib_restore">Restaurer</string>
+    <string name="lib_trash_note">Les cahiers et dossiers supprimés restent ici 30 jours, puis sont supprimés définitivement.</string>
+    <string name="lib_empty_trash_confirm">Supprimer définitivement tous les cahiers et dossiers de la corbeille ? C\'est irréversible.</string>
+    <plurals name="lib_items">
+        <item quantity="one">%d élément</item>
+        <item quantity="other">%d éléments</item>
+    </plurals>
+    <plurals name="lib_days_left">
+        <item quantity="one">Supprimé définitivement dans %d jour</item>
+        <item quantity="other">Supprimé définitivement dans %d jours</item>
+    </plurals>
+    <string name="pages_drag_hint">Appuyez longuement sur une page ou une section, puis faites-la glisser pour la déplacer.</string>
+    <string name="pages_cannot_move">Une section ne peut pas aller dans elle-même.</string>
+    <string name="search_hint">Titres, texte, maths, courbes…</string>
+    <string name="search_all">Tous les cahiers</string>
+    <string name="search_this_notebook">Ce cahier</string>
+    <plurals name="search_results">
+        <item quantity="one">%d résultat</item>
+        <item quantity="other">%d résultats</item>
+    </plurals>
+    <string name="search_kind_notebook">Cahier</string>
+    <string name="search_kind_section">Section</string>
+    <string name="search_kind_page">Titre de page</string>
+    <string name="search_kind_text">Texte</string>
+    <string name="search_kind_math">Maths</string>
+    <string name="search_kind_plot">Courbe</string>
+    <string name="pdf_all_pages">Toutes les pages (%1$d)</string>
+    <string name="pdf_current_page">Cette page (%1$d)</string>
+    <string name="pdf_page_range">Pages… (ex. 1-3, 5)</string>
+    <string name="pdf_bad_range">Plage de pages invalide (pages 1 à %1$d), ex. 1-3, 5</string>
+    <string name="backup_restore">Restaurer</string>
+    <string name="backup_none">Aucune sauvegarde dans le dossier de sauvegarde.</string>
+    <string name="backup_restore_confirm">Restaurer « %1$s » comme nouveau cahier ? Vos cahiers actuels ne sont pas modifiés.</string>
+</resources>

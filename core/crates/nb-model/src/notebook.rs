@@ -12,6 +12,8 @@ use loro::{ExportMode, LoroDoc, LoroTree, LoroValue, TreeID, TreeParentId, UndoM
 
 const TREE: &str = "tree";
 const META: &str = "meta";
+/// Commit origin of housekeeping changes, excluded from undo.
+const SYS_ORIGIN: &str = "sys:";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NodeKind {
@@ -74,6 +76,8 @@ impl CrdtNotebook {
     fn wrap(doc: LoroDoc) -> Self {
         let mut undo = UndoManager::new(&doc);
         undo.set_merge_interval(0);
+        // Housekeeping (trash dates) is not something the user can undo.
+        undo.add_exclude_origin_prefix(SYS_ORIGIN);
         undo.set_max_undo_steps(200);
         Self {
             doc,
@@ -236,8 +240,23 @@ impl CrdtNotebook {
         self.set_deleted(node, true);
     }
 
+    /// Put `node` in the trash at time `now` (seconds since 1970), for the 30-day purge (P1-04).
+    pub fn delete_at(&mut self, node: TreeID, now: i64) {
+        if let Ok(m) = self.tree().get_meta(node) {
+            m.insert("deleted", true).expect("insert");
+            m.insert("deleted_at", now).expect("insert");
+            self.doc.commit();
+        }
+    }
+
     pub fn restore(&mut self, node: TreeID) {
-        self.set_deleted(node, false);
+        if let Ok(m) = self.tree().get_meta(node) {
+            m.insert("deleted", false).expect("insert");
+            if m.get("deleted_at").is_some() {
+                m.delete("deleted_at").expect("delete");
+            }
+            self.doc.commit();
+        }
     }
 
     fn set_deleted(&mut self, node: TreeID, v: bool) {
@@ -245,6 +264,60 @@ impl CrdtNotebook {
             m.insert("deleted", v).expect("insert");
             self.doc.commit();
         }
+    }
+
+    /// When `node` was put in the trash (seconds), if it is trashed and dated.
+    pub fn deleted_at(&self, node: TreeID) -> Option<i64> {
+        match self.meta_value(node)? {
+            LoroValue::Map(m) => match (m.get("deleted"), m.get("deleted_at")) {
+                (Some(LoroValue::Bool(true)), Some(LoroValue::I64(t))) => Some(*t),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Trashed nodes deleted at or before `cutoff` (seconds). Trashed nodes without a date
+    /// (deleted before dates were recorded) are dated `now` first, so they expire later.
+    pub fn expired(&mut self, cutoff: i64, now: i64) -> Vec<Node> {
+        let undated: Vec<TreeID> = self
+            .trash()
+            .iter()
+            .map(|n| n.id)
+            .filter(|&id| self.deleted_at(id).is_none())
+            .collect();
+        if !undated.is_empty() {
+            for id in undated {
+                if let Ok(m) = self.tree().get_meta(id) {
+                    m.insert("deleted_at", now).expect("insert");
+                }
+            }
+            self.doc.set_next_commit_origin(SYS_ORIGIN);
+            self.doc.commit();
+        }
+        self.trash()
+            .into_iter()
+            .filter(|n| self.deleted_at(n.id).is_some_and(|t| t <= cutoff))
+            .collect()
+    }
+
+    /// Move `node` right before (`after == false`) or after `sibling`, under the same parent
+    /// as `sibling` (drag-and-drop reordering). Refuses cycles.
+    pub fn move_next_to(&mut self, node: TreeID, sibling: TreeID, after: bool) -> bool {
+        if node == sibling {
+            return false;
+        }
+        let t = self.tree();
+        let r = if after {
+            t.mov_after(node, sibling)
+        } else {
+            t.mov_before(node, sibling)
+        };
+        if r.is_err() {
+            return false;
+        }
+        self.doc.commit();
+        true
     }
 
     pub fn undo(&mut self) -> bool {
@@ -408,5 +481,36 @@ mod tests {
         b.import(&ua).unwrap();
         assert_eq!(a.outline(), b.outline());
         assert_eq!(a.page_ids().len(), 8);
+    }
+
+    #[test]
+    fn drag_reorder_and_dated_trash() {
+        let mut nb = CrdtNotebook::new("nb", "N", 1);
+        let s = nb.add_section(None, "S");
+        let a = nb.add_page(None, None, "a", "A");
+        let b = nb.add_page(None, None, "b", "B");
+        let c = nb.add_page(Some(s), None, "c", "C");
+        assert_eq!(titles(&nb), ["S", "  C", "A", "B"]);
+        assert!(nb.move_next_to(b, s, false), "before the section");
+        assert_eq!(titles(&nb), ["B", "S", "  C", "A"]);
+        assert!(nb.move_next_to(a, c, false), "into the section, before C");
+        assert_eq!(titles(&nb), ["B", "S", "  A", "  C"]);
+        assert!(nb.move_next_to(b, c, true), "after C");
+        assert_eq!(titles(&nb), ["S", "  A", "  C", "  B"]);
+        assert!(!nb.move_next_to(s, a, false), "a section cannot go inside itself");
+        assert!(!nb.move_next_to(a, a, true));
+        // Dated trash: only items past the cutoff expire; undated ones get dated now.
+        nb.delete_at(a, 100);
+        nb.delete(c); // no date (as before dates were recorded)
+        assert_eq!(nb.deleted_at(a), Some(100));
+        assert_eq!(nb.expired(150, 1_000).iter().map(|n| n.id).collect::<Vec<_>>(), [a]);
+        assert_eq!(nb.deleted_at(c), Some(1_000));
+        assert_eq!(nb.expired(1_000, 2_000).len(), 2);
+        // Dating is not an undo step: undo restores C (the last user action).
+        assert!(nb.undo());
+        assert_eq!(nb.trash().iter().map(|n| n.id).collect::<Vec<_>>(), [a]);
+        nb.restore(a);
+        assert_eq!(nb.deleted_at(a), None);
+        assert!(nb.trash().is_empty());
     }
 }
