@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Light theme; values-night/themes.xml has the dark one (P1-39). -->
     <style name="Theme.Kahie" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:colorAccent">@color/kahie_blue</item>
-        <item name="android:windowBackground">@color/desk</item>
-        <item name="android:colorControlNormal">#1D1D1F</item>
+        <item name="android:colorAccent">@color/kahie_accent</item>
+        <item name="android:windowBackground">@color/kahie_desk</item>
+        <item name="android:colorControlNormal">@color/kahie_on_surface</item>
+        <item name="android:statusBarColor">@color/kahie_surface</item>
+        <item name="android:navigationBarColor">@color/kahie_surface</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

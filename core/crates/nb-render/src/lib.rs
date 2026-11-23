@@ -338,6 +338,67 @@ mod tests {
         assert_eq!(level_for_scale(0.001), LEVELS - 1);
     }
 
+    /// P1-06 budget: an infinite canvas with 50 000 strokes stays within an 18 ms frame
+    /// (p95) while panning at every zoom from 5 % to 3 200 %. Each frame is a full
+    /// 1600 × 2560 px screen; the first frame at a zoom builds the LOD geometry (cold), the
+    /// following ones pan and reuse it, as the UI's tile cache does. The budget is checked in
+    /// release builds (`cargo test --release -p nb-render infinite_canvas`); debug builds
+    /// only check a loose bound.
+    #[test]
+    fn infinite_canvas_50k_strokes_pan_zoom_budget() {
+        let mut seed = 7u64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        // Handwriting-sized strokes spread over a 40 000 × 40 000 unit canvas, including
+        // negative coordinates (an infinite canvas has no origin corner).
+        let mut s = Scene::new(256.0);
+        for _ in 0..50_000 {
+            let (mut x, mut y, mut a) = (rnd() * 40_000.0 - 20_000.0, rnd() * 40_000.0 - 20_000.0, rnd() * 6.3);
+            let n = 20 + (rnd() * 60.0) as usize;
+            let pts: Vec<Point> = (0..n)
+                .map(|_| {
+                    a += (rnd() - 0.5) * 0.6;
+                    x += a.cos() * 1.5;
+                    y += a.sin() * 1.5;
+                    Point::new(x, y, 0.3 + rnd() * 0.5)
+                })
+                .collect();
+            s.add_stroke(pts, 2.5, 0x1d1d1f, 1.0, true);
+        }
+        let (sw, sh) = (1600.0, 2560.0);
+        let mut worst_p95 = 0.0f64;
+        for zoom in [0.05, 0.25, 1.0, 4.0, 32.0] {
+            let (w, h) = (sw / zoom, sh / zoom);
+            let mut times = vec![];
+            for k in 0..24 {
+                // Pan by a tenth of the screen per frame.
+                let x = -w / 2.0 + k as f64 * w / 10.0;
+                let y = -h / 2.0 + k as f64 * h / 20.0;
+                let t = std::time::Instant::now();
+                let dl = s.tile(Rect::new(x, y, x + w, y + h), zoom);
+                let ms = t.elapsed().as_secs_f64() * 1e3;
+                if k > 0 {
+                    times.push(ms);
+                }
+                std::hint::black_box(dl);
+            }
+            times.sort_by(f64::total_cmp);
+            let p95 = times[times.len() * 95 / 100];
+            eprintln!(
+                "zoom {:>5.0} %: p95 {p95:.2} ms, max {:.2} ms",
+                zoom * 100.0,
+                times[times.len() - 1]
+            );
+            worst_p95 = worst_p95.max(p95);
+        }
+        let budget = if cfg!(debug_assertions) { 400.0 } else { 18.0 };
+        assert!(worst_p95 <= budget, "p95 {worst_p95:.2} ms > {budget} ms");
+    }
+
     #[test]
     fn tiny_strokes_become_dots_far_away() {
         let mut s = Scene::new(256.0);

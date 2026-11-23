@@ -1,9 +1,9 @@
 # Project status and handoff
 
 Living file: updated at the end of every work session so the next one can resume without context.
-Working branch: `ccr-121ac074-e1jgb6` (not yet merged to `main`; squash-merge recommended because commit `a7ad8c9` accidentally contained ~300 MiB of build output, removed in `cc09da9`).
+Working branch: `ccr-121ac074-e1jgb6`. Merged into `main` by squash: PR #2 (to `920e87d`) and PR #3 (to `9911acd`). Keep squash-merging (commit `a7ad8c9` on the branch holds ~300 MiB of build output). After a squash-merge, the branch is merged with `main` (as in `f253ab2`) so later PRs show only new work.
 
-**Last updated:** 2026-11-20
+**Last updated:** 2026-11-22
 
 ## Decisions (all in `docs/decisions-open.md`)
 
@@ -36,6 +36,9 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 
 - Ink: pen/highlighter/eraser on the Rust core, Jetpack Ink wet layer, shape snapping, batched input (`add_points`), undo/redo + two-/three-finger tap.
 - Storage: every edit saved immediately (SQLite per page, `.kpage`); legacy JSON pages migrate.
+- Library (P1-01/02, `LibraryScreen.kt`, `nb_model::library`, FFI `LibraryDoc`): folders of notebooks (Loro tree, convergence property test), grid/list with covers, recent first, dated trash purged after 30 days (P1-04). Search (P1-32, `nb-ffi/src/search.rs`, `SearchScreen.kt`): titles, text, maths, plots; accent/case-insensitive; cached index; maths by structure (E2.13, `nb_math::mathsearch`). Page list with thumbnails and drag reorder (P1-03, `PagesScreen.kt`). Restore a notebook from a backup (P1-27). PDF export page range (P1-33). A3 paper (P1-05).
+- Editing (P1-06/10/11/14–19, `EditingUi.kt`, `RichText.kt`, `nb-ffi/src/editing.rs`, `nb_model::select`): pencil and brush with pressure/tilt curves (`nb_ink::Nib`, ink codec v2 with tilt), 12 colours + custom, 5 widths; partial eraser (original stroke kept in history, pieces added, one undo step), stylus eraser end and side button; lasso; scale/rotate handles (ink keeps its points, a stored transform `xf`); groups (`groups` root map); rich text as Loro rich text (bold/italic/underline, H1–H3, lists, colour); insert from camera/clipboard, crop and rotate images; file attachments; infinite canvas page size (`infinite`, zoom 5–3 200 %). `.kahie` document version 0.2.0. Known gaps: auto-width text boxes; infinite pages export only the A4 area at the origin; InkView does not draw through `nb-render` (50 000-stroke budget measured on desktop only).
+- PDF, UI shell, quality (P1-20–24, 37–41, 43–46): PDF stored once per notebook (`assets` page, synced), pages rendered on demand with Android `PdfRenderer` (decision and reasons in `docs/spikes/p1-20-pdf.md`; no PDFium), text layer via `nb-pdf` (lopdf) with *More → PDF text*, 240 generated + 200 damaged PDFs in tests; Simple (7 items) / Advanced toolbar in `Toolbar.kt`, top or side, left-handed; design tokens, dark mode (paper stays white); first-run, 5 tips and 3 tutorials (`Coach.kt`); opt-in local crash log without content (`CrashReports.kt`); CI jobs `bench` (`nb-bench`, absolute budgets; regression check needs a baseline recorded on CI: commit the `bench.json` artifact as `core/crates/nb-bench/baseline.json`) and `a11y`; golden images for `nb-render` and SVG export. Gaps: PDFs over ~15 MB do not sync (relay 16 MB message cap); no drag-select of PDF text on the page; PDF text not yet in search; TalkBack audit on a device.
 - Notebooks (switch/create/rename), Pages dialog (open, add, rename, delete to trash, Trash restore, export page PNG; sections: create, rename, delete, move the open page into one).
 - Languages: English, French, Malagasy (draft); in-app language choice (Notebooks → More → Language) plus Android 13 per-app language.
 - Blocks: Text (tap to add/edit), Maths (LaTeX → MathJax in hidden WebView → SVG → AndroidSVG Picture), Plot (functions of x, sampled in the core), Image (photos, stored in the page CRDT `assets` map), Select tool (rectangle select, move, copy/paste across pages and notebooks, duplicate, delete, bring to front / send to back).
@@ -45,9 +48,32 @@ GPL-3.0-or-later · Android only (12+, 6 GB) · FR/EN/MG for UI and handwriting 
 - Paper: lined, grid, dots, mm graph, Cornell, music, blank; size per page (A4/A5/Letter, portrait/landscape, or custom `<w>x<h>mm`, 50–1000 mm; `Page.size`, `nb_model::custom_size`, `.kahie` field `size`); PDF import as uneditable page background (landscape pages kept landscape).
 - Export/import: `.kahie` (ZIP, schema-valid `document.json`, `assets/<sha256>`), vector PDF of the notebook (each page at its size), PNG and SVG of a page (`SvgExport.kt`: paper, ink, plots, text, maths as embedded MathJax SVG, images as data URIs).
 - Sync: self-hosted relay (`nb-relay`), Share/Join/Settings, live sync of the open page + outline, background one-shot sync of other pages every 5 min (reloads the open page if it changed), status dot. Per-notebook access control: Share shows an editor code and a read-only code (students); read-only notebooks are view-only (`nb_store::access`, `docs/relay.md`). **Optional end-to-end encryption** (asked at first Share, default on): codes `n….e…` / `n….v…`; updates sealed with ChaCha20-Poly1305 (`ring`) in `nb-ffi/src/sync.rs`, document id as AAD; the relay sees only derived credentials and ciphertext and never compacts sealed logs. Plain `w…`/`r…` codes and codes without keys stay unencrypted.
-- CAS: `cas_eval` FFI + Compute button in the text dialog (only in builds with feature `giac`).
+- CAS: `cas_eval` FFI + Compute button in the text dialog, plus operation buttons Solve/Factor/Expand/Simplify/d/dx/∫/≈ (`cas_command`, E2.3) — only in builds with feature `giac`.
 
-## CI state (23:08 UTC 2026-11-20)
+## Phase 2 (maths layer) progress
+
+All in the plot block's text lines (`nb_math::plot`, syntax in its module docs and in the user guide), so the document model, sync and `.kahie` are unchanged.
+
+| Epic | State | Where |
+|---|---|---|
+| E2.3 CAS in the UI | Operations on the last line (exact or ≈) | `nb-ffi/src/cas.rs` `cas_command`, `MainActivity.withCasTools` |
+| E2.4 Plotting | Functions, parametric `(x(t), y(t))`, polar `r = f(θ)`, points, area shading | `nb_math::plot` |
+| E2.5 Function analysis | Roots, extrema, inflections, intersections, vertical/horizontal/oblique asymptotes, tangent/normal, integral and area between curves (numeric, 3 decimals) | `nb_math::analysis`, "Analyse…" button |
+| E2.6 Construction graph | Points, midpoints, lines/segments/rays, circles, perpendicular/parallel, bisectors, intersections, point on object, polygons, distance/angle; undefined states propagate; drag free points with the Plot tool | `nb_math::geo`, `PageDoc.move_plot_point/preview_plot`, `InkView.handlePlot` |
+| E2.7 Constraint solver | `constrain distance/angle/horizontal/vertical/parallel/perpendicular/equal`; Levenberg–Marquardt, DOF and conflicts; 100 constraints ≈ 10 ms release (budget 16 ms) | `nb_math::solve` |
+| E2.11 Styling & transformations (part) | `[red, thick, dashed, hidden]`; rotate, dilate, translate, reflect any object | `nb_math::geo`, `plot.rs` |
+| E2.12 Markdown & LaTeX export | ZIP with `notebook.md`/`.tex` + assets; plots as pgfplots; compiles with pdflatex (CI installs texlive, `KAHIE_REQUIRE_PDFLATEX=1`) | `nb-ffi/src/docexport.rs`, `DocExport.kt` |
+| E2.13 Maths search | Structural queries `x^2 + ?`, `\frac{?}{2}` | `nb_math::mathsearch` |
+| E2.1 maths editor, E2.2 typesetting engine, E2.8 beautification modes, E2.9 snapping/guides, E2.10 instruments, E2.11 layers | Not started | E2.8–E2.10 touch `InkView.kt`: wait for the editing-tools branch to merge |
+
+Phase 2 exit criteria (300-task curriculum suite, 100 constructions with instruments) are not met: no curriculum suite exists yet.
+
+## CI state (2026-11-23)
+
+- **All green on `ed03b3f`**: `android` run 44 (APK with the CAS, emulator smoke test: launch, ink, text + CAS 2^100, maths, plot, pages) and `ci` run 64 (Rust tests incl. pdflatex, cargo-deny, `bench`, `a11y`, schema). Everything is merged on the branch: Phase 2 work, the three Phase 1 branches.
+- Runs 39–43 failed in the smoke test only (no app crash): the rich-text dialog's field had no focus (fixed in `12be8f0`), then the test tapped the page while Simple mode's More menu was closing (fixed in `ed03b3f`). `smoke.sh` now prints a step trail, crash lines (native included) and Android's exit reason on any failure.
+
+## CI state (older, 23:08 UTC 2026-11-20)
 
 - `ci` (web, core tests, cargo-deny, offline tests with loopback only, schema): green.
 - `giac-android` (arm64 + x86_64 matrix): **green**; publishes `giac-libs-<target>` artifacts.
@@ -63,13 +89,13 @@ How to iterate without the Android SDK here: generate bindings and compile them 
 - Buy/borrow reference devices (P0-15); run device measurements for P0-02/03/04/08.
 - Approve the corpus protocol and consent text; organise collection sessions; native-speaker review of Malagasy prompts and of the **Malagasy UI draft** (`app/android/app/src/main/res/values-mg/strings.xml`, written without a native speaker).
 - Trademark check for "Kahie" (D10).
-- Merge the working branch into `main` (squash).
+- Test the APK on a real tablet (CI artifact `kahie-debug-apk` of the latest `android` run; zip, then install `app-debug.apk`).
 
 ## Next steps for the agent (in order)
 
 1. (Done: CAS 11.0 MB arm64.) Further CAS savings only if APK size becomes a problem: drop unused Giac modules in `prepare-giac.py`.
-2. Backlog P1 items that need no device. (Done: P1-05 incl. custom sizes, horizontal scrolling, P1-08 page + notebook templates, P1-34 SVG export, P1-15 copy/paste, P1-16 z-order, P1-28 page versions, P1-27 backup, P1-36 share, E2E encryption of sync.)
-3. E2E follow-ups: encrypted logs are never compacted (they grow); a client-side compaction (an editor uploads a sealed snapshot that replaces the log) would bound them. Horizontal scrolling shows one page at a time (no neighbour preview); refine after device testing.
+2. Phase 1 in parallel branches (2026-11-21/22): organisation & search merged (`8b77c90`, `9911acd`); editing tools merged (`2af45b1`, `cd22389`). PDF/UI/quality merged (`4e3d969`…`c33f52a`). Phase 1 remaining: P1-29–31 handwriting (corpus), P1-42 desktop (dropped by D3), P1-47 pilot (owner); partial items listed under "Android app". Earlier P1 items that need no device. (Done: P1-05 incl. custom sizes, horizontal scrolling, P1-08 page + notebook templates, P1-34 SVG export, P1-15 copy/paste, P1-16 z-order, P1-28 page versions, P1-27 backup, P1-36 share, E2E encryption of sync.)
+3. (Done: client-side compaction of encrypted logs, `KHC1` frames, `Store::compact_upto`.) Horizontal scrolling shows one page at a time (no neighbour preview); refine after device testing.
 4. P0-05 Android tile cache using `nb-render` display lists (needs device fps to justify).
 5. Handwriting recognition (D2 pending P0-06 corpus).
 

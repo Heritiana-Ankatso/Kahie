@@ -6,6 +6,7 @@ pub mod crdt;
 pub mod inkcodec;
 pub mod library;
 pub mod notebook;
+pub mod select;
 
 /// `document.json` of a `.kahie` file (docs/format/kahie-v0.md): readable without the app.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -25,19 +26,152 @@ pub struct NotebookInfo {
 }
 
 pub const DOCUMENT_FORMAT: &str = "kahie-document";
-pub const DOCUMENT_VERSION: &str = "0.1.0";
+/// 0.2.0 (P1-06…P1-19): pencil/brush tools, pen tilt, rich text spans, attachments, groups,
+/// infinite pages. All additions are optional fields or new values, so 0.1 files still read.
+pub const DOCUMENT_VERSION: &str = "0.2.0";
 
-use nb_ink::Point;
+use nb_ink::{Nib, Point};
 use nb_recog::Shape;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 pub type Id = String;
 
+/// Ink tool of a stroke (P1-10). Readers that do not know a tool draw it as a pen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tool {
     Pen,
     Highlighter,
+    Pencil,
+    Brush,
+}
+
+impl Tool {
+    /// Pressure/tilt response of the tool.
+    pub fn nib(self) -> Nib {
+        match self {
+            Tool::Pen => Nib::Pen,
+            Tool::Highlighter => Nib::Highlighter,
+            Tool::Pencil => Nib::Pencil,
+            Tool::Brush => Nib::Brush,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Tool::Pen => "pen",
+            Tool::Highlighter => "highlighter",
+            Tool::Pencil => "pencil",
+            Tool::Brush => "brush",
+        }
+    }
+
+    /// Tool from its stored name; unknown names are pens.
+    pub fn from_name(s: &str) -> Tool {
+        match s {
+            "highlighter" => Tool::Highlighter,
+            "pencil" => Tool::Pencil,
+            "brush" => Tool::Brush,
+            _ => Tool::Pen,
+        }
+    }
+}
+
+/// 2 × 2 linear map `[a, b, c, d]`: (x, y) → (a·x + c·y, b·x + d·y).
+pub type Linear = [f64; 4];
+
+/// The identity [`Linear`] map.
+pub const IDENTITY: Linear = [1.0, 0.0, 0.0, 1.0];
+
+fn identity() -> Linear {
+    IDENTITY
+}
+
+/// `m ∘ n` (apply `n` first).
+pub fn compose(m: Linear, n: Linear) -> Linear {
+    [
+        m[0] * n[0] + m[2] * n[1],
+        m[1] * n[0] + m[3] * n[1],
+        m[0] * n[2] + m[2] * n[3],
+        m[1] * n[2] + m[3] * n[3],
+    ]
+}
+
+/// Scale and rotation about a centre, then a translation (P1-15): the transforms the
+/// selection handles produce. Applied to raw ink it only changes the stroke's frame, never
+/// its stored points (ADR-0003).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Similarity {
+    pub cx: f64,
+    pub cy: f64,
+    pub scale: f64,
+    /// Radians, clockwise on screen (y points down).
+    pub angle: f64,
+    pub dx: f64,
+    pub dy: f64,
+}
+
+impl Similarity {
+    pub fn translation(dx: f64, dy: f64) -> Self {
+        Self {
+            cx: 0.0,
+            cy: 0.0,
+            scale: 1.0,
+            angle: 0.0,
+            dx,
+            dy,
+        }
+    }
+
+    pub fn linear(&self) -> Linear {
+        let (s, c) = self.angle.sin_cos();
+        [self.scale * c, self.scale * s, -self.scale * s, self.scale * c]
+    }
+
+    pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
+        let m = self.linear();
+        let (u, v) = (x - self.cx, y - self.cy);
+        (
+            self.cx + m[0] * u + m[2] * v + self.dx,
+            self.cy + m[1] * u + m[3] * v + self.dy,
+        )
+    }
+
+    fn point(&self, p: &Point) -> Point {
+        let (x, y) = self.apply(p.x, p.y);
+        Point { x, y, ..*p }
+    }
+
+    /// Rectangle with its centre moved and its size scaled (blocks stay upright).
+    fn rect(&self, r: &Rect) -> Rect {
+        let (cx, cy) = self.apply(r.x + r.w / 2.0, r.y + r.h / 2.0);
+        let (w, h) = (r.w * self.scale, r.h * self.scale);
+        Rect {
+            x: cx - w / 2.0,
+            y: cy - h / 2.0,
+            w,
+            h,
+        }
+    }
+
+    fn shape(&self, s: &mut Shape) {
+        match s {
+            Shape::Line { a, b } => {
+                *a = self.point(a);
+                *b = self.point(b);
+            }
+            Shape::Polygon { points, .. } => points.iter_mut().for_each(|p| *p = self.point(p)),
+            Shape::Ellipse {
+                cx, cy, rx, ry, angle, ..
+            } => {
+                (*cx, *cy) = self.apply(*cx, *cy);
+                *rx *= self.scale;
+                *ry *= self.scale;
+                *angle += self.angle;
+            }
+        }
+    }
 }
 
 /// A recognised shape attached to a stroke; `show` toggles it against the raw ink (ADR-0003).
@@ -52,8 +186,14 @@ pub struct Stroke {
     pub tool: Tool,
     pub color: u32,
     pub width: f64,
+    /// Points as displayed (stored ink with the stroke's transform applied).
     pub points: Vec<Point>,
     pub interp: Option<Interp>,
+    /// Linear part of the transform from the stored (immutable) ink to `points`; the
+    /// translation follows from the points. Identity for new ink. Not part of the exchange
+    /// format, where `points` are already transformed.
+    #[serde(skip, default = "identity")]
+    pub frame: Linear,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -73,6 +213,87 @@ impl Rect {
     }
 }
 
+/// Formatting of a run of text in a rich text block (P1-17). Offsets count Unicode scalar
+/// values (`char`s). `heading` (1–3) and `list` (1 bullet, 2 numbered) apply to whole
+/// paragraphs; the editor always sets them on full lines.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextSpan {
+    pub start: u32,
+    pub end: u32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bold: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub italic: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub underline: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<u32>,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub heading: u8,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub list: u8,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
+}
+
+impl TextSpan {
+    /// Same formatting (ignoring the range).
+    pub fn same_style(&self, o: &TextSpan) -> bool {
+        (
+            self.bold,
+            self.italic,
+            self.underline,
+            self.color,
+            self.heading,
+            self.list,
+        ) == (o.bold, o.italic, o.underline, o.color, o.heading, o.list)
+    }
+
+    pub fn is_plain(&self) -> bool {
+        self.same_style(&TextSpan::default())
+    }
+}
+
+/// Canonical form of `spans` for a text of `len` chars: clipped, sorted, non-overlapping
+/// (later spans win where they overlap), adjacent equal runs merged, plain runs dropped.
+pub fn normalize_spans(spans: &[TextSpan], len: u32) -> Vec<TextSpan> {
+    let mut cuts: Vec<u32> = vec![0, len];
+    for s in spans {
+        cuts.push(s.start.min(len));
+        cuts.push(s.end.min(len));
+    }
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut out: Vec<TextSpan> = vec![];
+    for w in cuts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        if a >= b {
+            continue;
+        }
+        let Some(style) = spans.iter().rev().find(|s| s.start <= a && s.end >= b) else {
+            continue;
+        };
+        if style.is_plain() {
+            continue;
+        }
+        match out.last_mut() {
+            Some(last) if last.end == a && last.same_style(style) => last.end = b,
+            _ => out.push(TextSpan {
+                start: a,
+                end: b,
+                ..style.clone()
+            }),
+        }
+    }
+    out
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Content {
@@ -82,6 +303,9 @@ pub enum Content {
         text: String,
         size: f64,
         color: u32,
+        /// Rich text formatting (P1-17); empty for plain text.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        spans: Vec<TextSpan>,
     },
     Math {
         rect: Rect,
@@ -101,6 +325,13 @@ pub enum Content {
         rect: Rect,
         asset: Id,
     },
+    /// Any other file (P1-19), kept as an asset and opened with another app.
+    Attachment {
+        rect: Rect,
+        asset: Id,
+        name: String,
+        mime: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -113,9 +344,13 @@ impl Item {
     pub fn bounds(&self) -> Rect {
         match &self.content {
             Content::Stroke(s) => {
+                let shape;
                 let pts = match &s.interp {
-                    Some(Interp { shape, show: true }) => shape.points(),
-                    _ => s.points.clone(),
+                    Some(Interp { shape: sh, show: true }) => {
+                        shape = sh.points();
+                        &shape
+                    }
+                    _ => &s.points,
                 };
                 if pts.is_empty() {
                     return Rect {
@@ -127,7 +362,7 @@ impl Item {
                 }
                 let (mut x0, mut y0, mut x1, mut y1) =
                     (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
-                for p in &pts {
+                for p in pts {
                     x0 = x0.min(p.x);
                     x1 = x1.max(p.x);
                     y0 = y0.min(p.y);
@@ -144,7 +379,8 @@ impl Item {
             Content::Text { rect, .. }
             | Content::Math { rect, .. }
             | Content::Plot { rect, .. }
-            | Content::Image { rect, .. } => rect.clone(),
+            | Content::Image { rect, .. }
+            | Content::Attachment { rect, .. } => rect.clone(),
         }
     }
 
@@ -164,9 +400,37 @@ impl Item {
             Content::Text { rect, .. }
             | Content::Math { rect, .. }
             | Content::Plot { rect, .. }
-            | Content::Image { rect, .. } => {
+            | Content::Image { rect, .. }
+            | Content::Attachment { rect, .. } => {
                 rect.x += dx;
                 rect.y += dy;
+            }
+        }
+        it
+    }
+
+    /// Copy scaled and rotated (P1-15). Ink is transformed through its frame, so the stored
+    /// points never change; its width and recognised shape follow. Blocks stay upright:
+    /// their centre moves and their size (and font size) scales.
+    pub fn transformed(&self, t: &Similarity) -> Item {
+        let mut it = self.clone();
+        match &mut it.content {
+            Content::Stroke(s) => {
+                for p in &mut s.points {
+                    *p = t.point(p);
+                }
+                s.frame = compose(t.linear(), s.frame);
+                s.width *= t.scale;
+                if let Some(i) = &mut s.interp {
+                    t.shape(&mut i.shape);
+                }
+            }
+            Content::Text { rect, size, .. } | Content::Math { rect, size, .. } => {
+                *rect = t.rect(rect);
+                *size *= t.scale;
+            }
+            Content::Plot { rect, .. } | Content::Image { rect, .. } | Content::Attachment { rect, .. } => {
+                *rect = t.rect(rect)
             }
         }
         it
@@ -182,7 +446,21 @@ pub struct Page {
     /// A4 portrait by default.
     #[serde(default = "default_size", skip_serializing_if = "is_default_size")]
     pub size: String,
+    /// Imported PDF page drawn under the content (P1-21), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf: Option<PdfSource>,
     pub items: Vec<Item>,
+    /// Groups (P1-16): item id → group id. Items of a group are selected together.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub groups: BTreeMap<Id, Id>,
+}
+
+/// A page of a PDF kept once per notebook (P1-21): `asset` is the SHA-256 (hex) of the PDF
+/// file (`assets/<sha256>` in a `.kahie` file), `page_index` its page, from 0.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PdfSource {
+    pub asset: String,
+    pub page_index: u32,
 }
 
 fn default_template() -> String {
@@ -208,6 +486,9 @@ pub const PAGE_SIZES: &[(&str, f64, f64)] = &[
     ("letter", 816.0, 1056.0),
     ("letter-landscape", 1056.0, 816.0),
 ];
+
+/// Size name of an infinite canvas page (P1-06): no paper edges, pan and zoom anywhere.
+pub const INFINITE: &str = "infinite";
 
 /// Limits of a custom paper size, in millimetres (each side).
 pub const CUSTOM_SIZE_MM: (f64, f64) = (50.0, 1000.0);
@@ -241,12 +522,13 @@ pub fn parse_custom_size(size: &str) -> Option<(f64, f64)> {
     (custom_size(w, h)? == size).then_some((w, h))
 }
 
-/// Whether `size` is a supported paper size (named or custom).
+/// Whether `size` is a supported paper size (named, custom or [`INFINITE`]).
 pub fn valid_size(size: &str) -> bool {
-    PAGE_SIZES.iter().any(|(n, _, _)| *n == size) || parse_custom_size(size).is_some()
+    size == INFINITE || PAGE_SIZES.iter().any(|(n, _, _)| *n == size) || parse_custom_size(size).is_some()
 }
 
-/// Width and height of a paper size in page units; unknown names are A4 portrait.
+/// Width and height of a paper size in page units; unknown names are A4 portrait. An
+/// infinite canvas has no size: it gets A4 here (see [`Page::extent`] for its content).
 pub fn page_dims(size: &str) -> (f64, f64) {
     if let Some((w, h)) = parse_custom_size(size) {
         return ((w * UNITS_PER_MM).round(), (h * UNITS_PER_MM).round());
@@ -263,8 +545,59 @@ impl Page {
             id: id.into(),
             template: default_template(),
             size: default_size(),
+            pdf: None,
             items: vec![],
+            groups: BTreeMap::new(),
         }
+    }
+
+    /// Bounding box of all items (`None` for an empty page).
+    pub fn content_bounds(&self) -> Option<Rect> {
+        let mut b: Option<(f64, f64, f64, f64)> = None;
+        for it in &self.items {
+            let r = it.bounds();
+            b = Some(match b {
+                None => (r.x, r.y, r.x + r.w, r.y + r.h),
+                Some((a, c, d, e)) => (a.min(r.x), c.min(r.y), d.max(r.x + r.w), e.max(r.y + r.h)),
+            });
+        }
+        b.map(|(x0, y0, x1, y1)| Rect {
+            x: x0,
+            y: y0,
+            w: x1 - x0,
+            h: y1 - y0,
+        })
+    }
+
+    /// The area to show or export: the paper, or for an infinite canvas the content with a
+    /// margin (at least an A4 sheet from the origin when empty).
+    pub fn extent(&self) -> Rect {
+        let (w, h) = page_dims(&self.size);
+        if self.size != INFINITE {
+            return Rect { x: 0.0, y: 0.0, w, h };
+        }
+        match self.content_bounds() {
+            None => Rect { x: 0.0, y: 0.0, w, h },
+            Some(r) => Rect {
+                x: r.x - 40.0,
+                y: r.y - 40.0,
+                w: r.w + 80.0,
+                h: r.h + 80.0,
+            },
+        }
+    }
+
+    /// Ids of `ids` plus every item grouped with one of them, in drawing order.
+    pub fn with_groups(&self, ids: &[String]) -> Vec<String> {
+        let groups: std::collections::HashSet<&Id> = ids.iter().filter_map(|id| self.groups.get(id)).collect();
+        if groups.is_empty() {
+            return ids.to_vec();
+        }
+        self.items
+            .iter()
+            .filter(|it| ids.contains(&it.id) || self.groups.get(&it.id).is_some_and(|g| groups.contains(g)))
+            .map(|it| it.id.clone())
+            .collect()
     }
 }
 
@@ -273,7 +606,13 @@ impl Page {
 pub enum Op {
     Add(Vec<(usize, Item)>),
     Remove(Vec<(usize, Item)>),
-    Update { before: Vec<Item>, after: Vec<Item> },
+    Update {
+        before: Vec<Item>,
+        after: Vec<Item>,
+    },
+    /// Several ops applied in order as one command (one undo step), e.g. the partial
+    /// eraser: remove a stroke, add the pieces left of it at its place.
+    Batch(Vec<Op>),
 }
 
 impl Op {
@@ -309,12 +648,14 @@ impl Op {
                 before: after.clone(),
                 after: before.clone(),
             },
+            Op::Batch(ops) => Op::Batch(ops.iter().rev().map(Op::inverse).collect()),
         }
     }
     pub fn is_empty(&self) -> bool {
         match self {
             Op::Add(e) | Op::Remove(e) => e.is_empty(),
             Op::Update { after, .. } => after.is_empty(),
+            Op::Batch(ops) => ops.iter().all(Op::is_empty),
         }
     }
     pub fn apply(&self, page: &mut Page) {
@@ -335,6 +676,7 @@ impl Op {
                     }
                 }
             }
+            Op::Batch(ops) => ops.iter().for_each(|o| o.apply(page)),
         }
     }
 }
@@ -400,6 +742,7 @@ mod tests {
                 width: 3.0,
                 points: pts.iter().map(|&(x, y)| Point::xy(x, y)).collect(),
                 interp: None,
+                frame: IDENTITY,
             }),
         }
     }
@@ -464,6 +807,96 @@ mod tests {
     }
 
     #[test]
+    fn spans_are_normalised() {
+        let b = |s, e| TextSpan {
+            start: s,
+            end: e,
+            bold: true,
+            ..Default::default()
+        };
+        let i = |s, e| TextSpan {
+            start: s,
+            end: e,
+            italic: true,
+            ..Default::default()
+        };
+        assert_eq!(normalize_spans(&[b(0, 3), b(3, 6)], 10), vec![b(0, 6)]);
+        assert_eq!(normalize_spans(&[b(4, 20)], 10), vec![b(4, 10)]);
+        assert_eq!(
+            normalize_spans(&[b(0, 6), i(2, 4)], 10),
+            vec![b(0, 2), i(2, 4), b(4, 6)]
+        );
+        assert_eq!(
+            normalize_spans(
+                &[TextSpan {
+                    start: 0,
+                    end: 5,
+                    ..Default::default()
+                }],
+                10
+            ),
+            vec![]
+        );
+        // Old documents without spans still read.
+        let old = r#"{"type":"text","rect":{"x":0,"y":0,"w":10,"h":10},"text":"hi","size":12,"color":0}"#;
+        assert!(
+            matches!(serde_json::from_str::<Content>(old).unwrap(), Content::Text { spans, .. } if spans.is_empty())
+        );
+    }
+
+    #[test]
+    fn similarity_scales_and_rotates_ink_through_its_frame() {
+        let s = stroke("a", &[(10.0, 0.0), (20.0, 0.0)]);
+        let t = Similarity {
+            cx: 0.0,
+            cy: 0.0,
+            scale: 2.0,
+            angle: std::f64::consts::FRAC_PI_2,
+            dx: 1.0,
+            dy: 0.0,
+        };
+        let r = s.transformed(&t);
+        let Content::Stroke(st) = &r.content else {
+            unreachable!()
+        };
+        assert!((st.points[0].x - 1.0).abs() < 1e-9 && (st.points[0].y - 20.0).abs() < 1e-9);
+        assert!((st.points[1].y - 40.0).abs() < 1e-9);
+        assert_eq!(st.width, 6.0);
+        assert!((st.frame[1] - 2.0).abs() < 1e-12 && st.frame[0].abs() < 1e-12);
+        let mut page = Page::new("p");
+        page.items.push(s);
+        page.items.push(stroke("b", &[(0.0, 0.0)]));
+        page.groups.insert("a".into(), "g".into());
+        page.groups.insert("b".into(), "g".into());
+        assert_eq!(page.with_groups(&["b".into()]), ["a", "b"]);
+    }
+
+    #[test]
+    fn infinite_canvas_extent_follows_content() {
+        let mut page = Page::new("p");
+        page.size = INFINITE.into();
+        assert!(valid_size(INFINITE));
+        assert_eq!(page.extent().w, 794.0);
+        page.items.push(stroke("a", &[(-1000.0, -50.0), (3000.0, 20.0)]));
+        let e = page.extent();
+        assert!(e.x < -1000.0 && e.x + e.w > 3000.0);
+    }
+
+    #[test]
+    fn batch_is_one_reversible_command() {
+        let mut page = Page::new("p");
+        let mut h = History::new(10);
+        let op = Op::add(&page, vec![stroke("a", &[(0.0, 0.0)]), stroke("b", &[(1.0, 1.0)])]);
+        h.apply(&mut page, op);
+        let rm = Op::remove(&page, &["a"]);
+        let add = Op::Add(vec![(0, stroke("a1", &[(0.0, 0.0)])), (1, stroke("a2", &[(0.5, 0.0)]))]);
+        h.apply(&mut page, Op::Batch(vec![rm, add]));
+        assert_eq!(ids(&page), ["a1", "a2", "b"]);
+        h.undo(&mut page);
+        assert_eq!(ids(&page), ["a", "b"]);
+    }
+
+    #[test]
     fn interpretation_moves_with_raw_ink() {
         let mut s = stroke("a", &[(0.0, 0.0), (100.0, 0.0)]);
         if let Content::Stroke(st) = &mut s.content {
@@ -510,6 +943,21 @@ mod tests {
                 text: "Théorème de Pythagore".into(),
                 size: 16.0,
                 color: 0x1d1d1f,
+                spans: vec![
+                    TextSpan {
+                        start: 0,
+                        end: 9,
+                        bold: true,
+                        ..Default::default()
+                    },
+                    TextSpan {
+                        start: 13,
+                        end: 22,
+                        italic: true,
+                        color: Some(0x2b59c3),
+                        ..Default::default()
+                    },
+                ],
             },
         });
         page.items.push(Item {
@@ -554,6 +1002,31 @@ mod tests {
                 asset: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08".into(),
             },
         });
+        page.items.push(Item {
+            id: "f1".into(),
+            content: Content::Attachment {
+                rect: Rect {
+                    x: 440.0,
+                    y: 120.0,
+                    w: 180.0,
+                    h: 48.0,
+                },
+                asset: "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752".into(),
+                name: "worksheet.odt".into(),
+                mime: "application/vnd.oasis.opendocument.text".into(),
+            },
+        });
+        page.groups.insert("i1".into(), "grp-1".into());
+        page.groups.insert("f1".into(), "grp-1".into());
+        let mut canvas = Page::new("page-2");
+        canvas.size = INFINITE.into();
+        canvas.template = "blank".into();
+        let mut ink = stroke("s2", &[(-500.0, -200.0), (-450.0, -180.0)]);
+        if let Content::Stroke(st) = &mut ink.content {
+            st.tool = Tool::Pencil;
+            st.points[1].t = 0.6;
+        }
+        canvas.items.push(ink);
         let doc = DocumentJson {
             format: DOCUMENT_FORMAT.into(),
             version: DOCUMENT_VERSION.into(),
@@ -561,7 +1034,16 @@ mod tests {
                 id: "nb-1".into(),
                 title: "Géométrie".into(),
             },
-            pages: vec![page, Page::new("page-2")],
+            pages: vec![page, canvas, {
+                // A page showing page 3 of a PDF kept once in the notebook's assets.
+                let mut p = Page::new("page-3");
+                p.template = "blank".into();
+                p.pdf = Some(PdfSource {
+                    asset: "3e23e8160039594a33894f6564e1b1348bbd7a0088d42c4acb73eeaed59c009d".into(),
+                    page_index: 2,
+                });
+                p
+            }],
         };
         let json = serde_json::to_string_pretty(&doc).unwrap() + "\n";
         let path = concat!(

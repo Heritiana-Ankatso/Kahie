@@ -233,8 +233,23 @@ object PageRenderer {
         canvas.drawBitmap(bmp, null, android.graphics.RectF(img.x, img.y, img.x + img.width, img.y + img.height), imagePaint)
     }
 
-    /** The page background (imported PDF page), fitted to the page and centred. */
-    fun drawBackground(canvas: Canvas, d: PageDoc) {
+    /** Screen state for drawing a PDF page on demand: zoom, visible page region, redraw. */
+    class Live(val pxPerUnit: Float, val visible: android.graphics.RectF?, val onReady: () -> Unit)
+
+    /**
+     * The page background, fitted to the page and centred: a PDF page kept once per notebook
+     * (rendered on demand by [PdfPages] when [live] is given, synchronously at 2× for exports
+     * otherwise), or a raster background from imports made before PDFs were kept (P1-21).
+     */
+    fun drawBackground(canvas: Canvas, d: PageDoc, live: Live? = null) {
+        if (live != null) {
+            if (PdfPages.draw(canvas, d, live.pxPerUnit, live.visible, live.onReady)) return
+        } else if (d.pdfSource() != null) {
+            val (bmp, place) = PdfPages.renderForExport(d, 2f) ?: return
+            canvas.drawBitmap(bmp, null, place, imagePaint)
+            bmp.recycle()
+            return
+        }
         val hash = d.backgroundHash() ?: return
         val bmp = bitmap(d, hash) ?: return
         val (pw, ph) = d.pageDims().let { it[0] to it[1] }
@@ -264,9 +279,9 @@ object PageRenderer {
             canvas.drawPath(inkPath(g), inkPaint(g))
         }
         for (p in d.plotBlocks()) drawPlot(canvas, p, 0.75f)
+        for (a in d.attachmentBlocks()) Attachments.draw(canvas, a, 0.75f)
         for (b in d.textBlocks()) {
-            val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = b.size; color = opaque(b.color) }
-            val layout = StaticLayout.Builder.obtain(b.text, 0, b.text.length, tp, b.width.toInt().coerceAtLeast(20)).build()
+            val layout = RichText.layout(b.text, b.spans, b.width, b.size, b.color)
             canvas.save()
             canvas.translate(b.x, b.y)
             layout.draw(canvas)

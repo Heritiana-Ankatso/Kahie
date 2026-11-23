@@ -38,6 +38,36 @@ jobs:
         env:
           KAHIE_REQUIRE_PDFLATEX: "1"
         run: cargo test --locked
+      # P1-44: images of failed golden-image tests (actual + diff).
+      - name: Upload golden-image failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-failures
+          path: core/target/golden-failures/
+          if-no-files-found: ignore
+
+  # P1-43: performance budgets measurable on the desktop, and > 10 % regressions against
+  # core/crates/nb-bench/baseline.json (compared only when that baseline was recorded on this
+  # runner type: download the bench.json artifact and commit it as baseline.json to enable).
+  bench:
+    runs-on: ubuntu-latest
+    env:
+      KAHIE_BENCH_RUNNER: github-ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Benchmarks
+        run: cargo run --release --locked -p nb-bench -- --check --json bench.json
+      - name: Upload results (candidate baseline)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: core/bench.json
+          if-no-files-found: ignore
 
   deny:
     runs-on: ubuntu-latest
@@ -68,6 +98,15 @@ jobs:
             (cd core && cargo test --locked --offline)
             (cd app/web && node --test tests/*.test.mjs)
           '
+
+  # P1-39/P1-46: contrast of the design tokens (light and dark), translations complete,
+  # toolbar icons labelled. Pure Python, no Android SDK.
+  a11y:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Accessibility checks of the app resources
+        run: python3 app/android/ci/a11y-check.py
 
   format-schema:
     runs-on: ubuntu-latest

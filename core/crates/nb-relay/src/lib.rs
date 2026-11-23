@@ -50,7 +50,10 @@
 //!
 //! Updates of end-to-end encrypted notebooks start with `KHE1`
 //! ([`nb_store::access::is_sealed`]). The relay stores and forwards them like any other
-//! update but never compacts a log that contains one (it cannot read them).
+//! update but never compacts a log that contains one (it cannot read them). Instead an editor
+//! sends `KHC1 ‖ seq ‖ sealed snapshot` ([`nb_store::access::COMPACT_MAGIC`]) once the log is
+//! long (the upgrade response's `X-Kahie-Pending` gives the number of updates since the last
+//! snapshot); the relay keeps that snapshot for every update ≤ seq and drops those updates.
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -96,6 +99,10 @@ pub const KEY_HEADER: &str = "x-kahie-key";
 pub const ROLE_HEADER: &str = "x-kahie-role";
 /// Header with the hash of the read credential, sent when claiming an end-to-end group.
 pub const READ_HASH_HEADER: &str = "x-kahie-read-hash";
+/// Response header: updates stored since the last snapshot.
+pub const PENDING_HEADER: &str = "x-kahie-pending";
+/// Response header: seq of the snapshot the catch-up starts with (when it starts with one).
+pub const SNAPSHOT_HEADER: &str = "x-kahie-snapshot";
 
 /// A hex SHA-256 as stored in `.acl` files.
 fn valid_hash(h: &str) -> bool {
@@ -254,6 +261,16 @@ async fn sync(
         Ok(r) => r,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
     };
+    let (pending, snapshot_seq) = {
+        let store = room.store.lock().unwrap();
+        let snap = store
+            .latest_snapshot()
+            .ok()
+            .flatten()
+            .map(|(s, _)| s)
+            .filter(|s| after < *s);
+        (store.pending_updates().unwrap_or(0).to_string(), snap)
+    };
     let conn = relay.next_conn.fetch_add(1, Ordering::Relaxed);
     let mut resp = ws
         .max_message_size(16 << 20)
@@ -261,6 +278,12 @@ async fn sync(
     let name = if role == Role::Write { "write" } else { "read" };
     resp.headers_mut()
         .insert(ROLE_HEADER, axum::http::HeaderValue::from_static(name));
+    if let Ok(n) = pending.parse() {
+        resp.headers_mut().insert(PENDING_HEADER, n);
+    }
+    if let Some(Ok(n)) = snapshot_seq.map(|s| s.to_string().parse()) {
+        resp.headers_mut().insert(SNAPSHOT_HEADER, n);
+    }
     resp
 }
 
@@ -308,6 +331,16 @@ async fn client(mut socket: WebSocket, room: Arc<Room>, after: i64, conn: u64, r
                     let close = axum::extract::ws::CloseFrame { code: 1008, reason: "read-only".into() };
                     let _ = socket.send(Message::Close(Some(close))).await;
                     return;
+                }
+                // An editor's encrypted snapshot replacing the log up to seq (not forwarded).
+                if bytes.len() > 12 && bytes.starts_with(nb_store::access::COMPACT_MAGIC) {
+                    let seq = u64::from_be_bytes(bytes[4..12].try_into().expect("8 bytes")) as i64;
+                    let snapshot = bytes[12..].to_vec();
+                    if is_sealed(&snapshot) {
+                        let store = room.store.clone();
+                        let _ = tokio::task::spawn_blocking(move || store.lock().unwrap().compact_upto(&snapshot, seq)).await;
+                    }
+                    continue;
                 }
                 let store = room.store.clone();
                 let tx = room.tx.clone();

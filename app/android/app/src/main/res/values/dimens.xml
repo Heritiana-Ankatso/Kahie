@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Design tokens (P1-39): spacing, sizes and type scale. Text sizes are in sp so they follow
+     the system font size (scalable text). -->
+<resources>
+    <dimen name="kahie_space_xs">2dp</dimen>
+    <dimen name="kahie_space_s">4dp</dimen>
+    <dimen name="kahie_space_m">8dp</dimen>
+    <dimen name="kahie_space_l">16dp</dimen>
+    <dimen name="kahie_space_xl">24dp</dimen>
+    <!-- Minimum touch target (WCAG 2.5.8 asks 24dp; Android guidance 48dp). -->
+    <dimen name="kahie_touch">48dp</dimen>
+    <dimen name="kahie_swatch">30dp</dimen>
+    <dimen name="kahie_radius">10dp</dimen>
+    <dimen name="kahie_divider_len">28dp</dimen>
+    <dimen name="kahie_text_body">15sp</dimen>
+    <dimen name="kahie_text_label">14sp</dimen>
+    <dimen name="kahie_text_small">12sp</dimen>
+</resources>

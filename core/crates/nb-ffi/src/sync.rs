@@ -28,6 +28,9 @@ use tungstenite::{Message, WebSocket};
 
 const META_VV: &str = "relay_vv";
 const NONCE_LEN: usize = 12;
+/// End-to-end mode: an editor uploads an encrypted snapshot once the relay holds this many
+/// updates since the last one (the relay cannot compact encrypted logs itself).
+const COMPACT_EVERY: i64 = if cfg!(test) { 8 } else { 1000 };
 
 /// Content key and associated data of an end-to-end encrypted document.
 struct Sealer {
@@ -187,6 +190,8 @@ struct Cursor {
 /// Something that syncs through the relay: a page or a notebook outline.
 pub(crate) trait SyncTarget: Send + Sync {
     fn outgoing(&self, relay: &mut VersionVector) -> Option<Vec<u8>>;
+    /// The whole document as one Loro snapshot (end-to-end compaction).
+    fn snapshot(&self) -> Vec<u8>;
     /// Import, save to the local database.
     fn incoming(&self, bytes: &[u8], relay: &mut VersionVector) -> Result<(), String>;
     fn meta(&self, key: &str) -> Option<Vec<u8>>;
@@ -196,6 +201,9 @@ pub(crate) trait SyncTarget: Send + Sync {
 impl SyncTarget for PageDoc {
     fn outgoing(&self, relay: &mut VersionVector) -> Option<Vec<u8>> {
         self.state.lock().unwrap().doc.sync_outgoing(relay)
+    }
+    fn snapshot(&self) -> Vec<u8> {
+        self.state.lock().unwrap().doc.snapshot()
     }
     fn incoming(&self, bytes: &[u8], relay: &mut VersionVector) -> Result<(), String> {
         let mut st = self.state.lock().unwrap();
@@ -216,6 +224,9 @@ impl SyncTarget for PageDoc {
 impl SyncTarget for NotebookDoc {
     fn outgoing(&self, relay: &mut VersionVector) -> Option<Vec<u8>> {
         self.state.lock().unwrap().nb.sync_outgoing(relay)
+    }
+    fn snapshot(&self) -> Vec<u8> {
+        self.state.lock().unwrap().nb.snapshot()
     }
     fn incoming(&self, bytes: &[u8], relay: &mut VersionVector) -> Result<(), String> {
         let mut st = self.state.lock().unwrap();
@@ -309,6 +320,25 @@ fn run_connection(
     let (mut ws, resp) = tungstenite::connect(req).map_err(|e| e.to_string())?;
     // Read-only access (a viewer's code): never upload; local edits stay local.
     let can_write = resp.headers().get("x-kahie-role").is_none_or(|v| v != "read");
+    // Updates on the relay since its last snapshot (for client-side compaction).
+    let mut pending: i64 = resp
+        .headers()
+        .get("x-kahie-pending")
+        .and_then(|v| v.to_str().ok()?.parse().ok())
+        .unwrap_or(0);
+    // Highest seq such that every update ≤ it is in our document: received updates come in
+    // order; our own count once the ones before them are in (acks can overtake broadcasts).
+    let mut contig = cursor.seq;
+    let snapshot_seq: Option<i64> = resp
+        .headers()
+        .get("x-kahie-snapshot")
+        .and_then(|v| v.to_str().ok()?.parse().ok());
+    let mut own_acked: std::collections::BTreeSet<i64> = Default::default();
+    let absorb = |contig: &mut i64, own: &mut std::collections::BTreeSet<i64>| {
+        while own.remove(&(*contig + 1)) {
+            *contig += 1;
+        }
+    };
     set_read_timeout(&mut ws, Duration::from_millis(200));
     listener.on_status(SyncStatus::Online);
     // At most one upload in flight; the cursor advances only when the relay acknowledges it.
@@ -328,6 +358,18 @@ fn run_connection(
                     let _ = ws.close(None);
                     return Ok(imported);
                 }
+            }
+        }
+        let compact_now = can_write && in_flight.is_none() && pending >= COMPACT_EVERY && contig > 0;
+        if let (Some(sealer), true) = (&sealer, compact_now) {
+            let mut probe = cursor.vv.clone();
+            if page.outgoing(&mut probe).is_none() {
+                let sealed = sealer.seal(&page.snapshot())?;
+                let mut frame = nb_store::access::COMPACT_MAGIC.to_vec();
+                frame.extend_from_slice(&(contig as u64).to_be_bytes());
+                frame.extend_from_slice(&sealed);
+                ws.send(Message::Binary(frame.into())).map_err(|e| e.to_string())?;
+                pending = 0;
             }
         }
         if can_write && in_flight.is_none() {
@@ -353,6 +395,9 @@ fn run_connection(
                     if let Some(v) = in_flight.take() {
                         cursor.vv = v;
                         save_cursor(page, &cursor);
+                        own_acked.insert(seq);
+                        absorb(&mut contig, &mut own_acked);
+                        pending += 1;
                     }
                     continue;
                 }
@@ -362,6 +407,12 @@ fn run_connection(
                     Some(s) => s.open(payload),
                 };
                 cursor.seq = cursor.seq.max(seq);
+                // Consecutive, or the relay's snapshot (it covers every update ≤ its seq).
+                if seq == contig + 1 || (seq > contig && Some(seq) == snapshot_seq) {
+                    contig = seq;
+                    absorb(&mut contig, &mut own_acked);
+                }
+                pending += 1;
                 let Some(plain) = opened else {
                     save_cursor(page, &cursor);
                     continue;
@@ -828,11 +879,14 @@ mod tests {
         }
         let store = nb_store::Store::open(relay_dir.join(format!("{doc}.db"))).unwrap();
         let log = store.load().unwrap();
-        assert!(log.snapshot.is_none() && !log.updates.is_empty());
+        assert!(
+            log.snapshot.as_ref().is_none_or(|s| nb_store::access::is_sealed(s)),
+            "only editors' sealed snapshots"
+        );
         assert!(log.updates.iter().all(|u| nb_store::access::is_sealed(u)));
-        // Compaction leaves encrypted logs alone.
+        // The relay's own compaction leaves encrypted logs alone.
         nb_relay::compact_document(&relay_dir, &doc).unwrap();
-        assert!(store.load().unwrap().snapshot.is_none());
+        assert_eq!(store.load().unwrap(), log);
 
         // The plain key of another notebook, or no key, is refused; a plaintext update
         // injected by the relay is ignored by end-to-end clients.
@@ -848,7 +902,9 @@ mod tests {
         .is_err());
         store.append_update(&p0_update(&p0)).unwrap();
         drop(store);
-        assert_eq!(once(&fresh, &doc, &viewer.key), log.updates.len() as u32);
+        // Every stored frame (an editor's snapshot, if any, then the updates) is imported.
+        let frames = log.updates.len() + usize::from(log.snapshot.is_some());
+        assert_eq!(once(&fresh, &doc, &viewer.key), frames as u32);
         assert_eq!(fresh.layout(), teacher.layout(), "injected plaintext ignored");
         std::fs::remove_dir_all(base).ok();
     }
@@ -857,5 +913,57 @@ mod tests {
     fn p0_update(p: &PageDoc) -> Vec<u8> {
         let mut vv = VersionVector::default();
         p.outgoing(&mut vv).unwrap()
+    }
+
+    #[test]
+    fn editors_compact_encrypted_logs_without_losing_updates() {
+        let base = std::env::temp_dir().join(format!("kahie-sync-e2e-compact-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let listener = rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let relay_dir = base.join("relay");
+        let cfg = nb_relay::Config {
+            data_dir: relay_dir.clone(),
+            token: None,
+        };
+        rt.spawn(async move { axum::serve(listener, nb_relay::router(cfg)).await.unwrap() });
+        let editor = parse_share_code(new_share_code(true)).unwrap();
+        let viewer = parse_share_code(editor.read_only_code.clone().unwrap()).unwrap();
+        let doc = format!("{}-p1", editor.group);
+        let once = |p: &Arc<PageDoc>, key: &str| {
+            sync_page_once(p.clone(), url.clone(), String::new(), doc.clone(), key.into(), 300).unwrap()
+        };
+        let a = PageDoc::open(base.join("a.kpage").to_string_lossy().into()).unwrap();
+        let b = PageDoc::open(base.join("b.kpage").to_string_lossy().into()).unwrap();
+        a.add_text(10.0, 10.0, 200.0, 40.0, "Secret de famille".into(), 16.0, 0);
+        // Two editors take turns, so the log mixes both authors' updates.
+        for i in 0..6 {
+            draw(&a, i as f64 * 10.0);
+            once(&a, &editor.key);
+            draw(&b, 300.0 + i as f64 * 10.0);
+            once(&b, &editor.key);
+        }
+        once(&a, &editor.key);
+        once(&b, &editor.key);
+        let store = nb_store::Store::open(relay_dir.join(format!("{doc}.db"))).unwrap();
+        let (snap_seq, snap) = store.latest_snapshot().unwrap().expect("an editor compacted the log");
+        assert!(nb_store::access::is_sealed(&snap), "the snapshot is encrypted");
+        assert!(store.updates_after(0).unwrap().iter().all(|(s, _)| *s > snap_seq));
+        assert!(store.pending_updates().unwrap() < 13, "log shortened");
+        // A new viewer catches up from the snapshot and sees everything.
+        let c = PageDoc::open(base.join("c.kpage").to_string_lossy().into()).unwrap();
+        once(&c, &viewer.key);
+        once(&a, &editor.key);
+        assert_eq!(a.item_count(), 13);
+        assert_eq!(c.layout(), a.layout());
+        assert_eq!(b.layout(), a.layout());
+        let mut raw = vec![];
+        for e in std::fs::read_dir(&relay_dir).unwrap().flatten() {
+            raw.extend(std::fs::read(e.path()).unwrap_or_default());
+        }
+        assert!(!contains(&raw, "Secret de famille"));
+        std::fs::remove_dir_all(base).ok();
     }
 }

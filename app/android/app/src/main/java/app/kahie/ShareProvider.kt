@@ -34,14 +34,19 @@ class ShareProvider : ContentProvider() {
 
     override fun onCreate() = true
 
-    override fun getType(uri: Uri): String = when (uri.lastPathSegment?.substringAfterLast('.')?.lowercase()) {
+    override fun getType(uri: Uri): String = when (val ext = uri.lastPathSegment?.substringAfterLast('.')?.lowercase()) {
         "pdf" -> "application/pdf"
         "png" -> "image/png"
-        else -> "application/octet-stream"
+        "jpg", "jpeg" -> "image/jpeg"
+        else -> ext?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) } ?: "application/octet-stream"
     }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
-        if (mode != "r") throw SecurityException("read-only")
+        // Writable only for a camera capture the app asked for (P1-18: insert from camera).
+        if (mode != "r") {
+            if (uri.lastPathSegment?.startsWith("capture-") != true) throw SecurityException("read-only")
+            return ParcelFileDescriptor.open(file(uri), ParcelFileDescriptor.parseMode(mode))
+        }
         return ParcelFileDescriptor.open(file(uri), ParcelFileDescriptor.MODE_READ_ONLY)
     }
 

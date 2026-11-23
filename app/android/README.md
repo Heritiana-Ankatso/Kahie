@@ -42,4 +42,6 @@ cargo check -p nb-ffi --target aarch64-linux-android --release
 
 ## Release signing
 
-Release builds are signed with the debug key until a release key exists.
+CI signs release builds with the Kahie release key, kept in three repository secrets: `KAHIE_KEYSTORE_B64` (the PKCS12 keystore, base64), `KAHIE_KEYSTORE_PASSWORD` (store and key password) and `KAHIE_KEY_ALIAS`. The `android` workflow uploads that APK as the `kahie-release-apk` artifact, with `versionCode` set to the workflow run number, so every build installs as an update over the previous one. Hand testers this APK, not the debug one (CI debug keys change on every run).
+
+Locally, set `KAHIE_KEYSTORE` (path to the keystore), `KAHIE_KEYSTORE_PASSWORD` and `KAHIE_KEY_ALIAS` before `./gradlew assembleRelease`; without them, release builds fall back to the debug key. Keep a backup of the keystore and password outside the repository: losing them means every tester has to uninstall once more.

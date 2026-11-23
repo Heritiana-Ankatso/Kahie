@@ -1,6 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Design tokens (P1-39): colours of the app chrome. Dark values in values-night/colors.xml.
+  The paper itself stays white in both themes so ink keeps its colours and contrast.
+  Contrast pairs are checked by app/android/ci/a11y-check.py (WCAG 2.2 AA).
+-->
 <resources>
+    <!-- Brand / launcher (unchanged by the theme). -->
     <color name="kahie_blue">#2B59C3</color>
-    <color name="desk">#E6E3DC</color>
-    <color name="bar">#F6F4EF</color>
+    <!-- Legacy names, kept for the theme and launcher. -->
+    <color name="desk">@color/kahie_desk</color>
+    <color name="bar">@color/kahie_surface</color>
+
+    <!-- Toolbars, menus, banners. -->
+    <color name="kahie_surface">#F6F4EF</color>
+    <color name="kahie_on_surface">#1D1D1F</color>
+    <color name="kahie_on_surface_muted">#555A63</color>
+    <color name="kahie_divider">#DEDAD0</color>
+    <!-- Selected tool background, links, focus. -->
+    <color name="kahie_accent">#2B59C3</color>
+    <color name="kahie_on_accent">#FFFFFF</color>
+    <!-- Around the page. -->
+    <color name="kahie_desk">#E6E3DC</color>
+    <color name="kahie_paper">#FFFFFF</color>
+    <!-- Tips and tutorial banners. -->
+    <color name="kahie_tip_bg">#1D2433</color>
+    <color name="kahie_tip_fg">#FFFFFF</color>
+    <color name="kahie_tip_action">#A9C1FF</color>
+    <!-- Status (sync dot). -->
+    <color name="kahie_ok">#2A7A4B</color>
+    <color name="kahie_pending">#6B7280</color>
+    <color name="kahie_error">#C0392B</color>
 </resources>

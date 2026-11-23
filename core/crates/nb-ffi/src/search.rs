@@ -368,6 +368,8 @@ impl SearchIndex {
     /// reading order within each notebook.
     pub fn search(&self, query: String, dirs: Vec<String>, limit: u32) -> Result<Vec<SearchHit>, CoreError> {
         let terms = terms(&query);
+        // Maths queries (E2.13) such as "x^2 + ?" also match formulas by structure.
+        let maths = nb_math::mathsearch::MathQuery::parse(&query);
         let mut st = self.state.lock().unwrap();
         let root = st.root.clone();
         let mut changed = false;
@@ -382,7 +384,7 @@ impl SearchIndex {
                 .map_err(|e| CoreError::Io { detail: e.to_string() })?;
         }
         let mut hits = vec![];
-        if terms.is_empty() {
+        if terms.is_empty() && maths.is_none() {
             return Ok(hits);
         }
         let limit = limit as usize;
@@ -436,7 +438,20 @@ impl SearchIndex {
                 };
                 for b in page.blocks.iter_mut() {
                     let text = &b.text;
-                    if let Some(m) = find(b.folded.get_or_insert_with(|| Folded::of(text)), &terms) {
+                    let by_text = if terms.is_empty() {
+                        None
+                    } else {
+                        find(b.folded.get_or_insert_with(|| Folded::of(text)), &terms)
+                    };
+                    // Structural match: the whole formula is the snippet.
+                    let by_maths = match (&maths, b.kind) {
+                        (Some(q), HitKind::Math) if q.matches(&b.text, true) => Some((0, b.text.chars().count())),
+                        (Some(q), HitKind::Plot) if b.text.lines().any(|l| q.matches(l, false)) => {
+                            Some((0, b.text.chars().count()))
+                        }
+                        _ => None,
+                    };
+                    if let Some(m) = by_text.or(by_maths) {
                         let mut h = hit(b.kind, row.page_id.clone(), &t, number, &b.text, m);
                         h.block_id = Some(b.id.clone());
                         [h.x, h.y, h.width, h.height] = b.rect;
@@ -561,6 +576,7 @@ mod tests {
                     h: 30.0,
                 },
                 text: s.into(),
+                spans: vec![],
                 size: 20.0,
                 color: 0,
             },
@@ -598,6 +614,13 @@ mod tests {
         let idx = SearchIndex::open(root.to_string_lossy().into(), index_file.to_string_lossy().into());
         let dirs = vec!["nb-1".to_string()];
         let s = |q: &str| idx.search(q.into(), dirs.clone(), 50).unwrap();
+        // Maths search by structure (E2.13).
+        assert_eq!(
+            s("\\frac{?}{b}").iter().map(|h| h.kind).collect::<Vec<_>>(),
+            [HitKind::Math]
+        );
+        assert_eq!(s("sin(?)").iter().map(|h| h.kind).collect::<Vec<_>>(), [HitKind::Plot]);
+        assert!(s("x^2 + ?").is_empty());
         let h = s("pythagore theoreme");
         assert_eq!(h.len(), 1);
         assert_eq!(
@@ -681,6 +704,8 @@ mod tests {
                     template: "lined".into(),
                     size: "a4".into(),
                     items,
+                    groups: Default::default(),
+                    pdf: None,
                 };
                 write_page(&path.join(format!("{id}.kpage")), &page);
             }

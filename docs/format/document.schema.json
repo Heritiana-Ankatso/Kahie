@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Heritiana-Ankatso/Kahie/docs/format/document.schema.json",
-  "title": "Kahie document.json (format 0.1.0)",
+  "title": "Kahie document.json (format 0.2.0)",
   "description": "Human-readable current state of a notebook inside a .kahie file. See kahie-v0.md.",
   "type": "object",
   "required": ["format", "version", "notebook", "pages"],
@@ -25,8 +25,22 @@
       "properties": {
         "id": { "type": "string" },
         "template": { "type": "string", "description": "Paper: lined, grid, dots, blank…", "default": "lined" },
-        "size": { "anyOf": [{ "enum": ["a3", "a3-landscape", "a4", "a4-landscape", "a5", "a5-landscape", "letter", "letter-landscape"] }, { "type": "string", "pattern": "^[0-9]{2,4}(\\.[0-9])?x[0-9]{2,4}(\\.[0-9])?mm$" }], "description": "Paper size: a named size, or a custom size '<width>x<height>mm' (50–1000 mm per side). Page units are 1/96 inch (A4 = 794 × 1123).", "default": "a4" },
-        "items": { "type": "array", "description": "Bottom to top.", "items": { "$ref": "#/$defs/item" } }
+        "size": { "anyOf": [{ "enum": ["a3", "a3-landscape", "a4", "a4-landscape", "a5", "a5-landscape", "letter", "letter-landscape", "infinite"] }, { "type": "string", "pattern": "^[0-9]{2,4}(\\.[0-9])?x[0-9]{2,4}(\\.[0-9])?mm$" }], "description": "Paper size: a named size, a custom size '<width>x<height>mm' (50–1000 mm per side), or 'infinite' (a canvas without edges; coordinates may be negative). Page units are 1/96 inch (A4 = 794 × 1123).", "default": "a4" },
+        "pdf": {
+          "type": "object",
+          "description": "Imported PDF page drawn under the items: page page_index (from 0) of the PDF stored once in assets/<asset>.",
+          "required": ["asset", "page_index"],
+          "additionalProperties": false,
+          "properties": {
+            "asset": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "page_index": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "items": { "type": "array", "description": "Bottom to top.", "items": { "$ref": "#/$defs/item" } },
+        "groups": {
+          "type": "object", "description": "Item id → group id. Items of a group are selected and moved together.",
+          "additionalProperties": { "type": "string" }
+        }
       }
     },
     "item": {
@@ -41,7 +55,8 @@
             { "$ref": "#/$defs/text" },
             { "$ref": "#/$defs/math" },
             { "$ref": "#/$defs/plot" },
-            { "$ref": "#/$defs/image" }
+            { "$ref": "#/$defs/image" },
+            { "$ref": "#/$defs/attachment" }
           ]
         }
       }
@@ -54,7 +69,8 @@
       "properties": {
         "x": { "type": "number" },
         "y": { "type": "number" },
-        "p": { "type": "number", "minimum": 0, "maximum": 1, "description": "Pressure; 0.5 when unknown" }
+        "p": { "type": "number", "minimum": 0, "maximum": 1, "description": "Pressure; 0.5 when unknown" },
+        "t": { "type": "number", "minimum": 0, "maximum": 1.5708, "description": "Pen tilt in radians from perpendicular; absent when 0 or unknown" }
       }
     },
     "rect": {
@@ -99,10 +115,10 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "stroke" },
-        "tool": { "enum": ["pen", "highlighter"] },
+        "tool": { "enum": ["pen", "highlighter", "pencil", "brush"], "description": "Readers that do not know a tool draw it as a pen." },
         "color": { "$ref": "#/$defs/color" },
         "width": { "type": "number", "minimum": 0 },
-        "points": { "type": "array", "description": "Raw ink, never modified (ADR-0003).", "items": { "$ref": "#/$defs/point" } },
+        "points": { "type": "array", "description": "Ink as displayed: the raw ink (never modified, ADR-0003) with any move, scale or rotation applied.", "items": { "$ref": "#/$defs/point" } },
         "interp": {
           "description": "Recognised shape; when show is true it is displayed instead of the raw ink.",
           "oneOf": [
@@ -121,7 +137,21 @@
       "additionalProperties": false,
       "properties": {
         "type": { "const": "text" }, "rect": { "$ref": "#/$defs/rect" }, "text": { "type": "string" },
-        "size": { "type": "number", "exclusiveMinimum": 0 }, "color": { "$ref": "#/$defs/color" }
+        "size": { "type": "number", "exclusiveMinimum": 0 }, "color": { "$ref": "#/$defs/color" },
+        "spans": { "type": "array", "description": "Rich text formatting; absent for plain text.", "items": { "$ref": "#/$defs/span" } }
+      }
+    },
+    "span": {
+      "type": "object",
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "description": "Formatting of the characters [start, end) of the text, counted in Unicode scalar values. Spans are sorted and do not overlap.",
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 }, "end": { "type": "integer", "minimum": 0 },
+        "bold": { "type": "boolean" }, "italic": { "type": "boolean" }, "underline": { "type": "boolean" },
+        "color": { "$ref": "#/$defs/color" },
+        "heading": { "type": "integer", "minimum": 0, "maximum": 3, "description": "Heading level of the paragraph (0: none)" },
+        "list": { "type": "integer", "minimum": 0, "maximum": 2, "description": "List paragraph: 1 bullet, 2 numbered (0: none)" }
       }
     },
     "math": {
@@ -150,6 +180,18 @@
       "properties": {
         "type": { "const": "image" }, "rect": { "$ref": "#/$defs/rect" },
         "asset": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of assets/<hash>" }
+      }
+    },
+    "attachment": {
+      "type": "object",
+      "required": ["type", "rect", "asset", "name", "mime"],
+      "additionalProperties": false,
+      "description": "Any other file, shown as a labelled box and opened with another app.",
+      "properties": {
+        "type": { "const": "attachment" }, "rect": { "$ref": "#/$defs/rect" },
+        "asset": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of assets/<hash>" },
+        "name": { "type": "string", "description": "File name" },
+        "mime": { "type": "string", "description": "Media type, e.g. application/pdf" }
       }
     }
   }

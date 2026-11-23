@@ -8,5 +8,9 @@ publish.workspace = true
 [dependencies]
 nb-ink = { path = "../nb-ink" }
 
+[dev-dependencies]
+# Golden-image tests (P1-44): rasterise display lists on the desktop. BSD-3-Clause.
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "png-format"] }
+
 [lints]
 workspace = true

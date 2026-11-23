@@ -33,6 +33,11 @@ use sha2::{Digest, Sha256};
 /// `nb-ffi`). Loro updates start with `loro`, so the two never collide.
 pub const SEALED_MAGIC: &[u8; 4] = b"KHE1";
 
+/// First bytes of a client compaction request: `KHC1 ‖ seq (u64 big-endian) ‖ sealed
+/// snapshot`. An editor of an end-to-end encrypted notebook sends it so the relay can drop
+/// the updates ≤ seq that the (encrypted) snapshot covers.
+pub const COMPACT_MAGIC: &[u8; 4] = b"KHC1";
+
 /// Whether a relay payload is an end-to-end encrypted update.
 pub fn is_sealed(update: &[u8]) -> bool {
     update.starts_with(SEALED_MAGIC)

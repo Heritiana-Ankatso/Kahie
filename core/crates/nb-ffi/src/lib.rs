@@ -2,9 +2,9 @@
 //! (a Loro CRDT document with per-user undo, [`CrdtPage`]), the stroke being drawn and the eraser gesture in progress.
 //! The UI sends input events and asks for render geometry; all logic stays here.
 
-use nb_ink::{finish_points, outline, segment_hits_polyline, Point};
+use nb_ink::{finish_points, outline_nib, segment_hits_polyline, Point};
 use nb_model::crdt::CrdtPage;
-use nb_model::{Content, Interp, Item, Op, Page, Stroke, Tool};
+use nb_model::{Content, Interp, Item, Op, Page, Stroke, Tool, IDENTITY};
 use nb_recog::{recognize, Shape};
 use nb_store::Store;
 use std::collections::hash_map::DefaultHasher;
@@ -18,15 +18,19 @@ uniffi::setup_scaffolding!();
 
 mod cas;
 mod docexport;
+mod editing;
 mod kahie_file;
 mod library;
 mod notebook;
+mod pdf;
 mod search;
 mod sync;
 pub use cas::{cas_available, cas_command, cas_eval, CasAnswer, CasOp};
+pub use editing::{ink_radius, AttachmentBlock, RichSpan};
 pub use kahie_file::{export_kahie, import_kahie};
 pub use library::{LibraryDoc, LibraryEntry, LibraryKind};
 pub use notebook::{NotebookDoc, OutlineEntry, OutlineKind};
+pub use pdf::{pdf_extract_text, pdf_file, pdf_import, PdfPageRef, PdfPageSize, PdfWord};
 pub use search::{parse_page_range, HitKind, SearchHit, SearchIndex};
 pub use sync::{sync_page_once, SyncListener, SyncSession, SyncStatus};
 
@@ -51,6 +55,19 @@ impl std::fmt::Display for CoreError {
 pub enum InkTool {
     Pen,
     Highlighter,
+    Pencil,
+    Brush,
+}
+
+impl InkTool {
+    pub(crate) fn model(self) -> Tool {
+        match self {
+            InkTool::Pen => Tool::Pen,
+            InkTool::Highlighter => Tool::Highlighter,
+            InkTool::Pencil => Tool::Pencil,
+            InkTool::Brush => Tool::Brush,
+        }
+    }
 }
 
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +90,8 @@ pub struct TextBlock {
     pub text: String,
     pub size: f32,
     pub color: u32,
+    /// Rich text formatting (P1-17), offsets in UTF-16 code units of `text`.
+    pub spans: Vec<RichSpan>,
 }
 
 /// A maths block: LaTeX source rendered by the UI.
@@ -270,6 +289,8 @@ pub(crate) struct State {
     store_error: Option<String>,
     current: Option<Current>,
     erasing: Option<HashSet<String>>,
+    /// Partial eraser gesture (P1-11): the eraser path so far and its largest radius.
+    partial: Option<(Vec<(Point, Point)>, f64)>,
     seq: u64,
 }
 
@@ -304,11 +325,12 @@ pub struct PageVersion {
     pub items: u32,
 }
 
-/// The app clipboard: items and the image bytes they need (process-wide).
+/// The app clipboard: items, the image bytes they need and their groups (process-wide).
 #[derive(Clone)]
 struct Clip {
     items: Vec<Item>,
     assets: Vec<(String, Vec<u8>)>,
+    groups: std::collections::BTreeMap<String, String>,
 }
 
 static CLIPBOARD: Mutex<Option<Clip>> = Mutex::new(None);
@@ -400,8 +422,7 @@ fn flat(points: &[Point]) -> Vec<f32> {
 }
 
 fn render_stroke(key: String, s: &Stroke) -> RenderItem {
-    let hl = s.tool == Tool::Highlighter;
-    let alpha = if hl { 0.35 } else { 1.0 };
+    let alpha = s.tool.nib().alpha();
     match &s.interp {
         Some(Interp { shape, show: true }) => RenderItem {
             key,
@@ -419,7 +440,7 @@ fn render_stroke(key: String, s: &Stroke) -> RenderItem {
             color: s.color,
             alpha,
             width: 0.0,
-            coords: flat(&outline(&s.points, s.width, !hl)),
+            coords: flat(&outline_nib(&s.points, s.width, s.tool.nib())),
         },
     }
 }
@@ -692,15 +713,12 @@ impl PageDoc {
         let shape = recognize(&cur.points)?;
         cur.snapped = Some(shape.clone());
         let preview = Stroke {
-            tool: if cur.tool == InkTool::Highlighter {
-                Tool::Highlighter
-            } else {
-                Tool::Pen
-            },
+            tool: cur.tool.model(),
             color: cur.color,
             width: cur.width,
             points: vec![],
             interp: Some(Interp { shape, show: true }),
+            frame: IDENTITY,
         };
         Some(render_stroke("preview".into(), &preview))
     }
@@ -726,15 +744,12 @@ impl PageDoc {
         let item = Item {
             id: new_id(st.seq),
             content: Content::Stroke(Stroke {
-                tool: if cur.tool == InkTool::Highlighter {
-                    Tool::Highlighter
-                } else {
-                    Tool::Pen
-                },
+                tool: cur.tool.model(),
                 color: cur.color,
                 width: cur.width,
                 points: finish_points(&cur.points, view_scale.max(0.05)),
                 interp: shape.map(|shape| Interp { shape, show: true }),
+                frame: IDENTITY,
             }),
         };
         let op = Op::add(st.doc.page(), vec![item]);
@@ -747,17 +762,26 @@ impl PageDoc {
 
     // ----- eraser -----
 
+    /// Start a stroke eraser gesture: every object touched is deleted whole.
     pub fn begin_erase(&self) {
-        self.state.lock().unwrap().erasing = Some(HashSet::new());
+        let mut st = self.state.lock().unwrap();
+        st.erasing = Some(HashSet::new());
+        st.partial = None;
     }
 
     /// Mark items touched by the segment; returns true when something new was hit.
     pub fn erase_segment(&self, ax: f64, ay: f64, bx: f64, by: f64, radius: f64) -> bool {
         let mut st = self.state.lock().unwrap();
-        let State { doc, erasing, .. } = &mut *st;
+        let State {
+            doc, erasing, partial, ..
+        } = &mut *st;
         let page = doc.page();
         let Some(set) = erasing.as_mut() else { return false };
         let (a, b) = (Point::xy(ax, ay), Point::xy(bx, by));
+        if let Some((path, r)) = partial.as_mut() {
+            path.push((a, b));
+            *r = r.max(radius);
+        }
         let mut hit = false;
         for it in &page.items {
             if set.contains(&it.id) {
@@ -793,12 +817,18 @@ impl PageDoc {
 
     /// Abandon the eraser gesture without changing the page.
     pub fn cancel_erase(&self) {
-        self.state.lock().unwrap().erasing = None;
+        let mut st = self.state.lock().unwrap();
+        st.erasing = None;
+        st.partial = None;
     }
 
     pub fn end_erase(&self) -> bool {
         let mut st = self.state.lock().unwrap();
         let Some(set) = st.erasing.take() else { return false };
+        if let Some((path, r)) = st.partial.take() {
+            let op = editing::partial_erase_op(&mut st, &set, &path, r);
+            return st.commit(op);
+        }
         let ids: Vec<&str> = set.iter().map(String::as_str).collect();
         let op = Op::remove(st.doc.page(), &ids);
         st.commit(op)
@@ -854,7 +884,8 @@ impl PageDoc {
 
     // ----- selection -----
 
-    /// Ids of items whose bounds intersect the rectangle (x0, y0)–(x1, y1), in drawing order.
+    /// Ids of items whose bounds intersect the rectangle (x0, y0)–(x1, y1), with the rest
+    /// of their groups, in drawing order.
     pub fn select_rect(&self, x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<String> {
         let r = nb_model::Rect {
             x: x0.min(x1),
@@ -863,13 +894,8 @@ impl PageDoc {
             h: (y1 - y0).abs(),
         };
         let st = self.state.lock().unwrap();
-        st.doc
-            .page()
-            .items
-            .iter()
-            .filter(|it| it.bounds().intersects(&r))
-            .map(|it| it.id.clone())
-            .collect()
+        let page = st.doc.page();
+        page.with_groups(&nb_model::select::rect(&page.items, &r))
     }
 
     /// Bounding box of the given items as [x, y, w, h], or empty if none exist.
@@ -917,7 +943,7 @@ impl PageDoc {
         if std::ptr::eq(self, template.as_ref()) {
             return 0;
         }
-        let (items, assets, paper, size, background) = {
+        let (items, assets, paper, size, background, pdf) = {
             let src = template.state.lock().unwrap();
             let items = src.doc.page().items.clone();
             let assets: Vec<(String, Vec<u8>)> = src
@@ -933,11 +959,15 @@ impl PageDoc {
                 src.doc.template().to_string(),
                 src.doc.size().to_string(),
                 background,
+                src.doc.pdf_source().map(|p| (p, src.doc.pdf_text_layer())),
             )
         };
         let mut st = self.state.lock().unwrap();
         st.doc.set_template(&paper);
         st.doc.set_size(&size);
+        if let Some((p, text)) = &pdf {
+            st.doc.set_pdf_source(Some(p), Some(text));
+        }
         if let Some(bg) = &background {
             if let Some((_, bytes)) = assets.iter().find(|(h, _)| h == bg) {
                 st.doc.set_background(Some((bg, bytes)));
@@ -976,12 +1006,22 @@ impl PageDoc {
         let assets = items
             .iter()
             .filter_map(|it| match &it.content {
-                Content::Image { asset, .. } => st.doc.asset(asset).map(|b| (asset.clone(), b)),
+                Content::Image { asset, .. } | Content::Attachment { asset, .. } => {
+                    st.doc.asset(asset).map(|b| (asset.clone(), b))
+                }
                 _ => None,
             })
             .collect();
+        let groups = st
+            .doc
+            .page()
+            .groups
+            .iter()
+            .filter(|(id, _)| ids.contains(id))
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect();
         let n = items.len() as u32;
-        *CLIPBOARD.lock().unwrap() = Some(Clip { items, assets });
+        *CLIPBOARD.lock().unwrap() = Some(Clip { items, assets, groups });
         n
     }
 
@@ -997,15 +1037,17 @@ impl PageDoc {
             }
         }
         let mut copies = Vec::with_capacity(clip.items.len());
+        let mut renamed = vec![];
         for it in clip.items {
             st.seq += 1;
             let mut c = it.translated(dx, dy);
             c.id = new_id(st.seq);
+            renamed.push((it.id, c.id.clone()));
             copies.push(c);
         }
         let new_ids = copies.iter().map(|c| c.id.clone()).collect();
         let op = Op::add(st.doc.page(), copies);
-        st.commit(op);
+        editing::commit_copies(&mut st, op, &renamed, &clip.groups);
         new_ids
     }
 
@@ -1029,16 +1071,19 @@ impl PageDoc {
             .filter(|it| ids.contains(&it.id))
             .cloned()
             .collect();
+        let groups = st.doc.page().groups.clone();
         let mut copies = Vec::with_capacity(originals.len());
+        let mut renamed = vec![];
         for it in originals {
             st.seq += 1;
             let mut c = it.translated(dx, dy);
             c.id = new_id(st.seq);
+            renamed.push((it.id, c.id.clone()));
             copies.push(c);
         }
         let new_ids = copies.iter().map(|c| c.id.clone()).collect();
         let op = Op::add(st.doc.page(), copies);
-        st.commit(op);
+        editing::commit_copies(&mut st, op, &renamed, &groups);
         new_ids
     }
 
@@ -1373,6 +1418,7 @@ impl PageDoc {
                     text,
                     size,
                     color,
+                    spans,
                 } => Some(TextBlock {
                     key: item_key(it),
                     id: it.id.clone(),
@@ -1383,6 +1429,7 @@ impl PageDoc {
                     text: text.clone(),
                     size: *size as f32,
                     color: *color,
+                    spans: editing::spans_to_utf16(text, spans),
                 }),
                 _ => None,
             })
@@ -1408,6 +1455,7 @@ impl PageDoc {
                 text,
                 size,
                 color,
+                spans: vec![],
             },
         };
         let op = Op::add(st.doc.page(), vec![item]);
@@ -1416,6 +1464,7 @@ impl PageDoc {
     }
 
     /// Replace the text of a block (and its measured height). Empty text deletes the block.
+    /// Formatting is kept where it still fits; use `set_rich_text` to change it.
     pub fn set_text(&self, id: String, text: String, height: f64) -> bool {
         let mut st = self.state.lock().unwrap();
         let Some(old) = st.doc.page().items.iter().find(|i| i.id == id).cloned() else {
@@ -1425,9 +1474,17 @@ impl PageDoc {
             let op = Op::remove(st.doc.page(), &[id.as_str()]);
             return st.commit(op);
         }
-        let Content::Text { rect, size, color, .. } = &old.content else {
+        let Content::Text {
+            rect,
+            size,
+            color,
+            spans,
+            ..
+        } = &old.content
+        else {
             return false;
         };
+        let spans = nb_model::normalize_spans(spans, text.chars().count() as u32);
         let item = Item {
             id,
             content: Content::Text {
@@ -1438,6 +1495,7 @@ impl PageDoc {
                 text,
                 size: *size,
                 color: *color,
+                spans,
             },
         };
         let op = Op::update(st.doc.page(), vec![item]);
@@ -1476,6 +1534,7 @@ impl PageDoc {
                 store_error: None,
                 current: None,
                 erasing: None,
+                partial: None,
                 seq: 0,
             }),
         }

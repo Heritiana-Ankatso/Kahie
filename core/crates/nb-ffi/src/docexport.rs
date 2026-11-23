@@ -326,7 +326,12 @@ impl NotebookDoc {
                             }
                         }
                         let (w, _) = nb_model::page_dims(st.doc.size());
-                        (page.items.clone(), assets, w, st.doc.background().is_some())
+                        (
+                            page.items.clone(),
+                            assets,
+                            w,
+                            st.doc.background().is_some() || st.doc.pdf_source().is_some(),
+                        )
                     } else {
                         (vec![], vec![], 794.0, false)
                     };
