@@ -11,7 +11,8 @@ import uniffi.nb_ffi.PageDoc
 /**
  * One page as an SVG document (P1-34), in page units (1 unit = 1/96 in, so the SVG has the
  * page's real size). Everything stays vector except photos and PDF backgrounds, which are
- * embedded as data URIs; maths is MathJax's own SVG, embedded as an image.
+ * embedded as data URIs; maths (MathJax's own SVG) and inserted SVG pictures are embedded as
+ * `data:image/svg+xml` images, so they stay vector too.
  */
 object SvgExport {
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
@@ -21,6 +22,7 @@ object SvgExport {
 
     private fun mime(bytes: ByteArray) = when {
         bytes.size > 3 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() -> "image/png"
+        SvgImages.isSvg(bytes) -> "image/svg+xml" // inserted SVGs stay vector
         else -> "image/jpeg"
     }
 
