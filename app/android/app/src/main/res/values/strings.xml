@@ -244,6 +244,7 @@
     <string name="insert_clipboard">Text or image from the clipboard</string>
     <string name="insert_file">File (attachment)</string>
     <string name="clipboard_empty">The clipboard is empty</string>
+    <string name="image_unsupported">This image format is not supported. Use JPEG, PNG, WebP, GIF, HEIC, AVIF, BMP, TIFF or SVG.</string>
     <string name="no_camera">No camera app found</string>
     <string name="attachment_too_large">This file is too large (more than %1$d MB)</string>
     <string name="no_app_for_file">No app can open this file</string>

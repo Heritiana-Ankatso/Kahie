@@ -242,6 +242,7 @@
     <string name="insert_clipboard">Texte ou image du presse-papiers</string>
     <string name="insert_file">Fichier (pièce jointe)</string>
     <string name="clipboard_empty">Le presse-papiers est vide</string>
+    <string name="image_unsupported">Ce format d’image n’est pas pris en charge. Utilisez JPEG, PNG, WebP, GIF, HEIC, AVIF, BMP, TIFF ou SVG.</string>
     <string name="no_camera">Aucune application d\'appareil photo</string>
     <string name="attachment_too_large">Ce fichier est trop volumineux (plus de %1$d Mo)</string>
     <string name="no_app_for_file">Aucune application ne peut ouvrir ce fichier</string>
