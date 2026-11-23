@@ -27,15 +27,29 @@ android {
         applicationId = "app.kahie"
         minSdk = 31
         targetSdk = 35
-        versionCode = 1
+        // CI passes its run number so each build installs as an update over the previous one.
+        versionCode = System.getenv("KAHIE_VERSION_CODE")?.toIntOrNull() ?: 1
         versionName = "0.1.0"
+    }
+
+    // Release key from the environment (CI secrets; see app/android/README.md). Without it,
+    // release builds fall back to the debug key and cannot update a properly signed install.
+    val releaseKeystore = System.getenv("KAHIE_KEYSTORE")?.takeIf { it.isNotBlank() }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("kahieRelease") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("KAHIE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KAHIE_KEY_ALIAS")
+                keyPassword = System.getenv("KAHIE_KEYSTORE_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signed with the debug key until a release key exists (see app/android/README.md).
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "kahieRelease" else "debug")
         }
     }
 

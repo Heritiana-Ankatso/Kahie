@@ -3,7 +3,7 @@
 # the text (with the CAS), maths, plot and pages tools, with a screenshot after each; nothing may crash.
 # Run from the repository root with an emulator attached (CI: android.yml, job "smoke").
 set -Eeuo pipefail
-APK=app/android/app/build/outputs/apk/debug/app-debug.apk
+APK=${APK:-app/android/app/build/outputs/apk/debug/app-debug.apk}
 OUT=smoke-out
 mkdir -p "$OUT"
 adb install -r "$APK"
