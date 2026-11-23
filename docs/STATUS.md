@@ -68,10 +68,10 @@ All in the plot block's text lines (`nb_math::plot`, syntax in its module docs a
 
 Phase 2 exit criteria (300-task curriculum suite, 100 constructions with instruments) are not met: no curriculum suite exists yet.
 
-## CI state (2026-11-22)
+## CI state (2026-11-23)
 
-- `android` run 39 on `cd22389` (editing merge) failed in the smoke test: the rich-text dialog's field had no focus, so the CAS check read an empty field. Fixed in `12be8f0` (all three Phase 1 branches merged); check the run on that commit first.
-- Earlier: `android` run 36 and `ci` run 54 green on `f253ab2`.
+- **All green on `ed03b3f`**: `android` run 44 (APK with the CAS, emulator smoke test: launch, ink, text + CAS 2^100, maths, plot, pages) and `ci` run 64 (Rust tests incl. pdflatex, cargo-deny, `bench`, `a11y`, schema). Everything is merged on the branch: Phase 2 work, the three Phase 1 branches.
+- Runs 39–43 failed in the smoke test only (no app crash): the rich-text dialog's field had no focus (fixed in `12be8f0`), then the test tapped the page while Simple mode's More menu was closing (fixed in `ed03b3f`). `smoke.sh` now prints a step trail, crash lines (native included) and Android's exit reason on any failure.
 
 ## CI state (older, 23:08 UTC 2026-11-20)
 
