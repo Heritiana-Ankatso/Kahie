@@ -17,6 +17,8 @@ concurrency:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    outputs:
+      signed: ${{ steps.key.outputs.signed }}
     permissions:
       contents: read
       actions: read
@@ -83,16 +85,49 @@ jobs:
             exit 1
           fi
 
-      - name: Build debug APK
+      # Release key (repository secrets). Absent on forks' pull requests: the release APK is then
+      # debug-signed and is not uploaded.
+      - name: Release key
+        id: key
+        env:
+          KEYSTORE_B64: ${{ secrets.KAHIE_KEYSTORE_B64 }}
+        run: |
+          if [[ -n "$KEYSTORE_B64" ]]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/kahie-release.jks"
+            echo "KAHIE_KEYSTORE=$RUNNER_TEMP/kahie-release.jks" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Release key: not available (release APK not uploaded)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build debug and release APKs
         working-directory: app/android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
-        run: ./gradlew --no-daemon assembleDebug
+          KAHIE_VERSION_CODE: ${{ github.run_number }}
+          KAHIE_KEYSTORE_PASSWORD: ${{ secrets.KAHIE_KEYSTORE_PASSWORD }}
+          KAHIE_KEY_ALIAS: ${{ secrets.KAHIE_KEY_ALIAS }}
+        run: ./gradlew --no-daemon assembleDebug assembleRelease
+
+      - name: Check the release signature
+        if: steps.key.outputs.signed == 'true'
+        run: |
+          apk=app/android/app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME"/build-tools/35.0.0/apksigner verify --print-certs "$apk" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "versionCode: ${{ github.run_number }}" >> "$GITHUB_STEP_SUMMARY"
+          rm -f "$RUNNER_TEMP/kahie-release.jks"
 
       - uses: actions/upload-artifact@v4
         with:
           name: kahie-debug-apk
           path: app/android/app/build/outputs/apk/debug/*.apk
+
+      # The APK to hand to testers: stable key, so each build installs as an update.
+      - uses: actions/upload-artifact@v4
+        if: steps.key.outputs.signed == 'true'
+        with:
+          name: kahie-release-apk
+          path: app/android/app/build/outputs/apk/release/*.apk
 
   # Installs the APK on an emulator, draws two strokes and checks they appear (app/android/ci/smoke.sh).
   smoke:
@@ -101,10 +136,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # Test the APK testers get: the release one when it was signed, the debug one otherwise.
       - uses: actions/download-artifact@v4
         with:
-          name: kahie-debug-apk
-          path: app/android/app/build/outputs/apk/debug
+          name: ${{ needs.apk.outputs.signed == 'true' && 'kahie-release-apk' || 'kahie-debug-apk' }}
+          path: smoke-apk
+      - run: echo "APK=$(ls smoke-apk/*.apk | head -1)" >> "$GITHUB_ENV"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
