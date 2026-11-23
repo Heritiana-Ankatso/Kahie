@@ -23,6 +23,7 @@ mod kahie_file;
 mod library;
 mod notebook;
 mod pdf;
+mod raster;
 mod search;
 mod sync;
 pub use cas::{cas_available, cas_command, cas_eval, CasAnswer, CasOp};
@@ -334,6 +335,10 @@ struct Clip {
 }
 
 static CLIPBOARD: Mutex<Option<Clip>> = Mutex::new(None);
+
+/// Serialises the tests that go through the process-wide app clipboard.
+#[cfg(test)]
+pub(crate) static CLIPBOARD_TEST: Mutex<()> = Mutex::new(());
 
 /// Number of items on the app clipboard (0: nothing to paste).
 #[uniffi::export]
@@ -1854,6 +1859,7 @@ mod tests {
 
     #[test]
     fn copy_paste_between_pages_carries_images() {
+        let _clip = CLIPBOARD_TEST.lock().unwrap_or_else(|e| e.into_inner());
         let a = PageDoc::new_in_memory();
         let b = PageDoc::new_in_memory();
         let bytes = b"\x89PNG clip".to_vec();
@@ -1873,6 +1879,48 @@ mod tests {
         assert_eq!(a.image_blocks().len(), 2);
         assert!(a.undo());
         assert_eq!(a.image_blocks().len(), 1);
+    }
+
+    /// An inserted SVG picture is stored as its SVG text, byte for byte.
+    const SVG: &[u8] = b"<?xml version=\"1.0\"?>\n<!-- logo -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 20\"><circle cx=\"10\" cy=\"10\" r=\"8\" fill=\"#c33\"/><text x=\"22\" y=\"15\">\xc3\xa9</text></svg>\n";
+
+    #[test]
+    fn svg_images_round_trip() {
+        let dir = std::env::temp_dir().join(format!("kahie-ffi-svg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.kpage").to_string_lossy().to_string();
+        let id = {
+            let doc = PageDoc::open(path.clone()).unwrap();
+            let id = doc.add_image(10.0, 20.0, 200.0, 100.0, SVG.to_vec());
+            doc.save().unwrap();
+            id
+        };
+        let doc = PageDoc::open(path).unwrap();
+        let img = doc.image_blocks()[0].clone();
+        assert_eq!((img.width, img.height), (200.0, 100.0));
+        assert_eq!(doc.image_bytes(img.hash.clone()), Some(SVG.to_vec()), "stored as is");
+        {
+            let _clip = CLIPBOARD_TEST.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(doc.copy_items(vec![id.clone()]), 1);
+            let other = PageDoc::new_in_memory();
+            assert_eq!(other.paste_items(0.0, 0.0).len(), 1);
+            let pasted = other.image_blocks()[0].hash.clone();
+            assert_eq!(pasted, img.hash);
+            assert_eq!(
+                other.image_bytes(pasted),
+                Some(SVG.to_vec()),
+                "copy/paste carries the SVG"
+            );
+        }
+        // Crop/rotate replaces it with a raster; undo brings the SVG back.
+        assert!(doc.replace_image(id, b"\x89PNG cropped".to_vec(), 100.0, 50.0));
+        assert_eq!(
+            doc.image_bytes(doc.image_blocks()[0].hash.clone()),
+            Some(b"\x89PNG cropped".to_vec())
+        );
+        assert!(doc.undo());
+        assert_eq!(doc.image_bytes(doc.image_blocks()[0].hash.clone()), Some(SVG.to_vec()));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

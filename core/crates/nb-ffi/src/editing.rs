@@ -717,10 +717,12 @@ mod tests {
         assert_eq!(doc.image_bytes(blocks[0].hash.clone()).unwrap(), b"%PDF-1.7");
         assert_eq!(doc.attachment_at(20.0, 20.0), Some(a.clone()));
         // Copy/paste carries the file.
+        let clip = crate::CLIPBOARD_TEST.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(doc.copy_items(vec![a]), 1);
         let other = PageDoc::new_in_memory();
         other.paste_items(0.0, 0.0);
         assert_eq!(other.image_bytes(blocks[0].hash.clone()).unwrap(), b"%PDF-1.7");
+        drop(clip);
 
         let img = doc.add_image(0.0, 100.0, 200.0, 100.0, vec![1, 2, 3]);
         assert_eq!(doc.image_at(10.0, 110.0), Some(img.clone()));
