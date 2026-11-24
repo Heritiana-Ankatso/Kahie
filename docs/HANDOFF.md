@@ -1,6 +1,6 @@
 # Hand-off
 
-**Date:** 2026-11-24 · **Working branch:** `ccr-121ac074-e1jgb6` at `1bacf67` · **`main`:** `c9527ec` (PR #5)
+**Date:** 2026-11-24 · **`main`:** `dca9ced` (PR #7) · **Working branch:** `ccr-121ac074-e1jgb6`, same content as `main` · **Open PRs:** none
 
 This page is for whoever picks up Kahie next, whether a person or an agent session. It covers the current state, what changed in the last session, how to work on the code, and what remains. `docs/STATUS.md` keeps the detailed, item-by-item status. `docs/user-guide.md` describes every feature from the user's side.
 
@@ -14,19 +14,25 @@ This page is for whoever picks up Kahie next, whether a person or an agent sessi
   - Partly done: E2.8–E2.11.
   - Not started: E2.1, E2.2, layers.
   - The exit criteria are **not met** yet: the curriculum suite has 118 of the required 300 tasks, and the 100 constructions with instruments do not exist.
-- **CI:** both workflows are green on `1bacf67`: `ci` run 78 and `android` run 56 (APK build plus emulator smoke test).
+- **CI:** all 16 checks green on PR #7 (`09721d6`), including the APK build and the emulator smoke test; `main` (`dca9ced`) has exactly that content.
+- **Everything is merged:** no open PRs, no unmerged work on any branch (§2). Start new work from `main`.
 - **Not tested on a real device.** Every UI change has only been compiled and smoke-tested on an emulator.
 
 ## 2. Branches and merging
 
 | Ref | Content |
 |---|---|
-| `main` (`c9527ec`) | Everything up to PR #5 (Phase 1 and the Phase 2 maths layer). |
-| `ccr-121ac074-e1jgb6` (`1bacf67`) | `main`, plus PR #6 (image formats, merged into this branch), plus 6 commits from 2026-11-24. **7 commits ahead of `main`; no open PR.** |
+| `main` (`dca9ced`) | Everything: PRs #1–#7. **Start here.** |
+| `ccr-121ac074-e1jgb6` | Same content as `main` (`main` recorded with `git merge -s ours`, commit after `dca9ced`). Previous sessions' working branch; reuse it or branch from `main`. |
+| `insert-image-formats`, `release-signing` | Merged (PRs #6, #4). Safe to delete. |
+| `claude/elegant-edison-aile9l` | Planning docs from 2026-11-18; all 29 files are in `main` (PR #1). Safe to delete. |
+| `native-core`, `tmp-noop` | Old snapshots; every commit is in `main`. Safe to delete. |
 
-Commits on the branch that are not yet on `main`:
+The five stale branches were left in place because deleting them needs the owner's approval.
 
-| Commit | Change |
+PR #7 (squash `dca9ced`) brought into `main`:
+
+| Commit on the branch | Change |
 |---|---|
 | `7e90e8d` | Insert → Image: SVG/SVGZ kept as vector, TIFF decoded by the core, clear message for unsupported formats (PR #6). |
 | `845740d` | Search covers the text layer of imported PDF pages (P1-23; search index version 2). |
@@ -35,13 +41,12 @@ Commits on the branch that are not yet on `main`:
 | `8f00138` | Auto-width text boxes (P1-17). `set_rich_text` gained a `width` argument. |
 | `6eea2d5` | Shape tidying modes, snapping and instruments (E2.8, E2.9, E2.10). |
 | `1bacf67` | Lycée curriculum test suite for `nb-math`, 118 tasks. |
+| `09721d6` | This hand-off file. |
 
 **Merging rules (keep them):**
-- **Always squash-merge into `main`.** An old commit on the branch (`a7ad8c9`) contains about 300 MiB of build output, so a plain merge would bring it into `main`.
-- **After each squash-merge, record `main` in the branch** with `git merge -s ours origin/main` (as in `eb34e46`). Later PRs then show only new work.
-- **Push only to `ccr-121ac074-e1jgb6`, and never force-push.** Open or merge PRs only when the owner asks.
-
-**Next merge:** open a PR from `ccr-121ac074-e1jgb6` to `main`, wait for the checks, squash-merge, then run the `-s ours` merge described above.
+- **Always squash-merge into `main`.** An old commit on the working branch (`a7ad8c9`) contains about 300 MiB of build output, so a plain merge would bring it into `main`. A new branch from `main` does not have this problem.
+- **If you keep using `ccr-121ac074-e1jgb6`, record `main` in it after each squash-merge** with `git merge -s ours origin/main`, so later PRs show only new work.
+- **Never force-push.** Open or merge PRs only when the owner asks.
 
 ## 3. What the last session built (details)
 
@@ -92,6 +97,8 @@ Conventions:
 
 ### Needs the owner
 
+- **Optional clean-up:** delete the five stale branches listed in §2.
+
 - **Real-device testing.** Check in particular: instruments (dragging, turning, guided strokes), the tidy chip, auto-width text, PDF text selection, and exports of the infinite canvas.
 - **Native-speaker review of the Malagasy UI** (`values-mg/`). All of it is a draft, including the 13 strings added on 2026-11-24 under "Drawing aids".
 - Devices for the Phase 0 measurements (P0-02/03/04/08, P0-15); the handwriting corpus (P0-06/16, D2); the trademark check (D10); the pilot (P1-47).
@@ -99,20 +106,19 @@ Conventions:
 
 ### Next engineering steps, in order
 
-1. **Merge to `main`** following §2 (only if the owner asks).
-2. **Curriculum suite to 300 tasks** (Phase 2 exit criterion).
+1. **Curriculum suite to 300 tasks** (Phase 2 exit criterion).
    - Add symbolic tasks, which need a CAS check kind with the `giac` feature, and sequences/probability tasks.
    - Any task the engine fails should get a `gap` entry and then a fix.
-3. **100 instrument constructions** (exit criterion): an automated suite that drives `PageDoc` with guided strokes and checks the resulting geometry.
-4. **Finish E2.9–E2.10:**
+2. **100 instrument constructions** (exit criterion): an automated suite that drives `PageDoc` with guided strokes and checks the resulting geometry.
+3. **Finish E2.9–E2.10:**
    - smart guides (alignment lines while moving)
    - snapping while moving or resizing objects
    - tangent snapping
    - set squares
    - showing the instrument's position persistently across pages (today it is per view)
-5. **E2.11 layers, E2.1 maths editor, E2.2 typesetting** (Typst + MiTeX spike done in P0-09).
-6. **P0-05:** Android tile cache from `nb-render` display lists. Justify it with device frame rates first.
-7. **Handwriting recognition** (P1-29–31), once the corpus exists.
+4. **E2.11 layers, E2.1 maths editor, E2.2 typesetting** (Typst + MiTeX spike done in P0-09).
+5. **P0-05:** Android tile cache from `nb-render` display lists. Justify it with device frame rates first.
+6. **Handwriting recognition** (P1-29–31), once the corpus exists.
 
 ### Known limitations
 
