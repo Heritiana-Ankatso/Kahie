@@ -366,7 +366,12 @@ impl NotebookDoc {
                                 }
                             }
                         }
-                        let (w, _) = nb_model::page_dims(st.doc.size());
+                        // An infinite canvas has no sheet: pictures are sized against its content.
+                        let w = if st.doc.size() == nb_model::INFINITE {
+                            page.extent().w
+                        } else {
+                            nb_model::page_dims(st.doc.size()).0
+                        };
                         (
                             page.items.clone(),
                             assets,
@@ -563,6 +568,30 @@ mod tests {
                 assert!(out.join("notebook.pdf").exists());
             }
         }
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn infinite_canvas_drawing_is_cropped_to_its_content() {
+        let dir = std::env::temp_dir().join(format!("kahie-inf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let nb = NotebookDoc::open(dir.to_string_lossy().into(), "Infini".into()).unwrap();
+        let p = PageDoc::open(nb.page_path(nb.page_ids()[0].clone())).unwrap();
+        p.set_page_size("infinite".into());
+        // Ink far outside the A4 area, at negative and large coordinates.
+        p.begin_stroke(crate::InkTool::Pen, 0, 3.0, -500.0, 3000.0, 0.5);
+        p.add_points(vec![-100.0, 3200.0, 0.5]);
+        p.end_stroke(1.0, false);
+        p.save().unwrap();
+        let md = nb.export_document(DocFormat::Markdown).unwrap();
+        let crop = &md.images[0].crop;
+        assert!(
+            crop[0] < -400.0 && crop[1] > 2900.0 && (390.0..450.0).contains(&crop[2]),
+            "{crop:?}"
+        );
+        let tex = nb.export_document(DocFormat::Latex).unwrap();
+        // Sized against the content (~400 of ~480 units: 0.8x), not the A4 width (0.51).
+        assert!(tex.text.contains("width=0.8"), "{}", tex.text);
         std::fs::remove_dir_all(dir).ok();
     }
 }

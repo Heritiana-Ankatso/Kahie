@@ -41,7 +41,7 @@ Kahie follows the system font size and works with TalkBack: every button is anno
 | Insert | *Insert* → a photo from the gallery or the camera, text or an image from the clipboard, or any other file as an attachment. An attachment is a labelled box on the page; tap it with *Select* (or *Selection → Open file*) to open it in another app. Files up to 25 MB; they sync and export with the page |
 | Maths | *Maths*, tap the page and type LaTeX (e.g. `\frac{a}{b}`), or use the buttons under the field (fraction, root, power, index, integral, sum, limit, vector, cases, matrix, symbols and Greek letters): the cursor lands in the first empty slot. The formula is previewed as you type. Tap a formula to edit it |
 | Navigate | With a stylus, fingers scroll and zoom (two fingers to zoom); *Fit* shows the whole page |
-| Infinite canvas | *Pages → More → Paper size → Infinite canvas*: a page without edges; pan anywhere and zoom from 5 % to 3 200 %. *Fit* zooms to show everything on it. (PDF, PNG and SVG export of an infinite canvas currently cover only the area from the top-left of the first sheet.) |
+| Infinite canvas | *Pages → More → Paper size → Infinite canvas*: a page without edges; pan anywhere and zoom from 5 % to 3 200 %. *Fit* zooms to show everything on it. PDF, PNG, SVG and LaTeX/document exports of an infinite canvas are cropped to its content plus a small margin. |
 
 ## Pages and notebooks
 

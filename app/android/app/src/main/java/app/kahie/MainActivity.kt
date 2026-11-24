@@ -659,11 +659,12 @@ class MainActivity : Activity() {
             val pdf = android.graphics.pdf.PdfDocument()
             pages.forEachIndexed { i, p ->
                 // Page units are 1/96 in; PDF points are 1/72 in.
-                val dims = p.pageDims()
-                val w = (dims[0] * 0.75f).toInt()
-                val h = (dims[1] * 0.75f).toInt()
+                val area = PageRenderer.exportArea(p) // the paper, or an infinite canvas's content
+                val w = (area.width() * 0.75f).toInt().coerceAtLeast(1)
+                val h = (area.height() * 0.75f).toInt().coerceAtLeast(1)
                 val page = pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(w, h, i + 1).create())
-                page.canvas.scale(w / dims[0], h / dims[1])
+                page.canvas.scale(w / area.width(), h / area.height())
+                page.canvas.translate(-area.left, -area.top)
                 PageRenderer.drawPage(page.canvas, p, renderer)
                 pdf.finishPage(page)
             }
@@ -950,12 +951,15 @@ class MainActivity : Activity() {
         val requests = PageRenderer.mathRequests(d).distinct()
         var remaining = requests.size
         fun write() {
-            val scale = 2f
+            val area = PageRenderer.exportArea(d) // the paper, or an infinite canvas's content
+            // 2×, but at most 8 000 px on a side (a large infinite canvas).
+            val scale = minOf(2f, 8000f / maxOf(area.width(), area.height()))
             val bmp = android.graphics.Bitmap.createBitmap(
-                (d.pageDims()[0] * scale).toInt(), (d.pageDims()[1] * scale).toInt(), android.graphics.Bitmap.Config.ARGB_8888,
+                (area.width() * scale).toInt().coerceAtLeast(1), (area.height() * scale).toInt().coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888,
             )
             val c = android.graphics.Canvas(bmp)
             c.scale(scale, scale)
+            c.translate(-area.left, -area.top)
             PageRenderer.drawPage(c, d, renderer)
             io.execute {
                 val result = runCatching {

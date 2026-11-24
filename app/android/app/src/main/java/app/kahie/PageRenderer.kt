@@ -273,12 +273,29 @@ object PageRenderer {
     fun mathRequests(d: PageDoc): List<Triple<String, Float, Int>> =
         d.mathBlocks().map { Triple(it.latex, it.size, opaque(it.color)) }
 
+    /**
+     * The area of page `d` that exports show, in page units: the paper, or for an infinite
+     * canvas its content with a margin (P1-06). Exports translate by (-left, -top).
+     */
+    fun exportArea(d: PageDoc): android.graphics.RectF {
+        if (d.isInfinite()) {
+            val e = d.pageExtent()
+            if (e.size == 4 && e[2] > 0f && e[3] > 0f) return android.graphics.RectF(e[0], e[1], e[0] + e[2], e[1] + e[3])
+        }
+        val dims = d.pageDims()
+        return android.graphics.RectF(0f, 0f, dims[0], dims[1])
+    }
+
     /** Draw page `d` (white paper, background, items in order) in page units. */
     fun drawPage(canvas: Canvas, d: PageDoc, math: MathRenderer?, paper: Boolean = true) {
         canvas.drawColor(Color.WHITE)
         if (paper) {
-            val dims = d.pageDims()
-            drawPaper(canvas, d.template(), 0.75f, dims[0], dims[1])
+            // Paper over the exported area (an infinite canvas has no fixed sheet).
+            val a = exportArea(d)
+            canvas.save()
+            canvas.translate(a.left, a.top)
+            drawPaper(canvas, d.template(), 0.75f, a.width(), a.height())
+            canvas.restore()
         }
         drawBackground(canvas, d)
         for (img in d.imageBlocks()) drawImage(canvas, d, img) // under the ink
