@@ -10,6 +10,9 @@ publish.workspace = true
 # the system packages on Linux (libgiac-dev), or the giac-android CI build for Android.
 giac = ["dep:cc"]
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [build-dependencies]
 cc = { version = "1", optional = true }
 

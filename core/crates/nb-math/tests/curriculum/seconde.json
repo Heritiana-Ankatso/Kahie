@@ -1,0 +1,669 @@
+[
+ {
+  "id": "2de-fn-001",
+  "level": "seconde",
+  "topic": "functions",
+  "statement": "Image of 4 by f(x) = 3x - 5",
+  "check": {
+   "eval": "3x-5",
+   "x": 4,
+   "expect": 7
+  }
+ },
+ {
+  "id": "2de-fn-002",
+  "level": "seconde",
+  "topic": "functions",
+  "statement": "Image of -2 by f(x) = 2x^2 - 3x + 1",
+  "check": {
+   "eval": "2x^2-3x+1",
+   "x": -2,
+   "expect": 15
+  }
+ },
+ {
+  "id": "2de-fn-003",
+  "level": "seconde",
+  "topic": "functions",
+  "statement": "Image of 4 by the inverse function",
+  "check": {
+   "eval": "1/x",
+   "x": 4,
+   "expect": 0.25
+  }
+ },
+ {
+  "id": "2de-fn-004",
+  "level": "seconde",
+  "topic": "functions",
+  "statement": "Image of 9 by the square root function",
+  "check": {
+   "eval": "sqrt(x)",
+   "x": 9,
+   "expect": 3
+  }
+ },
+ {
+  "id": "2de-fn-005",
+  "level": "seconde",
+  "topic": "functions",
+  "statement": "Image of -7 by the absolute value",
+  "check": {
+   "eval": "abs(x)",
+   "x": -7,
+   "expect": 7
+  }
+ },
+ {
+  "id": "2de-fn-006",
+  "level": "seconde",
+  "topic": "functions",
+  "statement": "Image of 3 by f(x) = (x+1)(x-2)",
+  "check": {
+   "eval": "(x+1)(x-2)",
+   "x": 3,
+   "expect": 4
+  }
+ },
+ {
+  "id": "2de-fn-007",
+  "level": "seconde",
+  "topic": "functions",
+  "statement": "Image of 2 by f(x) = x^3 - x",
+  "check": {
+   "eval": "x^3-x",
+   "x": 2,
+   "expect": 6
+  }
+ },
+ {
+  "id": "2de-fn-008",
+  "level": "seconde",
+  "topic": "functions",
+  "statement": "Image of 1/2 by f(x) = (2x+1)/(x-1)",
+  "check": {
+   "eval": "(2x+1)/(x-1)",
+   "x": 0.5,
+   "expect": -4
+  }
+ },
+ {
+  "id": "2de-eq-001",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve 2x - 6 = 0",
+  "check": {
+   "roots": "2x-6",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    3
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-002",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve 5 - x/2 = 0",
+  "check": {
+   "roots": "5-x/2",
+   "on": [
+    -20,
+    20
+   ],
+   "expect": [
+    10
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-003",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve (x-1)(x+3) = 0",
+  "check": {
+   "roots": "(x-1)(x+3)",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -3,
+    1
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-004",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve x^2 = 4",
+  "check": {
+   "roots": "x^2-4",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -2,
+    2
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-005",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve x^2 = -1 (no real solution)",
+  "check": {
+   "roots": "x^2+1",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": []
+  }
+ },
+ {
+  "id": "2de-eq-006",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve x(2x - 5) = 0",
+  "check": {
+   "roots": "x(2x-5)",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    0,
+    2.5
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-007",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve (3x+2)/(x-4) = 0",
+  "check": {
+   "roots": "(3x+2)/(x-4)",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -0.6666666666666666
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-008",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve x^2 = 3",
+  "check": {
+   "roots": "x^2-3",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -1.7320508075688772,
+    1.7320508075688772
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-009",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve 2x + 1 = -x + 4 graphically",
+  "check": {
+   "intersections": [
+    "2x+1",
+    "-x+4"
+   ],
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    1
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-010",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve x^2 = 2x + 3 graphically",
+  "check": {
+   "intersections": [
+    "x^2",
+    "2x+3"
+   ],
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -1,
+    3
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-011",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve 1/x = x graphically",
+  "check": {
+   "intersections": [
+    "1/x",
+    "x"
+   ],
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -1,
+    1
+   ]
+  }
+ },
+ {
+  "id": "2de-eq-012",
+  "level": "seconde",
+  "topic": "equations",
+  "statement": "Solve (x-2)^2 = 0 (double root)",
+  "check": {
+   "roots": "(x-2)^2",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    2
+   ]
+  }
+ },
+ {
+  "id": "2de-var-001",
+  "level": "seconde",
+  "topic": "variations",
+  "statement": "Extremum of x^2 - 4x + 1",
+  "check": {
+   "extrema": "x^2-4x+1",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    [
+     2,
+     "min"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "2de-var-002",
+  "level": "seconde",
+  "topic": "variations",
+  "statement": "Extremum of -2x^2 + 8x - 3",
+  "check": {
+   "extrema": "-2x^2+8x-3",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    [
+     2,
+     "max"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "2de-var-003",
+  "level": "seconde",
+  "topic": "variations",
+  "statement": "The inverse function on [0.1, 10] has no extremum",
+  "check": {
+   "extrema": "1/x",
+   "on": [
+    0.1,
+    10
+   ],
+   "expect": []
+  }
+ },
+ {
+  "id": "2de-var-004",
+  "level": "seconde",
+  "topic": "variations",
+  "statement": "Extremum of 3(x+1)^2 - 2",
+  "check": {
+   "extrema": "3(x+1)^2-2",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    [
+     -1,
+     "min"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "2de-var-005",
+  "level": "seconde",
+  "topic": "variations",
+  "statement": "Extremum of the absolute value",
+  "check": {
+   "extrema": "abs(x-1)",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    [
+     1,
+     "min"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "2de-geo-001",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Midpoint of [AB], A(1, 2), B(5, 6)",
+  "check": {
+   "construction": [
+    "A = (1, 2)",
+    "B = (5, 6)",
+    "M = midpoint(A, B)"
+   ],
+   "expect": {
+    "M": [
+     3,
+     4
+    ]
+   }
+  }
+ },
+ {
+  "id": "2de-geo-002",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Distance AB, A(0, 0), B(3, 4)",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (3, 4)",
+    "d = distance(A, B)"
+   ],
+   "expect": {
+    "d": 5
+   }
+  }
+ },
+ {
+  "id": "2de-geo-003",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Distance AB, A(-1, 2), B(2, -2)",
+  "check": {
+   "construction": [
+    "A = (-1, 2)",
+    "B = (2, -2)",
+    "d = distance(A, B)"
+   ],
+   "expect": {
+    "d": 5
+   }
+  }
+ },
+ {
+  "id": "2de-geo-004",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Fourth vertex of parallelogram ABCD: D = A + BC",
+  "check": {
+   "construction": [
+    "A = (1, 1)",
+    "B = (4, 2)",
+    "C = (5, 5)",
+    "D = translate(A, B, C)"
+   ],
+   "expect": {
+    "D": [
+     2,
+     4
+    ]
+   }
+  }
+ },
+ {
+  "id": "2de-geo-005",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Triangle A(0,0), B(4,0), C(0,3) is right-angled at A",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (4, 0)",
+    "C = (0, 3)",
+    "a = angle(B, A, C)"
+   ],
+   "expect": {
+    "a": 90
+   }
+  }
+ },
+ {
+  "id": "2de-geo-006",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Hypotenuse BC of that triangle",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (4, 0)",
+    "C = (0, 3)",
+    "h = distance(B, C)"
+   ],
+   "expect": {
+    "h": 5
+   }
+  }
+ },
+ {
+  "id": "2de-geo-007",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Circumcentre of the right triangle is the midpoint of the hypotenuse",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (4, 0)",
+    "C = (0, 3)",
+    "m1 = bisector(A, B)",
+    "m2 = bisector(A, C)",
+    "O = intersect(m1, m2)"
+   ],
+   "expect": {
+    "O": [
+     2,
+     1.5
+    ]
+   }
+  }
+ },
+ {
+  "id": "2de-geo-008",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Symmetric of A(2, 3) about the point O(0, 0)",
+  "check": {
+   "construction": [
+    "A = (2, 3)",
+    "O = (0, 0)",
+    "B = reflect(A, O)"
+   ],
+   "expect": {
+    "B": [
+     -2,
+     -3
+    ]
+   }
+  }
+ },
+ {
+  "id": "2de-geo-009",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Reflection of A(2, 3) in the line y = x",
+  "check": {
+   "construction": [
+    "A = (2, 3)",
+    "P = (0, 0)",
+    "Q = (1, 1)",
+    "d = line(P, Q)",
+    "B = reflect(A, d)"
+   ],
+   "expect": {
+    "B": [
+     3,
+     2
+    ]
+   }
+  }
+ },
+ {
+  "id": "2de-geo-010",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Equilateral triangle: angle at a vertex",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (2, 0)",
+    "C = (1, 1.7320508075688772)",
+    "a = angle(B, A, C)"
+   ],
+   "expect": {
+    "a": 60
+   }
+  }
+ },
+ {
+  "id": "2de-geo-011",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Circle with centre O(1, 2) through A(4, 6): radius",
+  "check": {
+   "construction": [
+    "O = (1, 2)",
+    "A = (4, 6)",
+    "c = circle(O, A)"
+   ],
+   "expect": {
+    "c": 5
+   }
+  }
+ },
+ {
+  "id": "2de-geo-012",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Intersection of lines (AB) and (CD)",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (2, 2)",
+    "C = (0, 4)",
+    "D = (4, 0)",
+    "l1 = line(A, B)",
+    "l2 = line(C, D)",
+    "I = intersect(l1, l2)"
+   ],
+   "expect": {
+    "I": [
+     2,
+     2
+    ]
+   }
+  }
+ },
+ {
+  "id": "2de-geo-013",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Parallel lines do not meet",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (1, 1)",
+    "C = (0, 2)",
+    "D = (1, 3)",
+    "l1 = line(A, B)",
+    "l2 = line(C, D)",
+    "I = intersect(l1, l2)"
+   ],
+   "expect": {
+    "I": "undefined"
+   }
+  }
+ },
+ {
+  "id": "2de-geo-014",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Foot of the perpendicular from C(0, 4) to the x-axis line (AB)",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (5, 0)",
+    "C = (2, 4)",
+    "l = line(A, B)",
+    "p = perpendicular(l, C)",
+    "H = intersect(l, p)"
+   ],
+   "expect": {
+    "H": [
+     2,
+     0
+    ]
+   }
+  }
+ },
+ {
+  "id": "2de-geo-015",
+  "level": "seconde",
+  "topic": "geometry",
+  "statement": "Image of A(3, 1) by the rotation of centre O and angle 90°",
+  "check": {
+   "construction": [
+    "O = (0, 0)",
+    "A = (3, 1)",
+    "B = rotate(A, O, 90)"
+   ],
+   "expect": {
+    "B": [
+     -1,
+     3
+    ]
+   }
+  }
+ }
+]

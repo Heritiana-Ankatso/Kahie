@@ -69,7 +69,7 @@ All in the plot block's text lines (`nb_math::plot`, syntax in its module docs a
 | E2.10 Virtual instruments (part) | Ruler (cm), compass, protractor (whole degrees): strokes starting on them are guided in the core; readings while drawing. Not done: set squares, instrument templates | `nb_recog::instruments`, `Instruments.kt` |
 | E2.1 maths editor, E2.2 typesetting engine, E2.11 layers | Not started | |
 
-Phase 2 exit criteria (300-task curriculum suite, 100 constructions with instruments) are not met: no curriculum suite exists yet.
+Phase 2 exit criteria (300-task curriculum suite, 100 constructions with instruments) are not met yet. The curriculum suite exists: `core/crates/nb-math/tests/curriculum/{seconde,premiere,terminale}.json`, 118 lycée tasks (functions, equations, second degree, derivation and tangents, exponential, logarithm, trigonometry, limits and asymptotes, convexity, integration, intermediate values, analytic geometry, transformations, constraint solving), run by `cargo test -p nb-math --test curriculum`: 118/118 pass. Tasks the engine cannot do yet are marked `"gap"`; the CAS (symbolic) tasks are not in the suite yet.
 
 ## CI state (2026-11-23)
 
