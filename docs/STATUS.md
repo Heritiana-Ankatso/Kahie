@@ -1,7 +1,7 @@
 # Project status and handoff
 
 Living file: updated at the end of every work session so the next one can resume without context.
-Working branch: `ccr-121ac074-e1jgb6`. Merged into `main` by squash: PRs #2, #3, #5 and #7 (`main` = `dca9ced`, same content as the branch). Keep squash-merging (commit `a7ad8c9` on the branch holds ~300 MiB of build output). After a squash-merge, the branch is merged with `main` (as in `f253ab2`) so later PRs show only new work.
+Working branch: `ccr-121ac074-e1jgb6`. Merged into `main` by squash: PRs #2, #3, #5, #7 and later documentation PRs (last code change `dca9ced`, PR #7; same content as the branch). Keep squash-merging (commit `a7ad8c9` on the branch holds ~300 MiB of build output). After a squash-merge, the branch is merged with `main` (as in `f253ab2`) so later PRs show only new work.
 
 **Last updated:** 2026-11-24 · Hand-off summary for the next session: [`docs/HANDOFF.md`](HANDOFF.md)
 

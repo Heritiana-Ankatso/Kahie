@@ -1,6 +1,6 @@
 # Hand-off
 
-**Date:** 2026-11-24 · **`main`:** `dca9ced` (PR #7) · **Working branch:** `ccr-121ac074-e1jgb6`, same content as `main` · **Open PRs:** none
+**Date:** 2026-11-24 · **`main`:** all work; last code change `dca9ced` (PR #7), later commits are documentation only · **Working branch:** `ccr-121ac074-e1jgb6`, same content as `main` · **Open PRs:** none
 
 This page is for whoever picks up Kahie next, whether a person or an agent session. It covers the current state, what changed in the last session, how to work on the code, and what remains. `docs/STATUS.md` keeps the detailed, item-by-item status. `docs/user-guide.md` describes every feature from the user's side.
 
@@ -14,7 +14,7 @@ This page is for whoever picks up Kahie next, whether a person or an agent sessi
   - Partly done: E2.8–E2.11.
   - Not started: E2.1, E2.2, layers.
   - The exit criteria are **not met** yet: the curriculum suite has 118 of the required 300 tasks, and the 100 constructions with instruments do not exist.
-- **CI:** all 16 checks green on PR #7 (`09721d6`), including the APK build and the emulator smoke test; `main` (`dca9ced`) has exactly that content.
+- **CI:** all 16 checks green on PR #7 (`09721d6`), including the APK build and the emulator smoke test; `main` has exactly that code (later commits on `main` change only documentation).
 - **Everything is merged:** no open PRs, no unmerged work on any branch (§2). Start new work from `main`.
 - **Not tested on a real device.** Every UI change has only been compiled and smoke-tested on an emulator.
 
@@ -22,8 +22,8 @@ This page is for whoever picks up Kahie next, whether a person or an agent sessi
 
 | Ref | Content |
 |---|---|
-| `main` (`dca9ced`) | Everything: PRs #1–#7. **Start here.** |
-| `ccr-121ac074-e1jgb6` | Same content as `main` (`main` recorded with `git merge -s ours`, commit after `dca9ced`). Previous sessions' working branch; reuse it or branch from `main`. |
+| `main` | Everything: all merged PRs. Last code change `dca9ced` (PR #7); PR #8 and later are documentation only. **Start here.** |
+| `ccr-121ac074-e1jgb6` | Same content as `main` (`main` recorded with `git merge -s ours` after each squash-merge). Previous sessions' working branch; reuse it or branch from `main`. |
 | `insert-image-formats`, `release-signing` | Merged (PRs #6, #4). Safe to delete. |
 | `claude/elegant-edison-aile9l` | Planning docs from 2026-11-18; all 29 files are in `main` (PR #1). Safe to delete. |
 | `native-core`, `tmp-noop` | Old snapshots; every commit is in `main`. Safe to delete. |
