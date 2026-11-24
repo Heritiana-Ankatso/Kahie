@@ -48,4 +48,18 @@
     <string name="backup_restore">Restore</string>
     <string name="backup_none">No backup found in the backup folder.</string>
     <string name="backup_restore_confirm">Restore “%1$s” as a new notebook? Your current notebooks are not changed.</string>
+    <!-- Drawing aids (E2.8–E2.10) -->
+    <string name="instruments">Instruments</string>
+    <string name="instrument_ruler">Ruler</string>
+    <string name="instrument_compass">Compass</string>
+    <string name="instrument_protractor">Protractor</string>
+    <string name="instrument_none">Put the instrument away</string>
+    <string name="shapes_title">Shapes and snapping</string>
+    <string name="tidy_free">Free: ink as drawn (hold the pen still at the end to tidy)</string>
+    <string name="tidy_suggest">Suggest: offer a tidy shape after each stroke</string>
+    <string name="tidy_auto">Auto: tidy shapes at once</string>
+    <string name="snap_toggle">Snap to the grid and to other shapes</string>
+    <string name="tidy_this">Tidy shape</string>
+    <string name="show_original_ink">Show original ink</string>
+    <string name="show_tidy_shape">Show tidy shape</string>
 </resources>

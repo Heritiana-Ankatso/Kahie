@@ -41,6 +41,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private lateinit var ink: InkView
+    private lateinit var aids: DrawingAidsUi
     /** Page toolbar (Toolbar.kt): simple/advanced, top/side, left-handed (P1-38, P1-41). */
     private lateinit var toolbar: Toolbar
     private val pageLabel: TextView get() = toolbar.pageLabel
@@ -121,7 +122,8 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         CrashReports.install(this) // records nothing unless the user opted in (D8)
         ink = InkView(this)
-        ink.autoShapes = prefs.getBoolean("autoShapes", false)
+        aids = DrawingAidsUi(this, ink, prefs, { doc }) { ink.refresh(); ink.onChanged() }
+        aids.load()
         ink.onTextTap = { x, y, blockId -> editText(x, y, blockId) }
         ink.onUndoGesture = { if (doc?.undo() == true) { ink.refresh(); ink.onChanged() } }
         ink.onRedoGesture = { if (doc?.redo() == true) { ink.refresh(); ink.onChanged() } }
@@ -172,6 +174,7 @@ class MainActivity : Activity() {
             insets
         }
         root.setBackgroundColor(getColor(R.color.kahie_surface))
+        aids.attach(page)
         // Tips and tutorial steps float over the bottom of the page (never blocking it).
         coach.attach(page)
         setContentView(root)
@@ -1254,7 +1257,7 @@ class MainActivity : Activity() {
                 .show()
             return
         }
-        val extras = editing.selectionExtras(sel)
+        val extras = editing.selectionExtras(sel) + aids.selectionExtras(sel)
         AlertDialog.Builder(this)
             .setTitle(resources.getQuantityString(R.plurals.selected_items, sel.size, sel.size))
             .setItems(arrayOf(
@@ -1849,12 +1852,8 @@ class MainActivity : Activity() {
         prevPage = { goToPage(pageIndex - 1) },
         nextPage = { goToPage(pageIndex + 1) },
         addPage = { addPage() },
-        toggleShapes = {
-            ink.autoShapes = !ink.autoShapes
-            prefs.edit().putBoolean("autoShapes", ink.autoShapes).apply()
-            updateToolbar()
-            toast(getString(if (ink.autoShapes) R.string.shapes_on else R.string.shapes_off))
-        },
+        toggleShapes = { aids.showShapeOptions { updateToolbar() } },
+        instruments = { aids.showInstruments() },
         pdfText = { showPdfText() },
         tutorials = { coach.chooseTutorial() },
         settings = { Settings.show(this, prefs, ::recreate) },

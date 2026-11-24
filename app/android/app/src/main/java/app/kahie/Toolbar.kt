@@ -60,6 +60,8 @@ class Toolbar(private val a: Activity, private val ink: InkView, private val pre
         val lasso: () -> Unit = {},
         val toolOptions: () -> Unit = {},
         val search: () -> Unit = {},
+        /** Virtual instruments (E2.10). */
+        val instruments: () -> Unit = {},
     )
 
     companion object {
@@ -233,6 +235,8 @@ class Toolbar(private val a: Activity, private val ink: InkView, private val pre
             entries += R.string.fit to act.fit
             entries += R.string.clear to act.clear
         }
+        if (!advanced) entries += R.string.shapes_title to act.toggleShapes
+        entries += R.string.instruments to act.instruments
         if (ink.doc?.pdfSource() != null) entries += R.string.pdf_text to act.pdfText
         entries += R.string.tutorials to act.tutorials
         entries += R.string.settings to act.settings
@@ -290,12 +294,10 @@ class Toolbar(private val a: Activity, private val ink: InkView, private val pre
         val pen = slider(5, 120, ink.penWidth, R.string.style_pen_width)
         val hl = slider(50, 400, ink.highlighterWidth, R.string.style_highlighter_width)
         val eraser = slider(30, 300, ink.eraserRadius, R.string.style_eraser_size)
-        val shapes = android.widget.CheckBox(a).apply { text = a.getString(R.string.shapes); isChecked = ink.autoShapes }
         box.addView(label(R.string.style_color)); box.addView(hex)
         box.addView(label(R.string.style_pen_width)); box.addView(pen)
         box.addView(label(R.string.style_highlighter_width)); box.addView(hl)
         box.addView(label(R.string.style_eraser_size)); box.addView(eraser)
-        box.addView(shapes)
         fun value(s: SeekBar) = (s.progress + s.tag as Int) / 10.0
         AlertDialog.Builder(a)
             .setTitle(R.string.style)
@@ -306,7 +308,6 @@ class Toolbar(private val a: Activity, private val ink: InkView, private val pre
                 ink.penWidth = value(pen)
                 ink.highlighterWidth = value(hl)
                 ink.eraserRadius = value(eraser)
-                if (shapes.isChecked != ink.autoShapes) act.toggleShapes()
                 update()
             }
             .show()

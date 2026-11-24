@@ -64,7 +64,10 @@ All in the plot block's text lines (`nb_math::plot`, syntax in its module docs a
 | E2.11 Styling & transformations (part) | `[red, thick, dashed, hidden]`; rotate, dilate, translate, reflect any object | `nb_math::geo`, `plot.rs` |
 | E2.12 Markdown & LaTeX export | ZIP with `notebook.md`/`.tex` + assets; plots as pgfplots; compiles with pdflatex (CI installs texlive, `KAHIE_REQUIRE_PDFLATEX=1`) | `nb-ffi/src/docexport.rs`, `DocExport.kt` |
 | E2.13 Maths search | Structural queries `x^2 + ?`, `\frac{?}{2}` | `nb_math::mathsearch` |
-| E2.1 maths editor, E2.2 typesetting engine, E2.8 beautification modes, E2.9 snapping/guides, E2.10 instruments, E2.11 layers | Not started | E2.8–E2.10 touch `InkView.kt`: wait for the editing-tools branch to merge |
+| E2.8 Shape beautification (modes) | Free / Suggest / Auto; suggestions kept as a hidden interpretation (`Interp.show = false`) accepted with one tap; original ink always recoverable (`set_shapes_shown`, one undo step) | `nb-ffi/src/tools.rs`, `DrawingAidsUi.kt` |
+| E2.9 Snapping (part) | Shapes snap to key points of other tidied shapes (ends, corners, midpoints, centres), to the paper grid and to 15° angles. Not done: smart guides, tangent snapping, snapping while moving objects | `nb_recog::snap` |
+| E2.10 Virtual instruments (part) | Ruler (cm), compass, protractor (whole degrees): strokes starting on them are guided in the core; readings while drawing. Not done: set squares, instrument templates | `nb_recog::instruments`, `Instruments.kt` |
+| E2.1 maths editor, E2.2 typesetting engine, E2.11 layers | Not started | |
 
 Phase 2 exit criteria (300-task curriculum suite, 100 constructions with instruments) are not met: no curriculum suite exists yet.
 

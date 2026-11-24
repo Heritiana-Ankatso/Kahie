@@ -179,13 +179,13 @@ impl PageDoc {
     #[allow(clippy::too_many_arguments)] // flat FFI signature
     pub fn begin_stroke_tilt(&self, tool: InkTool, color: u32, width: f64, x: f64, y: f64, pressure: f64, tilt: f64) {
         let mut st = self.state.lock().unwrap();
-        st.current = Some(Current {
+        st.current = Some(Current::start(
+            &st,
             tool,
             color,
             width,
-            points: vec![Point::with_tilt(x, y, pressure, tilt)],
-            snapped: None,
-        });
+            Point::with_tilt(x, y, pressure, tilt),
+        ));
     }
 
     /// Like `add_points` with tilt: `xypt` = x0, y0, p0, t0, x1, …; one call per input event.
@@ -196,11 +196,14 @@ impl PageDoc {
         let mut accepted = Vec::with_capacity(xypt.len());
         for c in xypt.chunks_exact(4) {
             let last = *cur.points.last().unwrap();
-            if (c[0] - last.x).hypot(c[1] - last.y) < 0.2 {
+            let Some(p) = cur.push(Point::with_tilt(
+                c[0],
+                c[1],
+                last.p * 0.6 + c[2] * 0.4,
+                last.t * 0.6 + c[3] * 0.4,
+            )) else {
                 continue;
-            }
-            let p = Point::with_tilt(c[0], c[1], last.p * 0.6 + c[2] * 0.4, last.t * 0.6 + c[3] * 0.4);
-            cur.points.push(p);
+            };
             accepted.extend([p.x as f32, p.y as f32, p.p as f32, p.t as f32]);
         }
         accepted

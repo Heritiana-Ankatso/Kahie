@@ -26,6 +26,7 @@ mod pdf;
 mod raster;
 mod search;
 mod sync;
+mod tools;
 pub use cas::{cas_available, cas_command, cas_eval, CasAnswer, CasOp};
 pub use editing::{ink_radius, AttachmentBlock, RichSpan};
 pub use kahie_file::{export_kahie, import_kahie};
@@ -280,6 +281,39 @@ struct Current {
     width: f64,
     points: Vec<Point>,
     snapped: Option<Shape>,
+    /// Set when the stroke started on an instrument (E2.10): points follow it.
+    guide: Option<nb_recog::instruments::Guide>,
+}
+
+impl Current {
+    /// Start a stroke at `p`, guided by the page's instrument if it starts on it.
+    fn start(st: &State, tool: InkTool, color: u32, width: f64, p: Point) -> Self {
+        let mut guide = st.guide_for(p);
+        let first = guide.as_mut().map_or(p, |g| g.apply(p));
+        Current {
+            tool,
+            color,
+            width,
+            points: vec![first],
+            snapped: None,
+            guide,
+        }
+    }
+
+    /// Add a point (moved onto the instrument for a guided stroke); `None` if it is a
+    /// duplicate of the last one.
+    fn push(&mut self, p: Point) -> Option<Point> {
+        let p = match self.guide.as_mut() {
+            Some(g) => g.apply(p),
+            None => p,
+        };
+        let last = *self.points.last().unwrap();
+        if (p.x - last.x).hypot(p.y - last.y) < 0.2 {
+            return None;
+        }
+        self.points.push(p);
+        Some(p)
+    }
 }
 
 pub(crate) struct State {
@@ -293,6 +327,8 @@ pub(crate) struct State {
     /// Partial eraser gesture (P1-11): the eraser path so far and its largest radius.
     partial: Option<(Vec<(Point, Point)>, f64)>,
     seq: u64,
+    /// Instrument lying on the page (E2.10); per view, not saved.
+    pub(crate) instrument: Option<tools::InstrumentSpec>,
 }
 
 /// Minimum time between two local history checkpoints of a page, and how many are kept.
@@ -666,13 +702,7 @@ impl PageDoc {
 
     pub fn begin_stroke(&self, tool: InkTool, color: u32, width: f64, x: f64, y: f64, pressure: f64) {
         let mut st = self.state.lock().unwrap();
-        st.current = Some(Current {
-            tool,
-            color,
-            width,
-            points: vec![Point::new(x, y, pressure)],
-            snapped: None,
-        });
+        st.current = Some(Current::start(&st, tool, color, width, Point::new(x, y, pressure)));
     }
 
     /// Adds a point; returns false if it was dropped as a duplicate.
@@ -680,12 +710,8 @@ impl PageDoc {
         let mut st = self.state.lock().unwrap();
         let Some(cur) = st.current.as_mut() else { return false };
         let last = *cur.points.last().unwrap();
-        if (x - last.x).hypot(y - last.y) < 0.2 {
-            return false;
-        }
         // Light pressure smoothing, as in the web app.
-        cur.points.push(Point::new(x, y, last.p * 0.6 + pressure * 0.4));
-        true
+        cur.push(Point::new(x, y, last.p * 0.6 + pressure * 0.4)).is_some()
     }
 
     /// Batched [`PageDoc::add_point`]: one call per input event (`xyp` = x0, y0, p0, x1, …).
@@ -697,11 +723,9 @@ impl PageDoc {
         for c in xyp.chunks_exact(3) {
             let (x, y, pressure) = (c[0], c[1], c[2]);
             let last = *cur.points.last().unwrap();
-            if (x - last.x).hypot(y - last.y) < 0.2 {
+            let Some(p) = cur.push(Point::new(x, y, last.p * 0.6 + pressure * 0.4)) else {
                 continue;
-            }
-            let p = Point::new(x, y, last.p * 0.6 + pressure * 0.4);
-            cur.points.push(p);
+            };
             accepted.extend([p.x as f32, p.y as f32, p.p as f32]);
         }
         accepted
@@ -712,7 +736,7 @@ impl PageDoc {
     pub fn snap_current(&self) -> Option<RenderItem> {
         let mut st = self.state.lock().unwrap();
         let cur = st.current.as_mut()?;
-        if cur.points.len() < 4 {
+        if cur.points.len() < 4 || cur.guide.is_some() {
             return None;
         }
         let shape = recognize(&cur.points)?;
@@ -736,29 +760,14 @@ impl PageDoc {
 
     /// Commit the current stroke. `auto_shapes` recognises shapes without the hold gesture.
     pub fn end_stroke(&self, view_scale: f64, auto_shapes: bool) -> bool {
-        let mut st = self.state.lock().unwrap();
-        let Some(cur) = st.current.take() else { return false };
-        let shape = cur.snapped.or_else(|| {
-            if auto_shapes && cur.points.len() >= 4 {
-                recognize(&cur.points)
-            } else {
-                None
-            }
-        });
-        st.seq += 1;
-        let item = Item {
-            id: new_id(st.seq),
-            content: Content::Stroke(Stroke {
-                tool: cur.tool.model(),
-                color: cur.color,
-                width: cur.width,
-                points: finish_points(&cur.points, view_scale.max(0.05)),
-                interp: shape.map(|shape| Interp { shape, show: true }),
-                frame: IDENTITY,
-            }),
+        let had = self.state.lock().unwrap().current.is_some();
+        let mode = if auto_shapes {
+            tools::TidyMode::Auto
+        } else {
+            tools::TidyMode::Free
         };
-        let op = Op::add(st.doc.page(), vec![item]);
-        st.commit(op)
+        self.end_stroke_tidy(view_scale, mode, false, 0.0);
+        had
     }
 
     pub fn cancel_stroke(&self) {
@@ -1540,6 +1549,7 @@ impl PageDoc {
                 current: None,
                 erasing: None,
                 partial: None,
+                instrument: None,
                 seq: 0,
             }),
         }

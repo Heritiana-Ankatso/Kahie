@@ -64,7 +64,15 @@ class InkView(context: Context) : View(context) {
     var penWidth = 3.0
     var highlighterWidth = 20.0
     var eraserRadius = 9.0
-    var autoShapes = false
+    /** Shape tidying (E2.8): free, suggest or auto; snapping to grid and shapes (E2.9). */
+    var tidyMode = uniffi.nb_ffi.TidyMode.FREE
+    var snapping = true
+    val autoShapes get() = tidyMode != uniffi.nb_ffi.TidyMode.FREE
+    /** A stroke was kept with a suggested shape (tidy mode "suggest"): its id. */
+    var onShapeSuggested: (String) -> Unit = {}
+    /** Virtual instruments (E2.10). */
+    val instruments by lazy { InstrumentOverlay(density) }
+    private var guidedStart: Double? = null
     var fingerDraws = true
     /** Eraser tool erases only what it touches (P1-11) instead of whole strokes. */
     var partialEraser = false
@@ -548,6 +556,15 @@ class InkView(context: Context) : View(context) {
             }
             canvas.restore()
         }
+        instruments.draw(canvas, s)
+        guidedStart?.let { start ->
+            val sp = instruments.spec
+            val last = wet.lastOrNull()
+            if (sp != null && last != null) {
+                val value = instruments.readingText(sp, start, doc?.instrumentReading(last[0].toDouble(), last[1].toDouble()) ?: 0.0)
+                instruments.drawReading(canvas, s, value, last[0], last[1])
+            }
+        }
         canvas.restore()
         eraserCursor?.let { canvas.drawCircle(it[0], it[1], eraserRadius.toFloat() * density, eraserPaint) }
     }
@@ -696,6 +713,17 @@ class InkView(context: Context) : View(context) {
         val isStylus = toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
         if (isStylus) stylusSeen = true
         val fingerNavOnly = stylusSeen && !fingerDraws
+
+        // A finger on an instrument moves, turns or opens it (E2.10); a second finger navigates.
+        if (instruments.spec != null && !drawing && !erasing && toolType == MotionEvent.TOOL_TYPE_FINGER) {
+            if (e.pointerCount >= 2) {
+                instruments.cancelDrag()
+            } else if ((instruments.dragging || e.actionMasked == MotionEvent.ACTION_DOWN) &&
+                instruments.touch(e.actionMasked, toPageX(e.x), toPageY(e.y), s)) {
+                invalidate()
+                return true
+            }
+        }
 
         // Two or more fingers, or fingers while a stylus is in use: pan and zoom.
         if (!drawing && !erasing && (e.pointerCount >= 2 || (toolType == MotionEvent.TOOL_TYPE_FINGER && fingerNavOnly))) {
@@ -965,20 +993,26 @@ class InkView(context: Context) : View(context) {
         val t = tiltOf(e, 0)
         wetTool = if (tool in listOf(Tool.PEN, Tool.PENCIL, Tool.BRUSH, Tool.HIGHLIGHTER)) tool else Tool.PEN
         val hl = wetTool == Tool.HIGHLIGHTER
+        d.setInstrument(instruments.forStroke(s))
         d.beginStrokeTilt(
             inkToolOf(wetTool),
             ((if (hl) highlighterColor else penColor) and 0xFFFFFF).toUInt(),
             widthFor(wetTool), x.toDouble(), y.toDouble(), p.toDouble(), t.toDouble(),
         )
+        // A stroke along an instrument is moved onto it by the core: draw what it accepts.
+        val guided = d.strokeGuided()
+        val first = if (guided) d.strokeStart().takeIf { it.size == 2 } else null
+        val (wx, wy) = if (first != null) first[0] to first[1] else x to y
+        guidedStart = if (guided) d.instrumentReading(wx.toDouble(), wy.toDouble()) else null
         wet.clear()
-        wet.add(floatArrayOf(x, y, p, t))
+        wet.add(floatArrayOf(wx, wy, p, t))
         snapPreview = null
         drawing = true
         val color = if (hl) (highlighterColor and 0xFFFFFF) or (90 shl 24) else penColor
         val sizePx = (widthFor(wetTool) * s).toFloat()
-        fastWet = wetInk?.start(e, activePointer, hl, color, sizePx) ?: false
+        fastWet = if (guided) false else wetInk?.start(e, activePointer, hl, color, sizePx) ?: false
         holdX = e.x; holdY = e.y
-        armHold()
+        if (!guided) armHold()
         invalidate()
     }
 
@@ -1004,7 +1038,7 @@ class InkView(context: Context) : View(context) {
             i += 4
         }
         if (fastWet) wetInk?.add(e, activePointer)
-        if (hypot(e.getX(idx) - holdX, e.getY(idx) - holdY) > 4 * density) {
+        if (guidedStart == null && hypot(e.getX(idx) - holdX, e.getY(idx) - holdY) > 4 * density) {
             holdX = e.getX(idx); holdY = e.getY(idx)
             if (snapPreview != null) { d.clearSnap(); snapPreview = null }
             armHold()
@@ -1031,11 +1065,13 @@ class InkView(context: Context) : View(context) {
         handler.removeCallbacks(holdRunnable)
         drawing = false
         if (fastWet) { wetInk?.finish(e, activePointer); fastWet = false }
-        doc?.endStroke((s / density).toDouble(), autoShapes)
+        val suggested = doc?.endStrokeTidy((s / density).toDouble(), tidyMode, snapping, (12f * density / s).toDouble())
+        guidedStart = null
         wet.clear()
         snapPreview = null
         refresh()
         onChanged()
+        suggested?.let { onShapeSuggested(it) }
     }
 
     private fun cancelInk(e: MotionEvent? = null) {
@@ -1043,6 +1079,7 @@ class InkView(context: Context) : View(context) {
         if (fastWet) { wetInk?.cancel(e); fastWet = false }
         if (drawing) doc?.cancelStroke()
         if (erasing) doc?.cancelErase()
+        guidedStart = null
         drawing = false
         erasing = false
         wet.clear()
@@ -1108,6 +1145,9 @@ class InkView(context: Context) : View(context) {
 
     /** Centre of the visible part of the page, in page units (where new images go). */
     fun visibleCentre(): FloatArray = floatArrayOf(toPageX(width / 2f), toPageY(height / 2f))
+
+    /** Width of the visible area in page units. */
+    fun visibleWidth(): Float = width / s
 
     /** Scroll (at the current zoom) so the page rectangle x, y, w, h is centred (search results). */
     fun reveal(x: Float, y: Float, w: Float, h: Float) {

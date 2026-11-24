@@ -48,4 +48,18 @@
     <string name="backup_restore">Averina</string>
     <string name="backup_none">Tsy misy tahiry ao amin\'ny lahatahiry fitahirizana.</string>
     <string name="backup_restore_confirm">Haverina ho kahie vaovao ve ny “%1$s”? Tsy miova ny kahie anananao ankehitriny.</string>
+    <!-- Drawing aids (E2.8–E2.10) -->
+    <string name="instruments">Fitaovana</string>
+    <string name="instrument_ruler">Rola</string>
+    <string name="instrument_compass">Kompà</string>
+    <string name="instrument_protractor">Rapôrtera</string>
+    <string name="instrument_none">Esory ny fitaovana</string>
+    <string name="shapes_title">Endrika sy fanintonana</string>
+    <string name="tidy_free">Malalaka: araka ny nosoratana (tazony tsy mihetsika ny penina mba hahitsy azy)</string>
+    <string name="tidy_suggest">Soso-kevitra: atolotra endrika mahitsy isaky ny tsipika</string>
+    <string name="tidy_auto">Ho azy: ahitsy avy hatrany ny endrika</string>
+    <string name="snap_toggle">Asintona amin’ny kisary sy ny endrika hafa</string>
+    <string name="tidy_this">Ahitsy</string>
+    <string name="show_original_ink">Asehoy ny soratra tany am-boalohany</string>
+    <string name="show_tidy_shape">Asehoy ny endrika mahitsy</string>
 </resources>
