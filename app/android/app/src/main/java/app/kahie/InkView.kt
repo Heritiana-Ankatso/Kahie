@@ -85,6 +85,8 @@ class InkView(context: Context) : View(context) {
         private set
     /** Called when the selection changes (size of the new selection). */
     var onSelectionChanged: (Int) -> Unit = {}
+    /** A selection rectangle over PDF text with no objects in it (P1-23): the text it covers. */
+    var onPdfTextSelected: (String) -> Unit = {}
     private var selBounds: RectF? = null
     private var band: RectF? = null          // rubber band in page coordinates
     private var lassoPts: ArrayList<Float>? = null // lasso path in page coordinates
@@ -847,6 +849,15 @@ class InkView(context: Context) : View(context) {
                             if (att != null) onAttachmentTap(att)
                         }
                         selection = d.selectRect(r.left.toDouble(), r.top.toDouble(), r.right.toDouble(), r.bottom.toDouble())
+                        // Nothing drawn there, but a PDF page underneath: select its text.
+                        val place = PdfPages.pageRect(d)
+                        val tap = kotlin.math.abs(r.width()) < 4f / s * density && kotlin.math.abs(r.height()) < 4f / s * density
+                        if (selection.isEmpty() && place != null && !tap && place.width() > 0f && place.height() > 0f) {
+                            fun nx(v: Float) = (v - place.left) / place.width()
+                            fun ny(v: Float) = (v - place.top) / place.height()
+                            val text = d.pdfTextIn(nx(r.left), ny(r.top), nx(r.right), ny(r.bottom))
+                            if (text.isNotBlank()) onPdfTextSelected(text)
+                        }
                     }
                     if (pts != null || r != null) {
                         updateSelBounds()

@@ -133,6 +133,7 @@ class MainActivity : Activity() {
         editing = EditingUi(this, ink, { doc }, io)
         editing.restore()
         ink.onAttachmentTap = { editing.openAttachment(it) }
+        ink.onPdfTextSelected = { showSelectedPdfText(it) }
         ink.horizontal = prefs.getBoolean("horizontalPages", false)
         ink.onPageTurn = { dir ->
             val next = pageIndex + dir
@@ -1599,6 +1600,26 @@ class MainActivity : Activity() {
                     r.onSuccess { openNotebook(dir) }
                     r.onFailure { toast(getString(R.string.open_failed, it.message ?: "")) }
                 }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Text of a PDF page selected with the Select tool (P1-23): show it, copy it. */
+    private fun showSelectedPdfText(text: String) {
+        val view = TextView(this).apply {
+            this.text = text
+            setTextIsSelectable(true)
+            val pad = (20 * dp).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.pdf_text)
+            .setView(android.widget.ScrollView(this).apply { addView(view) })
+            .setPositiveButton(R.string.copy) { _, _ ->
+                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                cm?.setPrimaryClip(android.content.ClipData.newPlainText("PDF", text))
+                toast(getString(R.string.copied))
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
