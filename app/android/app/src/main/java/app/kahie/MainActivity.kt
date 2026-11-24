@@ -971,36 +971,8 @@ class MainActivity : Activity() {
         for ((latex, size, color) in requests) renderer.request(latex, size, color) { if (--remaining == 0) write() }
     }
 
-    /** Downsize (≤ 1600 px, EXIF rotation applied), encode and place an image on the page. */
-    private fun insertImage(uri: android.net.Uri) {
-        val d = doc ?: return
-        val centre = ink.visibleCentre()
-        io.execute {
-            val result = runCatching {
-                val src = android.graphics.ImageDecoder.createSource(contentResolver, uri)
-                val bmp = android.graphics.ImageDecoder.decodeBitmap(src) { decoder, info, _ ->
-                    val w = info.size.width
-                    val h = info.size.height
-                    val scale = minOf(1f, 1600f / maxOf(w, h))
-                    decoder.setTargetSize(maxOf(1, (w * scale).toInt()), maxOf(1, (h * scale).toInt()))
-                    decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
-                }
-                val out = java.io.ByteArrayOutputStream()
-                val png = bmp.hasAlpha()
-                bmp.compress(if (png) android.graphics.Bitmap.CompressFormat.PNG else android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
-                Triple(out.toByteArray(), bmp.width, bmp.height)
-            }
-            main.post {
-                result.onSuccess { (bytes, w, h) ->
-                    val boxW = minOf(420f, d.pageDims()[0] - 40f)
-                    val boxH = boxW * h / w
-                    d.addImage((centre[0] - boxW / 2).toDouble(), (centre[1] - boxH / 2).toDouble(), boxW.toDouble(), boxH.toDouble(), bytes)
-                    ink.refresh()
-                    ink.onChanged()
-                }.onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
-            }
-        }
-    }
+    /** Place the picture at `uri` on the page (raster formats, SVG, TIFF; see [EditingUi.insertImage]). */
+    private fun insertImage(uri: android.net.Uri) = editing.insertImage(uri)
 
     private fun startPdfImport() {
         val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)

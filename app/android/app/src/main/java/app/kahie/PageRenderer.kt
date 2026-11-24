@@ -221,16 +221,24 @@ object PageRenderer {
     fun bitmap(d: PageDoc, hash: String): android.graphics.Bitmap? {
         bitmaps.get(hash)?.let { return it }
         val bytes = d.imageBytes(hash) ?: return null
-        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        // An SVG has no bitmap of its own: crop/rotate and exports that need pixels get it rasterised.
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: SvgImages.picture(hash) { bytes }?.let { SvgImages.rasterise(it) }
+            ?: return null
         bitmaps.put(hash, bmp)
         return bmp
     }
 
+    /** The vector drawing of image `hash` when it is an SVG, else null. */
+    fun svgPicture(d: PageDoc, hash: String): android.graphics.Picture? = SvgImages.picture(hash) { d.imageBytes(hash) }
+
     private val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
     fun drawImage(canvas: Canvas, d: PageDoc, img: uniffi.nb_ffi.ImageBlock) {
+        val box = android.graphics.RectF(img.x, img.y, img.x + img.width, img.y + img.height)
+        svgPicture(d, img.hash)?.let { SvgImages.draw(canvas, it, box); return } // stays vector (screen, PDF)
         val bmp = bitmap(d, img.hash) ?: return
-        canvas.drawBitmap(bmp, null, android.graphics.RectF(img.x, img.y, img.x + img.width, img.y + img.height), imagePaint)
+        canvas.drawBitmap(bmp, null, box, imagePaint)
     }
 
     /** Screen state for drawing a PDF page on demand: zoom, visible page region, redraw. */

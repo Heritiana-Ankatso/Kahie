@@ -89,6 +89,8 @@ class EditingUi(
         const val CLIP_LABEL = "Kahie"
         /** Largest attachment stored in a page (they sync with it). */
         const val MAX_ATTACHMENT = 25 * 1024 * 1024
+        /** Largest TIFF file read for insertion (scans can be big; decoded and downsized by the core). */
+        const val MAX_TIFF = 200 * 1024 * 1024
 
         val penPalette = intArrayOf(
             0xFF1D1D1F.toInt(), 0xFF6B6F78.toInt(), 0xFF2B59C3.toInt(), 0xFF4FA3E0.toInt(),
@@ -319,36 +321,109 @@ class EditingUi(
             REQ_CAMERA -> {
                 val f = prefs.getString("captureFile", null)?.let { File(it) }
                 if (resultCode == Activity.RESULT_OK && f != null && f.length() > 0) {
-                    insertImage(android.graphics.ImageDecoder.createSource(f)) { f.delete() }
+                    insertPicture({ f.delete() }) { raster(android.graphics.ImageDecoder.createSource(f)) }
                 } else {
                     f?.delete()
                 }
             }
-            REQ_PICK_IMAGE -> data?.data?.takeIf { resultCode == Activity.RESULT_OK }?.let {
-                insertImage(android.graphics.ImageDecoder.createSource(activity.contentResolver, it))
-            }
+            REQ_PICK_IMAGE -> data?.data?.takeIf { resultCode == Activity.RESULT_OK }?.let { insertImage(it) }
             REQ_ATTACH -> data?.data?.takeIf { resultCode == Activity.RESULT_OK }?.let { attach(it) }
             else -> return false
         }
         return true
     }
 
-    /** Downsize (≤ 1600 px, EXIF rotation applied), encode and place an image at the centre of the view. */
-    private fun insertImage(src: android.graphics.ImageDecoder.Source, after: () -> Unit = {}) {
+    /** A picture ready for the page: the bytes to store and its intrinsic size (for the box aspect). */
+    private class Prepared(val bytes: ByteArray, val width: Float, val height: Float)
+
+    /** The picked or pasted file is not a picture Kahie can read. */
+    private class UnsupportedImage : Exception()
+
+    /** The file is larger than Kahie reads for a picture of its kind. */
+    private class TooLarge(val megabytes: Int) : Exception()
+
+    /** Insert the picture at `uri` (gallery, file picker, clipboard): raster formats, SVG/SVGZ, TIFF. */
+    fun insertImage(uri: Uri) = insertPicture { prepare(uri) }
+
+    /**
+     * Prepare and place a picture at the centre of the view: a box `min(420, page width − 40)`
+     * wide with the picture's aspect.
+     */
+    private fun insertPicture(after: () -> Unit = {}, prepare: () -> Prepared) {
         val d = doc() ?: return
         val centre = ink.visibleCentre()
         io.execute {
-            val result = runCatching { encode(decode(src)) }
+            val result = runCatching(prepare)
             main.post {
                 after()
-                result.onSuccess { (bytes, w, h) ->
+                result.onSuccess { pic ->
                     val boxW = minOf(420f, if (d.isInfinite()) 420f else d.pageDims()[0] - 40f)
-                    val boxH = boxW * h / w
-                    d.addImage((centre[0] - boxW / 2).toDouble(), (centre[1] - boxH / 2).toDouble(), boxW.toDouble(), boxH.toDouble(), bytes)
+                    val boxH = boxW * pic.height / pic.width
+                    d.addImage((centre[0] - boxW / 2).toDouble(), (centre[1] - boxH / 2).toDouble(), boxW.toDouble(), boxH.toDouble(), pic.bytes)
                     changed()
-                }.onFailure { toast(activity.getString(R.string.transfer_failed, it.message ?: "")) }
+                }.onFailure { e ->
+                    val msg = when (e) {
+                        is UnsupportedImage, is android.graphics.ImageDecoder.DecodeException, is uniffi.nb_ffi.CoreException ->
+                            activity.getString(R.string.image_unsupported)
+                        is TooLarge -> activity.getString(R.string.attachment_too_large, e.megabytes)
+                        else -> activity.getString(R.string.transfer_failed, e.message ?: "")
+                    }
+                    toast(msg)
+                }
             }
         }
+    }
+
+    /**
+     * Read the picture at `uri`. SVG (and gzipped SVGZ) is kept as its SVG text, so it stays
+     * vector; formats Android decodes (JPEG, PNG, WebP, GIF's first frame, HEIF/HEIC, AVIF,
+     * BMP, ICO, DNG) are downsized to ≤ 1600 px and stored as PNG (with transparency) or
+     * JPEG; TIFF is decoded by the core and stored as PNG.
+     */
+    private fun prepare(uri: Uri): Prepared {
+        val resolver = activity.contentResolver
+        val mime = resolver.getType(uri)?.lowercase()
+        val head = resolver.openInputStream(uri)?.use { readUpTo(it, 4096) } ?: throw java.io.FileNotFoundException(uri.toString())
+        if (mime == "image/svg+xml" || SvgImages.isSvg(head) || SvgImages.isGzip(head)) {
+            val bytes = resolver.openInputStream(uri)!!.use { readUpTo(it, SvgImages.MAX_BYTES + 1) }
+            svg(bytes)?.let { return it }
+            if (mime == "image/svg+xml") throw UnsupportedImage()
+        }
+        val raster = runCatching { raster(android.graphics.ImageDecoder.createSource(resolver, uri)) }
+        raster.getOrNull()?.let { return it }
+        if (uniffi.nb_ffi.isTiff(head)) {
+            val bytes = resolver.openInputStream(uri)!!.use { readUpTo(it, MAX_TIFF + 1) }
+            if (bytes.size > MAX_TIFF) throw TooLarge(MAX_TIFF / (1024 * 1024))
+            val t = uniffi.nb_ffi.decodeTiff(bytes)
+            return Prepared(t.png, t.width.toFloat(), t.height.toFloat())
+        }
+        throw raster.exceptionOrNull()?.takeIf { it !is android.graphics.ImageDecoder.DecodeException } ?: UnsupportedImage()
+    }
+
+    /** An SVG picture from SVG or SVGZ bytes (checked to parse), or null if they are not SVG. */
+    private fun svg(bytes: ByteArray): Prepared? {
+        if (bytes.size > SvgImages.MAX_BYTES) throw TooLarge(SvgImages.MAX_BYTES / (1024 * 1024))
+        val text = SvgImages.normalise(bytes) ?: return null
+        val parsed = runCatching { SvgImages.parse(text) }.getOrNull() ?: throw UnsupportedImage()
+        val (w, h) = SvgImages.size(parsed)
+        if (!(w > 0f && h > 0f) || w.isInfinite() || h.isInfinite()) throw UnsupportedImage()
+        return Prepared(text, w, h)
+    }
+
+    private fun raster(src: android.graphics.ImageDecoder.Source): Prepared {
+        val (bytes, w, h) = encode(decode(src))
+        return Prepared(bytes, w.toFloat(), h.toFloat())
+    }
+
+    private fun readUpTo(inp: java.io.InputStream, max: Int): ByteArray {
+        val buf = java.io.ByteArrayOutputStream()
+        val chunk = ByteArray(64 * 1024)
+        while (buf.size() < max) {
+            val n = inp.read(chunk, 0, minOf(chunk.size, max - buf.size()))
+            if (n < 0) break
+            buf.write(chunk, 0, n)
+        }
+        return buf.toByteArray()
     }
 
     private fun decode(src: android.graphics.ImageDecoder.Source): Bitmap =
@@ -441,8 +516,12 @@ class EditingUi(
         val clip = when {
             text.isNotBlank() -> ClipData.newPlainText(CLIP_LABEL, text)
             images.size == 1 -> d.imageBytes(images[0].hash)?.let { bytes ->
-                val png = bytes.size > 3 && bytes[1] == 'P'.code.toByte()
-                val f = File(ShareProvider.dir(activity), "clip-${images[0].hash.take(16)}." + if (png) "png" else "jpg")
+                val ext = when {
+                    SvgImages.isSvg(bytes) -> "svg"
+                    bytes.size > 3 && bytes[1] == 'P'.code.toByte() -> "png"
+                    else -> "jpg"
+                }
+                val f = File(ShareProvider.dir(activity), "clip-${images[0].hash.take(16)}.$ext")
                 f.writeBytes(bytes)
                 ClipData.newUri(activity.contentResolver, CLIP_LABEL, ShareProvider.uriFor(f))
             }
@@ -468,7 +547,7 @@ class EditingUi(
         val item = c.getItemAt(0)
         val uri = item.uri
         if (uri != null && (activity.contentResolver.getType(uri)?.startsWith("image/") == true || c.description.hasMimeType("image/*"))) {
-            insertImage(android.graphics.ImageDecoder.createSource(activity.contentResolver, uri))
+            insertImage(uri)
             return true
         }
         val text = item.coerceToText(activity)?.toString()?.trim().orEmpty()
