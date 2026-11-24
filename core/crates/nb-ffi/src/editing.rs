@@ -405,9 +405,10 @@ impl PageDoc {
         id
     }
 
-    /// Replace a text block's text and formatting (and measured height), merged as a
-    /// character diff into the block's CRDT text. Empty text deletes the block.
-    pub fn set_rich_text(&self, id: String, text: String, spans: Vec<RichSpan>, height: f64) -> bool {
+    /// Replace a text block's text and formatting (and measured size), merged as a
+    /// character diff into the block's CRDT text. `width` ≤ 0 keeps the current width
+    /// (auto-width boxes pass their new natural width). Empty text deletes the block.
+    pub fn set_rich_text(&self, id: String, text: String, spans: Vec<RichSpan>, width: f64, height: f64) -> bool {
         let mut st = self.state.lock().unwrap();
         let Some(old) = st.doc.page().items.iter().find(|i| i.id == id).cloned() else {
             return false;
@@ -424,6 +425,7 @@ impl PageDoc {
             id,
             content: Content::Text {
                 rect: nb_model::Rect {
+                    w: if width > 0.0 { width } else { rect.w },
                     h: height,
                     ..rect.clone()
                 },
@@ -688,8 +690,12 @@ mod tests {
             heading: 1,
             ..span
         };
-        assert!(doc.set_rich_text(id.clone(), text.clone() + "!", vec![heading], 30.0));
+        assert!(doc.set_rich_text(id.clone(), text.clone() + "!", vec![heading], 0.0, 30.0));
         assert_eq!(doc.text_blocks()[0].spans[0].heading, 1);
+        assert_eq!(doc.text_blocks()[0].width, 100.0, "width 0 keeps the width");
+        assert!(doc.set_rich_text(id.clone(), text.clone() + "!!", vec![], 140.0, 30.0));
+        assert_eq!(doc.text_blocks()[0].width, 140.0, "auto-width boxes grow");
+        assert!(doc.undo());
         assert!(doc.undo());
         assert!(doc.text_blocks()[0].spans[0].bold);
         // Plain set_text keeps formatting that still fits.

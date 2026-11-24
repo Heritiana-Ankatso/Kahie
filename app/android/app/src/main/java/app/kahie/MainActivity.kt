@@ -1298,11 +1298,17 @@ class MainActivity : Activity() {
             existing?.text ?: "", existing?.spans ?: emptyList(), existing?.size ?: 20f,
             EditingUi.penPalette, compute, extra = { casOpsRow(it) },
         ) { text, spans ->
+            // Auto-width boxes (P1-17) fit their longest line up to the page edge; a box whose
+            // width was changed by hand keeps it and wraps.
+            val maxWidth = if (d.isInfinite()) 1600f else (d.pageDims()[0] - (existing?.x ?: x) - 24f).coerceAtLeast(120f)
+            fun fit(t: String, sp: List<uniffi.nb_ffi.RichSpan>, size: Float) = minOf(RichText.naturalWidth(t, sp, size), maxWidth)
             if (existing != null) {
-                d.setRichText(existing.id, text, spans, ink.measureRich(text, spans, existing.width, existing.size).toDouble())
+                val auto = RichText.isAutoWidth(existing.text, existing.spans, existing.size, existing.width)
+                val width = if (auto) fit(text, spans, existing.size) else existing.width
+                d.setRichText(existing.id, text, spans, if (auto) width.toDouble() else 0.0, ink.measureRich(text, spans, width, existing.size).toDouble())
             } else if (text.isNotBlank()) {
-                val width = 420f
                 val size = 20f
+                val width = fit(text, spans, size)
                 d.addRichText(x.toDouble(), y.toDouble(), width.toDouble(), ink.measureRich(text, spans, width, size).toDouble(), text, spans, size.toDouble(), (penColor() and 0xFFFFFF).toUInt())
             }
             ink.refresh()

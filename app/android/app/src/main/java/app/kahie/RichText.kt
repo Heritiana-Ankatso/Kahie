@@ -149,6 +149,20 @@ object RichText {
         return StaticLayout.Builder.obtain(s, 0, s.length, paint, width.toInt().coerceAtLeast(20)).build()
     }
 
+    /**
+     * Natural width of a block (its longest line, unwrapped): the width of an auto-width
+     * text box (P1-17). A box is auto-width while its width equals this (within a pixel).
+     */
+    fun naturalWidth(text: String, spans: List<RichSpan>, size: Float): Float {
+        val l = layout(text, spans, 100_000f, size, 0u)
+        var w = 0f
+        for (i in 0 until l.lineCount) w = maxOf(w, l.getLineWidth(i))
+        return kotlin.math.ceil(w + 2f).coerceAtLeast(20f)
+    }
+
+    fun isAutoWidth(text: String, spans: List<RichSpan>, size: Float, width: Float): Boolean =
+        kotlin.math.abs(naturalWidth(text, spans, size) - width) <= 1.5f
+
     // ---------- editing ----------
 
     /** Apply `f` to the formatting of [a, b) of `spans` (a text of length `n`). */
