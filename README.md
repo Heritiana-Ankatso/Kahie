@@ -21,6 +21,7 @@ Kahie is free software under the [GNU General Public License v3.0 or later](LICE
 - **[Kahie Web](app/web/README.md)**: run, test and install the app.
 - **[Delivery plan](docs/PLAN.md)** — goals, principles, phases, milestones, team.
 - **[Project status and handoff](docs/STATUS.md)** — what is done, what is next.
+- **[Hand-off](docs/HANDOFF.md)** — current state, branch and merge rules, how to work on the code, next steps.
 - [Quick guide (Android)](docs/user-guide.md) — how to use the app.
 - [Running a sync relay](docs/relay.md) — self-hosted sync between devices.
 - [Documentation index](docs/README.md) — architecture, ADRs, workstreams, backlog, decisions, risks.

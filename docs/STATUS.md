@@ -3,7 +3,7 @@
 Living file: updated at the end of every work session so the next one can resume without context.
 Working branch: `ccr-121ac074-e1jgb6`. Merged into `main` by squash: PR #2 (to `920e87d`) and PR #3 (to `9911acd`). Keep squash-merging (commit `a7ad8c9` on the branch holds ~300 MiB of build output). After a squash-merge, the branch is merged with `main` (as in `f253ab2`) so later PRs show only new work.
 
-**Last updated:** 2026-11-22
+**Last updated:** 2026-11-24 · Hand-off summary for the next session: [`docs/HANDOFF.md`](HANDOFF.md)
 
 ## Decisions (all in `docs/decisions-open.md`)
 
@@ -70,6 +70,10 @@ All in the plot block's text lines (`nb_math::plot`, syntax in its module docs a
 | E2.1 maths editor, E2.2 typesetting engine, E2.11 layers | Not started | |
 
 Phase 2 exit criteria (300-task curriculum suite, 100 constructions with instruments) are not met yet. The curriculum suite exists: `core/crates/nb-math/tests/curriculum/{seconde,premiere,terminale}.json`, 118 lycée tasks (functions, equations, second degree, derivation and tangents, exponential, logarithm, trigonometry, limits and asymptotes, convexity, integration, intermediate values, analytic geometry, transformations, constraint solving), run by `cargo test -p nb-math --test curriculum`: 118/118 pass. Tasks the engine cannot do yet are marked `"gap"`; the CAS (symbolic) tasks are not in the suite yet.
+
+## CI state (2026-11-24)
+
+- **All green on `1bacf67`**: `ci` run 78 and `android` run 56 (APK + emulator smoke). The branch is 7 commits ahead of `main` (PR #6 and the 2026-11-24 work); no open PR.
 
 ## CI state (2026-11-23)
 
