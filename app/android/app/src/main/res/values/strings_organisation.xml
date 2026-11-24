@@ -40,6 +40,7 @@
     <string name="search_kind_text">Text</string>
     <string name="search_kind_math">Maths</string>
     <string name="search_kind_plot">Plot</string>
+    <string name="search_kind_pdf">PDF</string>
     <string name="pdf_all_pages">All pages (%1$d)</string>
     <string name="pdf_current_page">This page (%1$d)</string>
     <string name="pdf_page_range">Pages… (e.g. 1-3, 5)</string>

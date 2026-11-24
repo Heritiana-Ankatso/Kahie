@@ -40,6 +40,7 @@
     <string name="search_kind_text">Soratra</string>
     <string name="search_kind_math">Matematika</string>
     <string name="search_kind_plot">Fiolahana</string>
+    <string name="search_kind_pdf">PDF</string>
     <string name="pdf_all_pages">Pejy rehetra (%1$d)</string>
     <string name="pdf_current_page">Ity pejy ity (%1$d)</string>
     <string name="pdf_page_range">Pejy… (oh. 1-3, 5)</string>

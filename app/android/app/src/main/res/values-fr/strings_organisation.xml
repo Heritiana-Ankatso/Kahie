@@ -39,6 +39,7 @@
     <string name="search_kind_text">Texte</string>
     <string name="search_kind_math">Maths</string>
     <string name="search_kind_plot">Courbe</string>
+    <string name="search_kind_pdf">PDF</string>
     <string name="pdf_all_pages">Toutes les pages (%1$d)</string>
     <string name="pdf_current_page">Cette page (%1$d)</string>
     <string name="pdf_page_range">Pages… (ex. 1-3, 5)</string>
