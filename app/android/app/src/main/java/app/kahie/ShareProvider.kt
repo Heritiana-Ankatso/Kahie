@@ -38,6 +38,7 @@ class ShareProvider : ContentProvider() {
         "pdf" -> "application/pdf"
         "png" -> "image/png"
         "jpg", "jpeg" -> "image/jpeg"
+        "svg" -> "image/svg+xml"
         else -> ext?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) } ?: "application/octet-stream"
     }
 

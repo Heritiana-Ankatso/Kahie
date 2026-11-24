@@ -41,6 +41,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private lateinit var ink: InkView
+    private lateinit var aids: DrawingAidsUi
     /** Page toolbar (Toolbar.kt): simple/advanced, top/side, left-handed (P1-38, P1-41). */
     private lateinit var toolbar: Toolbar
     private val pageLabel: TextView get() = toolbar.pageLabel
@@ -121,7 +122,8 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         CrashReports.install(this) // records nothing unless the user opted in (D8)
         ink = InkView(this)
-        ink.autoShapes = prefs.getBoolean("autoShapes", false)
+        aids = DrawingAidsUi(this, ink, prefs, { doc }) { ink.refresh(); ink.onChanged() }
+        aids.load()
         ink.onTextTap = { x, y, blockId -> editText(x, y, blockId) }
         ink.onUndoGesture = { if (doc?.undo() == true) { ink.refresh(); ink.onChanged() } }
         ink.onRedoGesture = { if (doc?.redo() == true) { ink.refresh(); ink.onChanged() } }
@@ -133,6 +135,7 @@ class MainActivity : Activity() {
         editing = EditingUi(this, ink, { doc }, io)
         editing.restore()
         ink.onAttachmentTap = { editing.openAttachment(it) }
+        ink.onPdfTextSelected = { showSelectedPdfText(it) }
         ink.horizontal = prefs.getBoolean("horizontalPages", false)
         ink.onPageTurn = { dir ->
             val next = pageIndex + dir
@@ -171,6 +174,7 @@ class MainActivity : Activity() {
             insets
         }
         root.setBackgroundColor(getColor(R.color.kahie_surface))
+        aids.attach(page)
         // Tips and tutorial steps float over the bottom of the page (never blocking it).
         coach.attach(page)
         setContentView(root)
@@ -658,11 +662,12 @@ class MainActivity : Activity() {
             val pdf = android.graphics.pdf.PdfDocument()
             pages.forEachIndexed { i, p ->
                 // Page units are 1/96 in; PDF points are 1/72 in.
-                val dims = p.pageDims()
-                val w = (dims[0] * 0.75f).toInt()
-                val h = (dims[1] * 0.75f).toInt()
+                val area = PageRenderer.exportArea(p) // the paper, or an infinite canvas's content
+                val w = (area.width() * 0.75f).toInt().coerceAtLeast(1)
+                val h = (area.height() * 0.75f).toInt().coerceAtLeast(1)
                 val page = pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(w, h, i + 1).create())
-                page.canvas.scale(w / dims[0], h / dims[1])
+                page.canvas.scale(w / area.width(), h / area.height())
+                page.canvas.translate(-area.left, -area.top)
                 PageRenderer.drawPage(page.canvas, p, renderer)
                 pdf.finishPage(page)
             }
@@ -949,12 +954,15 @@ class MainActivity : Activity() {
         val requests = PageRenderer.mathRequests(d).distinct()
         var remaining = requests.size
         fun write() {
-            val scale = 2f
+            val area = PageRenderer.exportArea(d) // the paper, or an infinite canvas's content
+            // 2×, but at most 8 000 px on a side (a large infinite canvas).
+            val scale = minOf(2f, 8000f / maxOf(area.width(), area.height()))
             val bmp = android.graphics.Bitmap.createBitmap(
-                (d.pageDims()[0] * scale).toInt(), (d.pageDims()[1] * scale).toInt(), android.graphics.Bitmap.Config.ARGB_8888,
+                (area.width() * scale).toInt().coerceAtLeast(1), (area.height() * scale).toInt().coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888,
             )
             val c = android.graphics.Canvas(bmp)
             c.scale(scale, scale)
+            c.translate(-area.left, -area.top)
             PageRenderer.drawPage(c, d, renderer)
             io.execute {
                 val result = runCatching {
@@ -971,36 +979,8 @@ class MainActivity : Activity() {
         for ((latex, size, color) in requests) renderer.request(latex, size, color) { if (--remaining == 0) write() }
     }
 
-    /** Downsize (≤ 1600 px, EXIF rotation applied), encode and place an image on the page. */
-    private fun insertImage(uri: android.net.Uri) {
-        val d = doc ?: return
-        val centre = ink.visibleCentre()
-        io.execute {
-            val result = runCatching {
-                val src = android.graphics.ImageDecoder.createSource(contentResolver, uri)
-                val bmp = android.graphics.ImageDecoder.decodeBitmap(src) { decoder, info, _ ->
-                    val w = info.size.width
-                    val h = info.size.height
-                    val scale = minOf(1f, 1600f / maxOf(w, h))
-                    decoder.setTargetSize(maxOf(1, (w * scale).toInt()), maxOf(1, (h * scale).toInt()))
-                    decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
-                }
-                val out = java.io.ByteArrayOutputStream()
-                val png = bmp.hasAlpha()
-                bmp.compress(if (png) android.graphics.Bitmap.CompressFormat.PNG else android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
-                Triple(out.toByteArray(), bmp.width, bmp.height)
-            }
-            main.post {
-                result.onSuccess { (bytes, w, h) ->
-                    val boxW = minOf(420f, d.pageDims()[0] - 40f)
-                    val boxH = boxW * h / w
-                    d.addImage((centre[0] - boxW / 2).toDouble(), (centre[1] - boxH / 2).toDouble(), boxW.toDouble(), boxH.toDouble(), bytes)
-                    ink.refresh()
-                    ink.onChanged()
-                }.onFailure { toast(getString(R.string.transfer_failed, it.message ?: "")) }
-            }
-        }
-    }
+    /** Place the picture at `uri` on the page (raster formats, SVG, TIFF; see [EditingUi.insertImage]). */
+    private fun insertImage(uri: android.net.Uri) = editing.insertImage(uri)
 
     private fun startPdfImport() {
         val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT)
@@ -1277,7 +1257,7 @@ class MainActivity : Activity() {
                 .show()
             return
         }
-        val extras = editing.selectionExtras(sel)
+        val extras = editing.selectionExtras(sel) + aids.selectionExtras(sel)
         AlertDialog.Builder(this)
             .setTitle(resources.getQuantityString(R.plurals.selected_items, sel.size, sel.size))
             .setItems(arrayOf(
@@ -1321,11 +1301,17 @@ class MainActivity : Activity() {
             existing?.text ?: "", existing?.spans ?: emptyList(), existing?.size ?: 20f,
             EditingUi.penPalette, compute, extra = { casOpsRow(it) },
         ) { text, spans ->
+            // Auto-width boxes (P1-17) fit their longest line up to the page edge; a box whose
+            // width was changed by hand keeps it and wraps.
+            val maxWidth = if (d.isInfinite()) 1600f else (d.pageDims()[0] - (existing?.x ?: x) - 24f).coerceAtLeast(120f)
+            fun fit(t: String, sp: List<uniffi.nb_ffi.RichSpan>, size: Float) = minOf(RichText.naturalWidth(t, sp, size), maxWidth)
             if (existing != null) {
-                d.setRichText(existing.id, text, spans, ink.measureRich(text, spans, existing.width, existing.size).toDouble())
+                val auto = RichText.isAutoWidth(existing.text, existing.spans, existing.size, existing.width)
+                val width = if (auto) fit(text, spans, existing.size) else existing.width
+                d.setRichText(existing.id, text, spans, if (auto) width.toDouble() else 0.0, ink.measureRich(text, spans, width, existing.size).toDouble())
             } else if (text.isNotBlank()) {
-                val width = 420f
                 val size = 20f
+                val width = fit(text, spans, size)
                 d.addRichText(x.toDouble(), y.toDouble(), width.toDouble(), ink.measureRich(text, spans, width, size).toDouble(), text, spans, size.toDouble(), (penColor() and 0xFFFFFF).toUInt())
             }
             ink.refresh()
@@ -1632,6 +1618,26 @@ class MainActivity : Activity() {
             .show()
     }
 
+    /** Text of a PDF page selected with the Select tool (P1-23): show it, copy it. */
+    private fun showSelectedPdfText(text: String) {
+        val view = TextView(this).apply {
+            this.text = text
+            setTextIsSelectable(true)
+            val pad = (20 * dp).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.pdf_text)
+            .setView(android.widget.ScrollView(this).apply { addView(view) })
+            .setPositiveButton(R.string.copy) { _, _ ->
+                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                cm?.setPrimaryClip(android.content.ClipData.newPlainText("PDF", text))
+                toast(getString(R.string.copied))
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     /** Vertical (default: pan freely, arrows turn pages) or horizontal (swipe to turn) page scrolling. */
     private fun choosePageScrolling() {
         val names = arrayOf(getString(R.string.page_scrolling_vertical), getString(R.string.page_scrolling_horizontal))
@@ -1846,12 +1852,8 @@ class MainActivity : Activity() {
         prevPage = { goToPage(pageIndex - 1) },
         nextPage = { goToPage(pageIndex + 1) },
         addPage = { addPage() },
-        toggleShapes = {
-            ink.autoShapes = !ink.autoShapes
-            prefs.edit().putBoolean("autoShapes", ink.autoShapes).apply()
-            updateToolbar()
-            toast(getString(if (ink.autoShapes) R.string.shapes_on else R.string.shapes_off))
-        },
+        toggleShapes = { aids.showShapeOptions { updateToolbar() } },
+        instruments = { aids.showInstruments() },
         pdfText = { showPdfText() },
         tutorials = { coach.chooseTutorial() },
         settings = { Settings.show(this, prefs, ::recreate) },

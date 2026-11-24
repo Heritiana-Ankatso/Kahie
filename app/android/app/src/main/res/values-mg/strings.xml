@@ -243,6 +243,7 @@
     <string name="insert_clipboard">Soratra na sary avy amin\'ny presse-papiers</string>
     <string name="insert_file">Rakitra (fanampiny)</string>
     <string name="clipboard_empty">Foana ny presse-papiers</string>
+    <string name="image_unsupported">Tsy azo ampiasaina io karazana sary io. Ampiasao JPEG, PNG, WebP, GIF, HEIC, AVIF, BMP, TIFF na SVG.</string>
     <string name="no_camera">Tsy misy rindrankajy fakan-tsary</string>
     <string name="attachment_too_large">Lehibe loatra ity rakitra ity (mihoatra ny %1$d Mo)</string>
     <string name="no_app_for_file">Tsy misy rindrankajy mahasokatra ity rakitra ity</string>

@@ -12,7 +12,8 @@ import java.util.zip.ZipOutputStream
 /**
  * Markdown / LaTeX export of a notebook (E2.12) as one ZIP: `notebook.md` or `notebook.tex`
  * plus `assets/`. The core writes the text and lists the pictures; this renders the
- * handwriting drawings and (for Markdown) the plots as PNG at 2× (192 dpi).
+ * handwriting drawings and (for Markdown) the plots as PNG at 2× (192 dpi), and inserted
+ * SVG pictures as one-page vector PDFs for LaTeX (Markdown gets the SVG file itself).
  */
 object DocExport {
     private const val SCALE = 2f
@@ -27,6 +28,7 @@ object DocExport {
             for (img in doc.images) {
                 val bytes = img.bytes ?: run {
                     val p = pages.getOrPut(img.pageId) { page(img.pageId) }
+                    if (img.kind == "svg") return@run svgPdf(p, img.blockId)
                     val bmp = when (img.kind) {
                         "drawing" -> drawing(p, img.crop)
                         "plot" -> p.plotBlocks().firstOrNull { it.id == img.blockId }?.let { plot(it) }
@@ -42,6 +44,13 @@ object DocExport {
                 zip.closeEntry()
             }
         }
+    }
+
+    /** An inserted SVG picture as a one-page vector PDF the size of its box (LaTeX export). */
+    private fun svgPdf(p: PageDoc, blockId: String): ByteArray? {
+        val im = p.imageBlocks().firstOrNull { it.id == blockId } ?: return null
+        val pic = PageRenderer.svgPicture(p, im.hash) ?: return null
+        return SvgImages.pdf(pic, im.width, im.height)
     }
 
     /** The page's background and ink inside `crop` (x, y, w, h), transparent elsewhere. */

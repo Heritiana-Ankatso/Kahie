@@ -221,16 +221,24 @@ object PageRenderer {
     fun bitmap(d: PageDoc, hash: String): android.graphics.Bitmap? {
         bitmaps.get(hash)?.let { return it }
         val bytes = d.imageBytes(hash) ?: return null
-        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        // An SVG has no bitmap of its own: crop/rotate and exports that need pixels get it rasterised.
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: SvgImages.picture(hash) { bytes }?.let { SvgImages.rasterise(it) }
+            ?: return null
         bitmaps.put(hash, bmp)
         return bmp
     }
 
+    /** The vector drawing of image `hash` when it is an SVG, else null. */
+    fun svgPicture(d: PageDoc, hash: String): android.graphics.Picture? = SvgImages.picture(hash) { d.imageBytes(hash) }
+
     private val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
     fun drawImage(canvas: Canvas, d: PageDoc, img: uniffi.nb_ffi.ImageBlock) {
+        val box = android.graphics.RectF(img.x, img.y, img.x + img.width, img.y + img.height)
+        svgPicture(d, img.hash)?.let { SvgImages.draw(canvas, it, box); return } // stays vector (screen, PDF)
         val bmp = bitmap(d, img.hash) ?: return
-        canvas.drawBitmap(bmp, null, android.graphics.RectF(img.x, img.y, img.x + img.width, img.y + img.height), imagePaint)
+        canvas.drawBitmap(bmp, null, box, imagePaint)
     }
 
     /** Screen state for drawing a PDF page on demand: zoom, visible page region, redraw. */
@@ -265,12 +273,29 @@ object PageRenderer {
     fun mathRequests(d: PageDoc): List<Triple<String, Float, Int>> =
         d.mathBlocks().map { Triple(it.latex, it.size, opaque(it.color)) }
 
+    /**
+     * The area of page `d` that exports show, in page units: the paper, or for an infinite
+     * canvas its content with a margin (P1-06). Exports translate by (-left, -top).
+     */
+    fun exportArea(d: PageDoc): android.graphics.RectF {
+        if (d.isInfinite()) {
+            val e = d.pageExtent()
+            if (e.size == 4 && e[2] > 0f && e[3] > 0f) return android.graphics.RectF(e[0], e[1], e[0] + e[2], e[1] + e[3])
+        }
+        val dims = d.pageDims()
+        return android.graphics.RectF(0f, 0f, dims[0], dims[1])
+    }
+
     /** Draw page `d` (white paper, background, items in order) in page units. */
     fun drawPage(canvas: Canvas, d: PageDoc, math: MathRenderer?, paper: Boolean = true) {
         canvas.drawColor(Color.WHITE)
         if (paper) {
-            val dims = d.pageDims()
-            drawPaper(canvas, d.template(), 0.75f, dims[0], dims[1])
+            // Paper over the exported area (an infinite canvas has no fixed sheet).
+            val a = exportArea(d)
+            canvas.save()
+            canvas.translate(a.left, a.top)
+            drawPaper(canvas, d.template(), 0.75f, a.width(), a.height())
+            canvas.restore()
         }
         drawBackground(canvas, d)
         for (img in d.imageBlocks()) drawImage(canvas, d, img) // under the ink

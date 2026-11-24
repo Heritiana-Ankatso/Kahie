@@ -11,7 +11,8 @@ import uniffi.nb_ffi.PageDoc
 /**
  * One page as an SVG document (P1-34), in page units (1 unit = 1/96 in, so the SVG has the
  * page's real size). Everything stays vector except photos and PDF backgrounds, which are
- * embedded as data URIs; maths is MathJax's own SVG, embedded as an image.
+ * embedded as data URIs; maths (MathJax's own SVG) and inserted SVG pictures are embedded as
+ * `data:image/svg+xml` images, so they stay vector too.
  */
 object SvgExport {
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
@@ -21,6 +22,7 @@ object SvgExport {
 
     private fun mime(bytes: ByteArray) = when {
         bytes.size > 3 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() -> "image/png"
+        SvgImages.isSvg(bytes) -> "image/svg+xml" // inserted SVGs stay vector
         else -> "image/jpeg"
     }
 
@@ -65,14 +67,18 @@ object SvgExport {
     }
 
     fun page(d: PageDoc, math: MathRenderer?): String {
-        val dims = d.pageDims()
-        val (w, h) = dims[0] to dims[1]
+        // The paper, or an infinite canvas's content (P1-06): the viewBox starts at its corner.
+        val area = PageRenderer.exportArea(d)
+        val (w, h) = area.width() to area.height()
+        val (x0, y0) = area.left to area.top
         val out = StringBuilder()
         out.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-        out.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${n(w / 96f * 25.4f)}mm\" height=\"${n(h / 96f * 25.4f)}mm\" viewBox=\"0 0 ${n(w)} ${n(h)}\">\n")
-        out.append("<rect width=\"${n(w)}\" height=\"${n(h)}\" fill=\"#ffffff\"/>\n")
+        out.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${n(w / 96f * 25.4f)}mm\" height=\"${n(h / 96f * 25.4f)}mm\" viewBox=\"${n(x0)} ${n(y0)} ${n(w)} ${n(h)}\">\n")
+        out.append("<rect x=\"${n(x0)}\" y=\"${n(y0)}\" width=\"${n(w)}\" height=\"${n(h)}\" fill=\"#ffffff\"/>\n")
         val rec = Recorder(out)
+        out.append("<g transform=\"translate(${n(x0)} ${n(y0)})\">\n")
         PageRenderer.drawPaper(rec, d.template(), 0.75f, w, h)
+        out.append("</g>\n")
         // A PDF page (kept once per notebook) is embedded as a 2× PNG of the page.
         PdfPages.renderForExport(d, 2f)?.let { (bmp, place) ->
             val png = java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()

@@ -81,6 +81,14 @@ object PdfPages {
     }
 
     /** Where the PDF page is drawn on page `d` (fitted and centred), in page units. */
+    /** Where the PDF page shown under `d` is drawn, in page units (null: no PDF page). */
+    fun pageRect(d: PageDoc): RectF? {
+        val src = d.pdfSource() ?: return null
+        val dims = d.pageDims()
+        val aspect = aspects["${src.asset}#${src.pageIndex}"] ?: (dims[0] / dims[1])
+        return placement(d, aspect, 1f)
+    }
+
     fun placement(d: PageDoc, pdfW: Float, pdfH: Float): RectF {
         val dims = d.pageDims()
         val scale = min(dims[0] / pdfW, dims[1] / pdfH)

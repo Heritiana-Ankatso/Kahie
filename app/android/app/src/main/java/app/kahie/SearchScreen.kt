@@ -114,6 +114,7 @@ class SearchScreen(
             HitKind.TEXT -> R.string.search_kind_text
             HitKind.MATH -> R.string.search_kind_math
             HitKind.PLOT -> R.string.search_kind_plot
+            HitKind.PDF_TEXT -> R.string.search_kind_pdf
         },
     )
 

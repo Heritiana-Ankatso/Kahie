@@ -23,8 +23,10 @@ mod kahie_file;
 mod library;
 mod notebook;
 mod pdf;
+mod raster;
 mod search;
 mod sync;
+mod tools;
 pub use cas::{cas_available, cas_command, cas_eval, CasAnswer, CasOp};
 pub use editing::{ink_radius, AttachmentBlock, RichSpan};
 pub use kahie_file::{export_kahie, import_kahie};
@@ -279,6 +281,39 @@ struct Current {
     width: f64,
     points: Vec<Point>,
     snapped: Option<Shape>,
+    /// Set when the stroke started on an instrument (E2.10): points follow it.
+    guide: Option<nb_recog::instruments::Guide>,
+}
+
+impl Current {
+    /// Start a stroke at `p`, guided by the page's instrument if it starts on it.
+    fn start(st: &State, tool: InkTool, color: u32, width: f64, p: Point) -> Self {
+        let mut guide = st.guide_for(p);
+        let first = guide.as_mut().map_or(p, |g| g.apply(p));
+        Current {
+            tool,
+            color,
+            width,
+            points: vec![first],
+            snapped: None,
+            guide,
+        }
+    }
+
+    /// Add a point (moved onto the instrument for a guided stroke); `None` if it is a
+    /// duplicate of the last one.
+    fn push(&mut self, p: Point) -> Option<Point> {
+        let p = match self.guide.as_mut() {
+            Some(g) => g.apply(p),
+            None => p,
+        };
+        let last = *self.points.last().unwrap();
+        if (p.x - last.x).hypot(p.y - last.y) < 0.2 {
+            return None;
+        }
+        self.points.push(p);
+        Some(p)
+    }
 }
 
 pub(crate) struct State {
@@ -292,6 +327,8 @@ pub(crate) struct State {
     /// Partial eraser gesture (P1-11): the eraser path so far and its largest radius.
     partial: Option<(Vec<(Point, Point)>, f64)>,
     seq: u64,
+    /// Instrument lying on the page (E2.10); per view, not saved.
+    pub(crate) instrument: Option<tools::InstrumentSpec>,
 }
 
 /// Minimum time between two local history checkpoints of a page, and how many are kept.
@@ -334,6 +371,10 @@ struct Clip {
 }
 
 static CLIPBOARD: Mutex<Option<Clip>> = Mutex::new(None);
+
+/// Serialises the tests that go through the process-wide app clipboard.
+#[cfg(test)]
+pub(crate) static CLIPBOARD_TEST: Mutex<()> = Mutex::new(());
 
 /// Number of items on the app clipboard (0: nothing to paste).
 #[uniffi::export]
@@ -661,13 +702,7 @@ impl PageDoc {
 
     pub fn begin_stroke(&self, tool: InkTool, color: u32, width: f64, x: f64, y: f64, pressure: f64) {
         let mut st = self.state.lock().unwrap();
-        st.current = Some(Current {
-            tool,
-            color,
-            width,
-            points: vec![Point::new(x, y, pressure)],
-            snapped: None,
-        });
+        st.current = Some(Current::start(&st, tool, color, width, Point::new(x, y, pressure)));
     }
 
     /// Adds a point; returns false if it was dropped as a duplicate.
@@ -675,12 +710,8 @@ impl PageDoc {
         let mut st = self.state.lock().unwrap();
         let Some(cur) = st.current.as_mut() else { return false };
         let last = *cur.points.last().unwrap();
-        if (x - last.x).hypot(y - last.y) < 0.2 {
-            return false;
-        }
         // Light pressure smoothing, as in the web app.
-        cur.points.push(Point::new(x, y, last.p * 0.6 + pressure * 0.4));
-        true
+        cur.push(Point::new(x, y, last.p * 0.6 + pressure * 0.4)).is_some()
     }
 
     /// Batched [`PageDoc::add_point`]: one call per input event (`xyp` = x0, y0, p0, x1, …).
@@ -692,11 +723,9 @@ impl PageDoc {
         for c in xyp.chunks_exact(3) {
             let (x, y, pressure) = (c[0], c[1], c[2]);
             let last = *cur.points.last().unwrap();
-            if (x - last.x).hypot(y - last.y) < 0.2 {
+            let Some(p) = cur.push(Point::new(x, y, last.p * 0.6 + pressure * 0.4)) else {
                 continue;
-            }
-            let p = Point::new(x, y, last.p * 0.6 + pressure * 0.4);
-            cur.points.push(p);
+            };
             accepted.extend([p.x as f32, p.y as f32, p.p as f32]);
         }
         accepted
@@ -707,7 +736,7 @@ impl PageDoc {
     pub fn snap_current(&self) -> Option<RenderItem> {
         let mut st = self.state.lock().unwrap();
         let cur = st.current.as_mut()?;
-        if cur.points.len() < 4 {
+        if cur.points.len() < 4 || cur.guide.is_some() {
             return None;
         }
         let shape = recognize(&cur.points)?;
@@ -731,29 +760,14 @@ impl PageDoc {
 
     /// Commit the current stroke. `auto_shapes` recognises shapes without the hold gesture.
     pub fn end_stroke(&self, view_scale: f64, auto_shapes: bool) -> bool {
-        let mut st = self.state.lock().unwrap();
-        let Some(cur) = st.current.take() else { return false };
-        let shape = cur.snapped.or_else(|| {
-            if auto_shapes && cur.points.len() >= 4 {
-                recognize(&cur.points)
-            } else {
-                None
-            }
-        });
-        st.seq += 1;
-        let item = Item {
-            id: new_id(st.seq),
-            content: Content::Stroke(Stroke {
-                tool: cur.tool.model(),
-                color: cur.color,
-                width: cur.width,
-                points: finish_points(&cur.points, view_scale.max(0.05)),
-                interp: shape.map(|shape| Interp { shape, show: true }),
-                frame: IDENTITY,
-            }),
+        let had = self.state.lock().unwrap().current.is_some();
+        let mode = if auto_shapes {
+            tools::TidyMode::Auto
+        } else {
+            tools::TidyMode::Free
         };
-        let op = Op::add(st.doc.page(), vec![item]);
-        st.commit(op)
+        self.end_stroke_tidy(view_scale, mode, false, 0.0);
+        had
     }
 
     pub fn cancel_stroke(&self) {
@@ -1535,6 +1549,7 @@ impl PageDoc {
                 current: None,
                 erasing: None,
                 partial: None,
+                instrument: None,
                 seq: 0,
             }),
         }
@@ -1854,6 +1869,7 @@ mod tests {
 
     #[test]
     fn copy_paste_between_pages_carries_images() {
+        let _clip = CLIPBOARD_TEST.lock().unwrap_or_else(|e| e.into_inner());
         let a = PageDoc::new_in_memory();
         let b = PageDoc::new_in_memory();
         let bytes = b"\x89PNG clip".to_vec();
@@ -1873,6 +1889,48 @@ mod tests {
         assert_eq!(a.image_blocks().len(), 2);
         assert!(a.undo());
         assert_eq!(a.image_blocks().len(), 1);
+    }
+
+    /// An inserted SVG picture is stored as its SVG text, byte for byte.
+    const SVG: &[u8] = b"<?xml version=\"1.0\"?>\n<!-- logo -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 20\"><circle cx=\"10\" cy=\"10\" r=\"8\" fill=\"#c33\"/><text x=\"22\" y=\"15\">\xc3\xa9</text></svg>\n";
+
+    #[test]
+    fn svg_images_round_trip() {
+        let dir = std::env::temp_dir().join(format!("kahie-ffi-svg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("p.kpage").to_string_lossy().to_string();
+        let id = {
+            let doc = PageDoc::open(path.clone()).unwrap();
+            let id = doc.add_image(10.0, 20.0, 200.0, 100.0, SVG.to_vec());
+            doc.save().unwrap();
+            id
+        };
+        let doc = PageDoc::open(path).unwrap();
+        let img = doc.image_blocks()[0].clone();
+        assert_eq!((img.width, img.height), (200.0, 100.0));
+        assert_eq!(doc.image_bytes(img.hash.clone()), Some(SVG.to_vec()), "stored as is");
+        {
+            let _clip = CLIPBOARD_TEST.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(doc.copy_items(vec![id.clone()]), 1);
+            let other = PageDoc::new_in_memory();
+            assert_eq!(other.paste_items(0.0, 0.0).len(), 1);
+            let pasted = other.image_blocks()[0].hash.clone();
+            assert_eq!(pasted, img.hash);
+            assert_eq!(
+                other.image_bytes(pasted),
+                Some(SVG.to_vec()),
+                "copy/paste carries the SVG"
+            );
+        }
+        // Crop/rotate replaces it with a raster; undo brings the SVG back.
+        assert!(doc.replace_image(id, b"\x89PNG cropped".to_vec(), 100.0, 50.0));
+        assert_eq!(
+            doc.image_bytes(doc.image_blocks()[0].hash.clone()),
+            Some(b"\x89PNG cropped".to_vec())
+        );
+        assert!(doc.undo());
+        assert_eq!(doc.image_bytes(doc.image_blocks()[0].hash.clone()), Some(SVG.to_vec()));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

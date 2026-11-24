@@ -24,7 +24,9 @@ pub struct DocImage {
     pub path: String,
     pub page_id: String,
     /// `drawing`: render the page's ink and background (transparent elsewhere), cropped to
-    /// `crop` (page units, x, y, w, h); `plot`: render plot `block_id`; `image`: write `bytes`.
+    /// `crop` (page units, x, y, w, h); `plot`: render plot `block_id`; `image`: write `bytes`;
+    /// `svg`: render the SVG picture of image block `block_id` as a one-page vector PDF
+    /// (LaTeX's `\includegraphics` cannot read SVG; Markdown gets the SVG as an `image`).
     pub kind: String,
     pub block_id: String,
     pub crop: Vec<f32>,
@@ -60,8 +62,42 @@ fn union(a: Option<Rect>, b: &Rect) -> Rect {
     }
 }
 
+/// Whether `bytes` are an SVG document (text whose root element is `<svg>`, after an
+/// optional BOM, XML declaration, comments and doctype). Inserted SVG pictures are stored as
+/// their (decompressed) SVG text.
+pub(crate) fn is_svg(bytes: &[u8]) -> bool {
+    let b = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
+    let head = &b[..b.len().min(4096)];
+    let head = match std::str::from_utf8(head) {
+        Ok(s) => s,
+        // A multi-byte character cut at the 4096-byte limit.
+        Err(e) => std::str::from_utf8(&head[..e.valid_up_to()]).unwrap_or(""),
+    };
+    let mut s = head.trim_start();
+    loop {
+        let skip = if s.starts_with("<?") {
+            s.find("?>").map(|i| i + 2)
+        } else if s.starts_with("<!--") {
+            s.find("-->").map(|i| i + 3)
+        } else if s.starts_with("<!") {
+            s.find('>').map(|i| i + 1)
+        } else {
+            break;
+        };
+        match skip {
+            Some(i) => s = s[i..].trim_start(),
+            None => return false,
+        }
+    }
+    s.strip_prefix("<svg")
+        .and_then(|r| r.chars().next())
+        .is_some_and(|c| c.is_whitespace() || c == '>' || c == '/')
+}
+
 fn ext(bytes: &[u8]) -> &'static str {
-    if bytes.starts_with(b"\x89PNG") {
+    if is_svg(bytes) {
+        "svg"
+    } else if bytes.starts_with(b"\x89PNG") {
         "png"
     } else if bytes.starts_with(&[0xFF, 0xD8]) {
         "jpg"
@@ -274,15 +310,20 @@ fn page(p: &PageContent, tex: bool, out: &mut String, images: &mut Vec<DocImage>
                         let Some((_, bytes)) = p.assets.iter().find(|(h, _)| h == asset) else {
                             continue;
                         };
-                        let path = format!("assets/{asset}.{}", ext(bytes));
+                        let svg_pdf = tex && is_svg(bytes);
+                        let path = if svg_pdf {
+                            format!("assets/{asset}.pdf")
+                        } else {
+                            format!("assets/{asset}.{}", ext(bytes))
+                        };
                         if !images.iter().any(|i| i.path == path) {
                             images.push(DocImage {
                                 path: path.clone(),
                                 page_id: p.id.clone(),
-                                kind: "image".into(),
+                                kind: if svg_pdf { "svg" } else { "image" }.into(),
                                 block_id: it.id.clone(),
                                 crop: vec![],
-                                bytes: Some(bytes.clone()),
+                                bytes: if svg_pdf { None } else { Some(bytes.clone()) },
                             });
                         }
                         if tex {
@@ -325,7 +366,12 @@ impl NotebookDoc {
                                 }
                             }
                         }
-                        let (w, _) = nb_model::page_dims(st.doc.size());
+                        // An infinite canvas has no sheet: pictures are sized against its content.
+                        let w = if st.doc.size() == nb_model::INFINITE {
+                            page.extent().w
+                        } else {
+                            nb_model::page_dims(st.doc.size()).0
+                        };
                         (
                             page.items.clone(),
                             assets,
@@ -438,6 +484,52 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    #[test]
+    fn svg_detection() {
+        assert!(is_svg(b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"));
+        assert!(is_svg(b"\xEF\xBB\xBF  <?xml version=\"1.0\"?>\n<!-- c -->\n<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"x\">\n<svg>"));
+        assert!(!is_svg(b"<svgfoo/>"));
+        assert!(!is_svg(b"<html><svg/></html>"));
+        assert!(!is_svg(b"\x89PNG\r\n"));
+        assert!(!is_svg(b"<!-- unterminated"));
+    }
+
+    /// Inserted SVG pictures: Markdown gets the SVG file; LaTeX a one-page PDF the app
+    /// renders (`\includegraphics` cannot read SVG).
+    #[test]
+    fn svg_images_export() {
+        let svg =
+            b"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 4 2\"><rect width=\"4\" height=\"2\"/></svg>"
+                .to_vec();
+        let dir = std::env::temp_dir().join(format!("kahie-svg-export-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let nb = NotebookDoc::open(dir.to_string_lossy().into(), "SVG".into()).unwrap();
+        let first = nb.page_ids()[0].clone();
+        let p = PageDoc::open(nb.page_path(first)).unwrap();
+        let block = p.add_image(40.0, 40.0, 200.0, 100.0, svg.clone());
+        p.add_image(40.0, 200.0, 50.0, 50.0, PNG.to_vec());
+        p.save().unwrap();
+        let hash = p.image_blocks()[0].hash.clone();
+
+        let md = nb.export_document(DocFormat::Markdown).unwrap();
+        let s = &md.images[0];
+        assert_eq!(
+            (s.kind.as_str(), s.path.clone()),
+            ("image", format!("assets/{hash}.svg"))
+        );
+        assert_eq!(s.bytes.as_deref(), Some(&svg[..]));
+        assert!(md.text.contains(&format!("![](assets/{hash}.svg)")));
+        assert!(md.images[1].path.ends_with(".png"));
+
+        let tex = nb.export_document(DocFormat::Latex).unwrap();
+        let s = &tex.images[0];
+        assert_eq!((s.kind.as_str(), s.path.clone()), ("svg", format!("assets/{hash}.pdf")));
+        assert_eq!((s.bytes.clone(), s.block_id.clone()), (None, block));
+        assert!(tex.text.contains(&format!("{{assets/{hash}.pdf}}")));
+        assert_eq!(tex.images[1].kind, "image");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// Compiles the LaTeX export with pdflatex when it is installed (CI installs it and sets
     /// KAHIE_REQUIRE_PDFLATEX=1 so a missing pdflatex fails instead of skipping).
     #[test]
@@ -476,6 +568,30 @@ mod tests {
                 assert!(out.join("notebook.pdf").exists());
             }
         }
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn infinite_canvas_drawing_is_cropped_to_its_content() {
+        let dir = std::env::temp_dir().join(format!("kahie-inf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let nb = NotebookDoc::open(dir.to_string_lossy().into(), "Infini".into()).unwrap();
+        let p = PageDoc::open(nb.page_path(nb.page_ids()[0].clone())).unwrap();
+        p.set_page_size("infinite".into());
+        // Ink far outside the A4 area, at negative and large coordinates.
+        p.begin_stroke(crate::InkTool::Pen, 0, 3.0, -500.0, 3000.0, 0.5);
+        p.add_points(vec![-100.0, 3200.0, 0.5]);
+        p.end_stroke(1.0, false);
+        p.save().unwrap();
+        let md = nb.export_document(DocFormat::Markdown).unwrap();
+        let crop = &md.images[0].crop;
+        assert!(
+            crop[0] < -400.0 && crop[1] > 2900.0 && (390.0..450.0).contains(&crop[2]),
+            "{crop:?}"
+        );
+        let tex = nb.export_document(DocFormat::Latex).unwrap();
+        // Sized against the content (~400 of ~480 units: 0.8x), not the A4 width (0.51).
+        assert!(tex.text.contains("width=0.8"), "{}", tex.text);
         std::fs::remove_dir_all(dir).ok();
     }
 }

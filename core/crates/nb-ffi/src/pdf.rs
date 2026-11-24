@@ -121,7 +121,7 @@ pub(crate) fn copy_notebook_assets(src: &Path, dst: &Path) -> Result<(), CoreErr
 }
 
 /// Text layer as stored in a page: JSON `[[text, x0, y0, x1, y1], …]`, 4 decimals.
-fn encode_words(words: &[nb_pdf::Word]) -> String {
+pub(crate) fn encode_words(words: &[nb_pdf::Word]) -> String {
     let r = |v: f32| (f64::from(v) * 10_000.0).round() / 10_000.0;
     let list: Vec<serde_json::Value> = words
         .iter()
@@ -130,7 +130,7 @@ fn encode_words(words: &[nb_pdf::Word]) -> String {
     serde_json::to_string(&list).unwrap_or_default()
 }
 
-fn decode_words(json: &str) -> Vec<PdfWord> {
+pub(crate) fn decode_words(json: &str) -> Vec<PdfWord> {
     let Ok(serde_json::Value::Array(list)) = serde_json::from_str::<serde_json::Value>(json) else {
         return vec![];
     };
@@ -147,6 +147,21 @@ fn decode_words(json: &str) -> Vec<PdfWord> {
             })
         })
         .collect()
+}
+
+/// Plain text of a stored text layer (words joined by spaces, lines by newlines).
+pub(crate) fn layer_text(json: &str) -> String {
+    let words: Vec<nb_pdf::Word> = decode_words(json)
+        .into_iter()
+        .map(|w| nb_pdf::Word {
+            text: w.text,
+            x0: w.x0,
+            y0: w.y0,
+            x1: w.x1,
+            y1: w.y1,
+        })
+        .collect();
+    nb_pdf::words_to_text(&words)
 }
 
 /// Import the PDF at `pdf_path` into `notebook`: the file is stored once in the notebook's

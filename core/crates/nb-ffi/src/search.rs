@@ -128,6 +128,8 @@ pub enum HitKind {
     Text,
     Math,
     Plot,
+    /// Text of the PDF page shown under a page (P1-23); the rectangle is the whole page.
+    PdfText,
 }
 
 /// One search result. `before` + `matched` + `after` is a one-line excerpt with the match
@@ -229,7 +231,8 @@ struct Index {
     notebooks: HashMap<String, NotebookEntry>,
 }
 
-const INDEX_VERSION: u32 = 1;
+/// Bumped when what is indexed changes, so cached indexes are rebuilt.
+const INDEX_VERSION: u32 = 2;
 
 fn page_blocks(path: &Path) -> Vec<Block> {
     let Some(chunks) = read_chunks(path) else { return vec![] };
@@ -253,6 +256,18 @@ fn page_blocks(path: &Path) -> Vec<Block> {
                 kind,
                 text,
                 rect,
+                folded: None,
+            })
+        })
+        .chain({
+            // The PDF page under this page: its text, found like typed text.
+            let text = crate::pdf::layer_text(&page.pdf_text_layer());
+            let (w, h) = nb_model::page_dims(page.size());
+            (!text.trim().is_empty()).then(|| Block {
+                id: String::new(),
+                kind: HitKind::PdfText,
+                text,
+                rect: [0.0, 0.0, w as f32, h as f32],
                 folded: None,
             })
         })
@@ -453,7 +468,7 @@ impl SearchIndex {
                     };
                     if let Some(m) = by_text.or(by_maths) {
                         let mut h = hit(b.kind, row.page_id.clone(), &t, number, &b.text, m);
-                        h.block_id = Some(b.id.clone());
+                        h.block_id = (!b.id.is_empty()).then(|| b.id.clone());
                         [h.x, h.y, h.width, h.height] = b.rect;
                         found.push(h);
                     }
@@ -610,10 +625,44 @@ mod tests {
         page.add_math(10.0, 100.0, 80.0, 30.0, "\\frac{a}{b}".into(), 24.0, 0);
         page.add_plot(10.0, 200.0, 300.0, 200.0, vec!["sin(x)".into()], -5.0, 5.0, -2.0, 2.0)
             .unwrap();
+        // Page 2 shows a PDF page whose text layer mentions "photosynthèse".
+        {
+            let pdf_page = crate::PageDoc::open(nb.page_path(p2.clone())).unwrap();
+            let layer = crate::pdf::encode_words(&[
+                nb_pdf::Word {
+                    text: "La".into(),
+                    x0: 0.1,
+                    y0: 0.1,
+                    x1: 0.12,
+                    y1: 0.12,
+                },
+                nb_pdf::Word {
+                    text: "photosynthèse".into(),
+                    x0: 0.13,
+                    y0: 0.1,
+                    x1: 0.3,
+                    y1: 0.12,
+                },
+            ]);
+            let mut st = pdf_page.state.lock().unwrap();
+            let src = nb_model::PdfSource {
+                asset: "a".repeat(64),
+                page_index: 0,
+            };
+            st.doc.set_pdf_source(Some(&src), Some(&layer));
+            st.persist();
+        }
         let index_file = root.join("index.json");
         let idx = SearchIndex::open(root.to_string_lossy().into(), index_file.to_string_lossy().into());
         let dirs = vec!["nb-1".to_string()];
         let s = |q: &str| idx.search(q.into(), dirs.clone(), 50).unwrap();
+        // PDF text is searchable (P1-23), accents ignored; the hit opens the page.
+        let pdf = s("photosynthese");
+        assert_eq!(pdf.len(), 1, "{pdf:?}");
+        assert_eq!(
+            (pdf[0].kind, pdf[0].page_id.as_deref(), pdf[0].block_id.as_deref()),
+            (HitKind::PdfText, Some(p2.as_str()), None)
+        );
         // Maths search by structure (E2.13).
         assert_eq!(
             s("\\frac{?}{b}").iter().map(|h| h.kind).collect::<Vec<_>>(),

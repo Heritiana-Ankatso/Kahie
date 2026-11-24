@@ -1,0 +1,628 @@
+[
+ {
+  "id": "1re-sd-001",
+  "level": "premiere",
+  "topic": "second degree",
+  "statement": "Roots of x^2 - 5x + 6",
+  "check": {
+   "roots": "x^2-5x+6",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    2,
+    3
+   ]
+  }
+ },
+ {
+  "id": "1re-sd-002",
+  "level": "premiere",
+  "topic": "second degree",
+  "statement": "Roots of 2x^2 + x - 1",
+  "check": {
+   "roots": "2x^2+x-1",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -1,
+    0.5
+   ]
+  }
+ },
+ {
+  "id": "1re-sd-003",
+  "level": "premiere",
+  "topic": "second degree",
+  "statement": "Roots of x^2 + x + 1 (negative discriminant)",
+  "check": {
+   "roots": "x^2+x+1",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": []
+  }
+ },
+ {
+  "id": "1re-sd-004",
+  "level": "premiere",
+  "topic": "second degree",
+  "statement": "Roots of -x^2 + 2x + 8",
+  "check": {
+   "roots": "-x^2+2x+8",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -2,
+    4
+   ]
+  }
+ },
+ {
+  "id": "1re-sd-005",
+  "level": "premiere",
+  "topic": "second degree",
+  "statement": "Roots of x^2 - 2x - 1",
+  "check": {
+   "roots": "x^2-2x-1",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -0.41421356237309515,
+    2.414213562373095
+   ]
+  }
+ },
+ {
+  "id": "1re-sd-006",
+  "level": "premiere",
+  "topic": "second degree",
+  "statement": "Vertex of 2x^2 - 12x + 7",
+  "check": {
+   "extrema": "2x^2-12x+7",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    [
+     3,
+     "min"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "1re-sd-007",
+  "level": "premiere",
+  "topic": "second degree",
+  "statement": "Vertex value of 2x^2 - 12x + 7",
+  "check": {
+   "eval": "2x^2-12x+7",
+   "x": 3,
+   "expect": -11
+  }
+ },
+ {
+  "id": "1re-sd-008",
+  "level": "premiere",
+  "topic": "second degree",
+  "statement": "Roots of 4x^2 - 4x + 1 (zero discriminant)",
+  "check": {
+   "roots": "4x^2-4x+1",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    0.5
+   ]
+  }
+ },
+ {
+  "id": "1re-der-001",
+  "level": "premiere",
+  "topic": "derivation",
+  "statement": "f'(3) for f(x) = x^2",
+  "check": {
+   "derivative": "x^2",
+   "at": 3,
+   "expect": 6
+  }
+ },
+ {
+  "id": "1re-der-002",
+  "level": "premiere",
+  "topic": "derivation",
+  "statement": "f'(2) for f(x) = x^3 - 2x",
+  "check": {
+   "derivative": "x^3-2x",
+   "at": 2,
+   "expect": 10
+  }
+ },
+ {
+  "id": "1re-der-003",
+  "level": "premiere",
+  "topic": "derivation",
+  "statement": "f'(4) for f(x) = sqrt(x)",
+  "check": {
+   "derivative": "sqrt(x)",
+   "at": 4,
+   "expect": 0.25
+  }
+ },
+ {
+  "id": "1re-der-004",
+  "level": "premiere",
+  "topic": "derivation",
+  "statement": "f'(2) for f(x) = 1/x",
+  "check": {
+   "derivative": "1/x",
+   "at": 2,
+   "expect": -0.25
+  }
+ },
+ {
+  "id": "1re-der-005",
+  "level": "premiere",
+  "topic": "derivation",
+  "statement": "f'(1) for f(x) = (2x+1)/(x+1)",
+  "check": {
+   "derivative": "(2x+1)/(x+1)",
+   "at": 1,
+   "expect": 0.25
+  }
+ },
+ {
+  "id": "1re-der-006",
+  "level": "premiere",
+  "topic": "derivation",
+  "statement": "f'(0) for f(x) = exp(x)",
+  "check": {
+   "derivative": "exp(x)",
+   "at": 0,
+   "expect": 1
+  }
+ },
+ {
+  "id": "1re-der-007",
+  "level": "premiere",
+  "topic": "derivation",
+  "statement": "f'(pi/3) for f(x) = sin(x)",
+  "check": {
+   "derivative": "sin(x)",
+   "at": 1.0471975511965976,
+   "expect": 0.5
+  }
+ },
+ {
+  "id": "1re-der-008",
+  "level": "premiere",
+  "topic": "derivation",
+  "statement": "f'(1) for f(x) = x exp(x)",
+  "check": {
+   "derivative": "x exp(x)",
+   "at": 1,
+   "expect": 5.43656365691809
+  }
+ },
+ {
+  "id": "1re-tan-001",
+  "level": "premiere",
+  "topic": "tangent",
+  "statement": "Tangent to x^2 at x = 3",
+  "check": {
+   "tangent": "x^2",
+   "at": 3,
+   "expect": [
+    6,
+    -9
+   ]
+  }
+ },
+ {
+  "id": "1re-tan-002",
+  "level": "premiere",
+  "topic": "tangent",
+  "statement": "Tangent to 1/x at x = 1",
+  "check": {
+   "tangent": "1/x",
+   "at": 1,
+   "expect": [
+    -1,
+    2
+   ]
+  }
+ },
+ {
+  "id": "1re-tan-003",
+  "level": "premiere",
+  "topic": "tangent",
+  "statement": "Tangent to exp(x) at x = 0",
+  "check": {
+   "tangent": "exp(x)",
+   "at": 0,
+   "expect": [
+    1,
+    1
+   ]
+  }
+ },
+ {
+  "id": "1re-tan-004",
+  "level": "premiere",
+  "topic": "tangent",
+  "statement": "Tangent to x^3 at x = -1",
+  "check": {
+   "tangent": "x^3",
+   "at": -1,
+   "expect": [
+    3,
+    2
+   ]
+  }
+ },
+ {
+  "id": "1re-tan-005",
+  "level": "premiere",
+  "topic": "tangent",
+  "statement": "Tangent to sqrt(x) at x = 4",
+  "check": {
+   "tangent": "sqrt(x)",
+   "at": 4,
+   "expect": [
+    0.25,
+    1
+   ]
+  }
+ },
+ {
+  "id": "1re-var-001",
+  "level": "premiere",
+  "topic": "variations",
+  "statement": "Extrema of x^3 - 3x",
+  "check": {
+   "extrema": "x^3-3x",
+   "on": [
+    -5,
+    5
+   ],
+   "expect": [
+    [
+     -1,
+     "max"
+    ],
+    [
+     1,
+     "min"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "1re-var-002",
+  "level": "premiere",
+  "topic": "variations",
+  "statement": "Extrema of x^3 - 6x^2 + 9x + 1",
+  "check": {
+   "extrema": "x^3-6x^2+9x+1",
+   "on": [
+    -5,
+    6
+   ],
+   "expect": [
+    [
+     1,
+     "max"
+    ],
+    [
+     3,
+     "min"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "1re-var-003",
+  "level": "premiere",
+  "topic": "variations",
+  "statement": "x^3 has no extremum",
+  "check": {
+   "extrema": "x^3",
+   "on": [
+    -5,
+    5
+   ],
+   "expect": []
+  }
+ },
+ {
+  "id": "1re-var-004",
+  "level": "premiere",
+  "topic": "variations",
+  "statement": "Minimum of x + 1/x on ]0, 10]",
+  "check": {
+   "extrema": "x+1/x",
+   "on": [
+    0.05,
+    10
+   ],
+   "expect": [
+    [
+     1,
+     "min"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "1re-var-005",
+  "level": "premiere",
+  "topic": "variations",
+  "statement": "Minimum of x exp(x)",
+  "check": {
+   "extrema": "x exp(x)",
+   "on": [
+    -5,
+    3
+   ],
+   "expect": [
+    [
+     -1,
+     "min"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "1re-exp-001",
+  "level": "premiere",
+  "topic": "exponential",
+  "statement": "exp(1)",
+  "check": {
+   "eval": "exp(x)",
+   "x": 1,
+   "expect": 2.718281828459045
+  }
+ },
+ {
+  "id": "1re-exp-002",
+  "level": "premiere",
+  "topic": "exponential",
+  "statement": "Solve exp(x) = 1",
+  "check": {
+   "roots": "exp(x)-1",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    0
+   ]
+  }
+ },
+ {
+  "id": "1re-exp-003",
+  "level": "premiere",
+  "topic": "exponential",
+  "statement": "Solve exp(2x) = exp(3 - x)",
+  "check": {
+   "intersections": [
+    "exp(2x)",
+    "exp(3-x)"
+   ],
+   "on": [
+    -3,
+    3
+   ],
+   "expect": [
+    1
+   ]
+  }
+ },
+ {
+  "id": "1re-trig-001",
+  "level": "premiere",
+  "topic": "trigonometry",
+  "statement": "cos(pi/3)",
+  "check": {
+   "eval": "cos(x)",
+   "x": 1.0471975511965976,
+   "expect": 0.5
+  }
+ },
+ {
+  "id": "1re-trig-002",
+  "level": "premiere",
+  "topic": "trigonometry",
+  "statement": "sin(pi/4)",
+  "check": {
+   "eval": "sin(x)",
+   "x": 0.7853981633974483,
+   "expect": 0.7071067811865476
+  }
+ },
+ {
+  "id": "1re-trig-003",
+  "level": "premiere",
+  "topic": "trigonometry",
+  "statement": "Solve cos(x) = 0 on [0, 2π]",
+  "check": {
+   "roots": "cos(x)",
+   "on": [
+    0,
+    6.283185307179586
+   ],
+   "expect": [
+    1.5707963267948966,
+    4.71238898038469
+   ]
+  }
+ },
+ {
+  "id": "1re-trig-004",
+  "level": "premiere",
+  "topic": "trigonometry",
+  "statement": "Solve sin(x) = 1/2 on [0, π]",
+  "check": {
+   "roots": "sin(x)-0.5",
+   "on": [
+    0,
+    3.141592653589793
+   ],
+   "expect": [
+    0.5235987755982988,
+    2.6179938779914944
+   ]
+  }
+ },
+ {
+  "id": "1re-geo-001",
+  "level": "premiere",
+  "topic": "geometry",
+  "statement": "Angle between (1,0) and (1,1) directions",
+  "check": {
+   "construction": [
+    "O = (0, 0)",
+    "A = (1, 0)",
+    "B = (1, 1)",
+    "a = angle(A, O, B)"
+   ],
+   "expect": {
+    "a": 45
+   }
+  }
+ },
+ {
+  "id": "1re-geo-002",
+  "level": "premiere",
+  "topic": "geometry",
+  "statement": "Orthogonal projection of C(3, 4) on (AB), A(0,0), B(4,2)",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (4, 2)",
+    "C = (3, 4)",
+    "l = line(A, B)",
+    "p = perpendicular(l, C)",
+    "H = intersect(l, p)"
+   ],
+   "expect": {
+    "H": [
+     4,
+     2
+    ]
+   }
+  }
+ },
+ {
+  "id": "1re-geo-003",
+  "level": "premiere",
+  "topic": "geometry",
+  "statement": "Circle-line: x-axis meets the circle centre (0,0) radius 5",
+  "check": {
+   "construction": [
+    "O = (0, 0)",
+    "A = (-1, 0)",
+    "B = (1, 0)",
+    "c = circle(O, 5)",
+    "l = line(A, B)",
+    "P = intersect(c, l, 1)",
+    "Q = intersect(c, l, 2)",
+    "d = distance(P, Q)"
+   ],
+   "expect": {
+    "d": 10
+   }
+  }
+ },
+ {
+  "id": "1re-geo-004",
+  "level": "premiere",
+  "topic": "geometry",
+  "statement": "Two circles of radius 5 with centres 6 apart meet 8 apart",
+  "check": {
+   "construction": [
+    "A = (0, 0)",
+    "B = (6, 0)",
+    "c1 = circle(A, 5)",
+    "c2 = circle(B, 5)",
+    "P = intersect(c1, c2, 1)",
+    "Q = intersect(c1, c2, 2)",
+    "d = distance(P, Q)"
+   ],
+   "expect": {
+    "d": 8
+   }
+  }
+ },
+ {
+  "id": "1re-geo-005",
+  "level": "premiere",
+  "topic": "geometry",
+  "statement": "Angle bisector of a right angle passes through (1, 1)",
+  "check": {
+   "construction": [
+    "O = (0, 0)",
+    "A = (3, 0)",
+    "B = (0, 3)",
+    "b = anglebisector(A, O, B)",
+    "C = (0, 2)",
+    "D = (2, 2)",
+    "h = line(C, D)",
+    "I = intersect(b, h)"
+   ],
+   "expect": {
+    "I": [
+     2,
+     2
+    ]
+   }
+  }
+ },
+ {
+  "id": "1re-geo-006",
+  "level": "premiere",
+  "topic": "geometry",
+  "statement": "Homothety of centre O, ratio -2, of A(1, 3)",
+  "check": {
+   "construction": [
+    "O = (0, 0)",
+    "A = (1, 3)",
+    "B = dilate(A, O, -2)"
+   ],
+   "expect": {
+    "B": [
+     -2,
+     -6
+    ]
+   }
+  }
+ },
+ {
+  "id": "1re-geo-007",
+  "level": "premiere",
+  "topic": "geometry",
+  "statement": "Inscribed angle: 90° in a semicircle",
+  "check": {
+   "construction": [
+    "A = (-5, 0)",
+    "B = (5, 0)",
+    "C = (3, 4)",
+    "a = angle(A, C, B)"
+   ],
+   "expect": {
+    "a": 90
+   }
+  }
+ }
+]

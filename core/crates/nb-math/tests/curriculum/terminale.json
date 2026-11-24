@@ -1,0 +1,598 @@
+[
+ {
+  "id": "tle-lim-001",
+  "level": "terminale",
+  "topic": "limits",
+  "statement": "Horizontal asymptote of (2x+1)/(x-3) at +∞",
+  "check": {
+   "asymptote": "(2x+1)/(x-3)",
+   "dir": 1,
+   "expect": [
+    0,
+    2
+   ]
+  }
+ },
+ {
+  "id": "tle-lim-002",
+  "level": "terminale",
+  "topic": "limits",
+  "statement": "Vertical asymptote of (2x+1)/(x-3)",
+  "check": {
+   "vertical_asymptotes": "(2x+1)/(x-3)",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    3
+   ]
+  }
+ },
+ {
+  "id": "tle-lim-003",
+  "level": "terminale",
+  "topic": "limits",
+  "statement": "Oblique asymptote of (x^2+1)/x at +∞",
+  "check": {
+   "asymptote": "(x^2+1)/x",
+   "dir": 1,
+   "expect": [
+    1,
+    0
+   ]
+  }
+ },
+ {
+  "id": "tle-lim-004",
+  "level": "terminale",
+  "topic": "limits",
+  "statement": "Oblique asymptote of x + 1 + 1/(x-2) at -∞",
+  "check": {
+   "asymptote": "x+1+1/(x-2)",
+   "dir": -1,
+   "expect": [
+    1,
+    1
+   ]
+  }
+ },
+ {
+  "id": "tle-lim-005",
+  "level": "terminale",
+  "topic": "limits",
+  "statement": "exp(-x) tends to 0 at +∞",
+  "check": {
+   "asymptote": "exp(-x)",
+   "dir": 1,
+   "expect": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "id": "tle-lim-006",
+  "level": "terminale",
+  "topic": "limits",
+  "statement": "x^2 has no asymptote at +∞",
+  "check": {
+   "asymptote": "x^2",
+   "dir": 1,
+   "expect": null
+  }
+ },
+ {
+  "id": "tle-lim-007",
+  "level": "terminale",
+  "topic": "limits",
+  "statement": "Vertical asymptotes of 1/(x^2-1)",
+  "check": {
+   "vertical_asymptotes": "1/(x^2-1)",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    -1,
+    1
+   ]
+  }
+ },
+ {
+  "id": "tle-lim-008",
+  "level": "terminale",
+  "topic": "limits",
+  "statement": "ln(x)/x tends to 0 at +∞",
+  "check": {
+   "asymptote": "ln(x)/x",
+   "dir": 1,
+   "expect": [
+    0,
+    0
+   ]
+  }
+ },
+ {
+  "id": "tle-ln-001",
+  "level": "terminale",
+  "topic": "logarithm",
+  "statement": "ln(e^2)",
+  "check": {
+   "eval": "ln(x)",
+   "x": 7.3890560989306495,
+   "expect": 2
+  }
+ },
+ {
+  "id": "tle-ln-002",
+  "level": "terminale",
+  "topic": "logarithm",
+  "statement": "Solve ln(x) = 1",
+  "check": {
+   "roots": "ln(x)-1",
+   "on": [
+    0.1,
+    10
+   ],
+   "expect": [
+    2.718281828459045
+   ]
+  }
+ },
+ {
+  "id": "tle-ln-003",
+  "level": "terminale",
+  "topic": "logarithm",
+  "statement": "Solve ln(2x - 1) = 0",
+  "check": {
+   "roots": "ln(2x-1)",
+   "on": [
+    0.6,
+    5
+   ],
+   "expect": [
+    1
+   ]
+  }
+ },
+ {
+  "id": "tle-ln-004",
+  "level": "terminale",
+  "topic": "logarithm",
+  "statement": "Minimum of x - ln(x)",
+  "check": {
+   "extrema": "x-ln(x)",
+   "on": [
+    0.1,
+    10
+   ],
+   "expect": [
+    [
+     1,
+     "min"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "tle-ln-005",
+  "level": "terminale",
+  "topic": "logarithm",
+  "statement": "Maximum of ln(x)/x",
+  "check": {
+   "extrema": "ln(x)/x",
+   "on": [
+    0.5,
+    10
+   ],
+   "expect": [
+    [
+     2.718281828459045,
+     "max"
+    ]
+   ]
+  }
+ },
+ {
+  "id": "tle-ln-006",
+  "level": "terminale",
+  "topic": "logarithm",
+  "statement": "Derivative of ln(x^2+1) at x = 1",
+  "check": {
+   "derivative": "ln(x^2+1)",
+   "at": 1,
+   "expect": 1
+  }
+ },
+ {
+  "id": "tle-conv-001",
+  "level": "terminale",
+  "topic": "convexity",
+  "statement": "Inflection point of x^3 - 3x^2 + 2",
+  "check": {
+   "inflections": "x^3-3x^2+2",
+   "on": [
+    -10,
+    10
+   ],
+   "expect": [
+    1
+   ]
+  }
+ },
+ {
+  "id": "tle-conv-002",
+  "level": "terminale",
+  "topic": "convexity",
+  "statement": "exp(x) has no inflection point",
+  "check": {
+   "inflections": "exp(x)",
+   "on": [
+    -5,
+    5
+   ],
+   "expect": []
+  }
+ },
+ {
+  "id": "tle-conv-003",
+  "level": "terminale",
+  "topic": "convexity",
+  "statement": "Inflection point of x exp(x)",
+  "check": {
+   "inflections": "x exp(x)",
+   "on": [
+    -6,
+    3
+   ],
+   "expect": [
+    -2
+   ]
+  }
+ },
+ {
+  "id": "tle-conv-004",
+  "level": "terminale",
+  "topic": "convexity",
+  "statement": "Inflection points of sin on ]0, 2π[",
+  "check": {
+   "inflections": "sin(x)",
+   "on": [
+    0.5,
+    6
+   ],
+   "expect": [
+    3.141592653589793
+   ]
+  }
+ },
+ {
+  "id": "tle-conv-005",
+  "level": "terminale",
+  "topic": "convexity",
+  "statement": "Inflection points of exp(-x^2/2)",
+  "check": {
+   "inflections": "exp(-x^2/2)",
+   "on": [
+    -4,
+    4
+   ],
+   "expect": [
+    -1,
+    1
+   ]
+  }
+ },
+ {
+  "id": "tle-int-001",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "∫₀¹ x² dx",
+  "check": {
+   "integral": "x^2",
+   "on": [
+    0,
+    1
+   ],
+   "expect": 0.3333333333333333
+  }
+ },
+ {
+  "id": "tle-int-002",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "∫₁ᵉ 1/x dx",
+  "check": {
+   "integral": "1/x",
+   "on": [
+    1,
+    2.718281828459045
+   ],
+   "expect": 1
+  }
+ },
+ {
+  "id": "tle-int-003",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "∫₀^π sin(x) dx",
+  "check": {
+   "integral": "sin(x)",
+   "on": [
+    0,
+    3.141592653589793
+   ],
+   "expect": 2
+  }
+ },
+ {
+  "id": "tle-int-004",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "∫₀¹ exp(x) dx",
+  "check": {
+   "integral": "exp(x)",
+   "on": [
+    0,
+    1
+   ],
+   "expect": 1.718281828459045
+  }
+ },
+ {
+  "id": "tle-int-005",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "∫₋₁² (3x² - 2x + 1) dx",
+  "check": {
+   "integral": "3x^2-2x+1",
+   "on": [
+    -1,
+    2
+   ],
+   "expect": 9
+  }
+ },
+ {
+  "id": "tle-int-006",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "∫₀¹ x exp(x) dx (by parts)",
+  "check": {
+   "integral": "x exp(x)",
+   "on": [
+    0,
+    1
+   ],
+   "expect": 1
+  }
+ },
+ {
+  "id": "tle-int-007",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "∫₁ᵉ ln(x) dx",
+  "check": {
+   "integral": "ln(x)",
+   "on": [
+    1,
+    2.718281828459045
+   ],
+   "expect": 1
+  }
+ },
+ {
+  "id": "tle-int-008",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "∫₀⁴ sqrt(x) dx",
+  "check": {
+   "integral": "sqrt(x)",
+   "on": [
+    0,
+    4
+   ],
+   "expect": 5.333333333333333
+  }
+ },
+ {
+  "id": "tle-int-009",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "Area under 1/(1+x²) on [0, 1] (= π/4)",
+  "check": {
+   "integral": "1/(1+x^2)",
+   "on": [
+    0,
+    1
+   ],
+   "expect": 0.7853981633974483
+  }
+ },
+ {
+  "id": "tle-int-010",
+  "level": "terminale",
+  "topic": "integration",
+  "statement": "Mean value of cos on [0, π/2] times the length (= 1)",
+  "check": {
+   "integral": "cos(x)",
+   "on": [
+    0,
+    1.5707963267948966
+   ],
+   "expect": 1
+  }
+ },
+ {
+  "id": "tle-tvi-001",
+  "level": "terminale",
+  "topic": "intermediate values",
+  "statement": "Unique solution of x^3 + x - 1 = 0",
+  "check": {
+   "roots": "x^3+x-1",
+   "on": [
+    -5,
+    5
+   ],
+   "expect": [
+    0.6823278038280193
+   ]
+  }
+ },
+ {
+  "id": "tle-tvi-002",
+  "level": "terminale",
+  "topic": "intermediate values",
+  "statement": "Solve exp(x) = 3 - x",
+  "check": {
+   "intersections": [
+    "exp(x)",
+    "3-x"
+   ],
+   "on": [
+    -5,
+    5
+   ],
+   "expect": [
+    0.7920599075441886
+   ]
+  }
+ },
+ {
+  "id": "tle-tvi-003",
+  "level": "terminale",
+  "topic": "intermediate values",
+  "statement": "Solve cos(x) = x",
+  "check": {
+   "intersections": [
+    "cos(x)",
+    "x"
+   ],
+   "on": [
+    -5,
+    5
+   ],
+   "expect": [
+    0.7390851332151607
+   ]
+  }
+ },
+ {
+  "id": "tle-tvi-004",
+  "level": "terminale",
+  "topic": "intermediate values",
+  "statement": "Solve ln(x) = 2 - x",
+  "check": {
+   "intersections": [
+    "ln(x)",
+    "2-x"
+   ],
+   "on": [
+    0.1,
+    5
+   ],
+   "expect": [
+    1.5571455989976113
+   ]
+  }
+ },
+ {
+  "id": "tle-geo-001",
+  "level": "terminale",
+  "topic": "constructions",
+  "statement": "Construct AB = 5 with AB horizontal (solver)",
+  "check": {
+   "constraints": [
+    "A = (0, 0)",
+    "B = (3, 1)",
+    "constrain distance(A, B) = 5",
+    "constrain horizontal(A, B)",
+    "d = distance(A, B)"
+   ],
+   "expect": {
+    "d": 5
+   }
+  }
+ },
+ {
+  "id": "tle-geo-002",
+  "level": "terminale",
+  "topic": "constructions",
+  "statement": "Right angle at A from rough positions (solver)",
+  "check": {
+   "constraints": [
+    "A = (0, 0)",
+    "B = (4, 0.5)",
+    "C = (0.5, 3)",
+    "constrain angle(B, A, C) = 90",
+    "a = angle(B, A, C)"
+   ],
+   "expect": {
+    "a": 90
+   }
+  }
+ },
+ {
+  "id": "tle-geo-003",
+  "level": "terminale",
+  "topic": "constructions",
+  "statement": "Isosceles triangle AB = AC = 4 (solver)",
+  "check": {
+   "constraints": [
+    "A = (0, 3)",
+    "B = (-2, 0)",
+    "C = (2.5, 0)",
+    "constrain distance(A, B) = 4",
+    "constrain equal(A, B, A, C)",
+    "b = distance(A, B)",
+    "c = distance(A, C)"
+   ],
+   "expect": {
+    "b": 4,
+    "c": 4
+   }
+  }
+ },
+ {
+  "id": "tle-geo-004",
+  "level": "terminale",
+  "topic": "constructions",
+  "statement": "Contradictory lengths are reported (solver)",
+  "check": {
+   "constraints": [
+    "A = (0, 0)",
+    "B = (1, 0)",
+    "C = (2, 0)",
+    "constrain distance(A, B) = 1",
+    "constrain distance(B, C) = 1",
+    "constrain distance(A, C) = 5"
+   ],
+   "conflict": true,
+   "expect": {}
+  }
+ },
+ {
+  "id": "tle-geo-005",
+  "level": "terminale",
+  "topic": "constructions",
+  "statement": "Image of the circle (centre (1,0), r=2) by rotation 90° about O",
+  "check": {
+   "construction": [
+    "O = (0, 0)",
+    "A = (1, 0)",
+    "c = circle(A, 2)",
+    "d = rotate(c, O, 90)"
+   ],
+   "expect": {
+    "d": {
+     "c": [
+      0,
+      1
+     ],
+     "r": 2
+    }
+   }
+  }
+ }
+]

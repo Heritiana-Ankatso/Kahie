@@ -179,13 +179,13 @@ impl PageDoc {
     #[allow(clippy::too_many_arguments)] // flat FFI signature
     pub fn begin_stroke_tilt(&self, tool: InkTool, color: u32, width: f64, x: f64, y: f64, pressure: f64, tilt: f64) {
         let mut st = self.state.lock().unwrap();
-        st.current = Some(Current {
+        st.current = Some(Current::start(
+            &st,
             tool,
             color,
             width,
-            points: vec![Point::with_tilt(x, y, pressure, tilt)],
-            snapped: None,
-        });
+            Point::with_tilt(x, y, pressure, tilt),
+        ));
     }
 
     /// Like `add_points` with tilt: `xypt` = x0, y0, p0, t0, x1, …; one call per input event.
@@ -196,11 +196,14 @@ impl PageDoc {
         let mut accepted = Vec::with_capacity(xypt.len());
         for c in xypt.chunks_exact(4) {
             let last = *cur.points.last().unwrap();
-            if (c[0] - last.x).hypot(c[1] - last.y) < 0.2 {
+            let Some(p) = cur.push(Point::with_tilt(
+                c[0],
+                c[1],
+                last.p * 0.6 + c[2] * 0.4,
+                last.t * 0.6 + c[3] * 0.4,
+            )) else {
                 continue;
-            }
-            let p = Point::with_tilt(c[0], c[1], last.p * 0.6 + c[2] * 0.4, last.t * 0.6 + c[3] * 0.4);
-            cur.points.push(p);
+            };
             accepted.extend([p.x as f32, p.y as f32, p.p as f32, p.t as f32]);
         }
         accepted
@@ -405,9 +408,10 @@ impl PageDoc {
         id
     }
 
-    /// Replace a text block's text and formatting (and measured height), merged as a
-    /// character diff into the block's CRDT text. Empty text deletes the block.
-    pub fn set_rich_text(&self, id: String, text: String, spans: Vec<RichSpan>, height: f64) -> bool {
+    /// Replace a text block's text and formatting (and measured size), merged as a
+    /// character diff into the block's CRDT text. `width` ≤ 0 keeps the current width
+    /// (auto-width boxes pass their new natural width). Empty text deletes the block.
+    pub fn set_rich_text(&self, id: String, text: String, spans: Vec<RichSpan>, width: f64, height: f64) -> bool {
         let mut st = self.state.lock().unwrap();
         let Some(old) = st.doc.page().items.iter().find(|i| i.id == id).cloned() else {
             return false;
@@ -424,6 +428,7 @@ impl PageDoc {
             id,
             content: Content::Text {
                 rect: nb_model::Rect {
+                    w: if width > 0.0 { width } else { rect.w },
                     h: height,
                     ..rect.clone()
                 },
@@ -688,8 +693,12 @@ mod tests {
             heading: 1,
             ..span
         };
-        assert!(doc.set_rich_text(id.clone(), text.clone() + "!", vec![heading], 30.0));
+        assert!(doc.set_rich_text(id.clone(), text.clone() + "!", vec![heading], 0.0, 30.0));
         assert_eq!(doc.text_blocks()[0].spans[0].heading, 1);
+        assert_eq!(doc.text_blocks()[0].width, 100.0, "width 0 keeps the width");
+        assert!(doc.set_rich_text(id.clone(), text.clone() + "!!", vec![], 140.0, 30.0));
+        assert_eq!(doc.text_blocks()[0].width, 140.0, "auto-width boxes grow");
+        assert!(doc.undo());
         assert!(doc.undo());
         assert!(doc.text_blocks()[0].spans[0].bold);
         // Plain set_text keeps formatting that still fits.
@@ -717,10 +726,12 @@ mod tests {
         assert_eq!(doc.image_bytes(blocks[0].hash.clone()).unwrap(), b"%PDF-1.7");
         assert_eq!(doc.attachment_at(20.0, 20.0), Some(a.clone()));
         // Copy/paste carries the file.
+        let clip = crate::CLIPBOARD_TEST.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(doc.copy_items(vec![a]), 1);
         let other = PageDoc::new_in_memory();
         other.paste_items(0.0, 0.0);
         assert_eq!(other.image_bytes(blocks[0].hash.clone()).unwrap(), b"%PDF-1.7");
+        drop(clip);
 
         let img = doc.add_image(0.0, 100.0, 200.0, 100.0, vec![1, 2, 3]);
         assert_eq!(doc.image_at(10.0, 110.0), Some(img.clone()));

@@ -39,6 +39,7 @@
     <string name="search_kind_text">Texte</string>
     <string name="search_kind_math">Maths</string>
     <string name="search_kind_plot">Courbe</string>
+    <string name="search_kind_pdf">PDF</string>
     <string name="pdf_all_pages">Toutes les pages (%1$d)</string>
     <string name="pdf_current_page">Cette page (%1$d)</string>
     <string name="pdf_page_range">Pages… (ex. 1-3, 5)</string>
@@ -46,4 +47,18 @@
     <string name="backup_restore">Restaurer</string>
     <string name="backup_none">Aucune sauvegarde dans le dossier de sauvegarde.</string>
     <string name="backup_restore_confirm">Restaurer « %1$s » comme nouveau cahier ? Vos cahiers actuels ne sont pas modifiés.</string>
+    <!-- Drawing aids (E2.8–E2.10) -->
+    <string name="instruments">Instruments</string>
+    <string name="instrument_ruler">Règle</string>
+    <string name="instrument_compass">Compas</string>
+    <string name="instrument_protractor">Rapporteur</string>
+    <string name="instrument_none">Ranger l’instrument</string>
+    <string name="shapes_title">Formes et magnétisme</string>
+    <string name="tidy_free">Libre : encre telle quelle (restez immobile en fin de trait pour rendre net)</string>
+    <string name="tidy_suggest">Suggérer : proposer une forme nette après chaque trait</string>
+    <string name="tidy_auto">Auto : formes nettes aussitôt</string>
+    <string name="snap_toggle">Aimanter à la grille et aux autres formes</string>
+    <string name="tidy_this">Rendre net</string>
+    <string name="show_original_ink">Afficher l’encre d’origine</string>
+    <string name="show_tidy_shape">Afficher la forme nette</string>
 </resources>

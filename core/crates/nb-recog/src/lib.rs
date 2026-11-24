@@ -1,6 +1,9 @@
 //! Shape recognition: turns a hand-drawn stroke into a clean geometric
 //! interpretation. Raw ink is never modified (ADR-0003). Port of `app/web/src/shapes.js`.
 
+pub mod instruments;
+pub mod snap;
+
 use nb_ink::{dist, dist_to_segment, path_length, simplify, Point};
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
